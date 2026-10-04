@@ -166,8 +166,9 @@ interactivo). No es una TUI persistente; para eso haría falta el PTY.
 ## Estructura
 
 ```
-apps/nuide/
+nuide/
   Cargo.toml
+  Cargo.lock               lock del proyecto (app independiente)
   build.rs                 slint_build::compile("ui/nuide_ui.slint")
   src/
     lib.rs                 pub mod editor + explorer + highlight + spasm + terminal + ui
@@ -194,16 +195,16 @@ apps/nuide/
 ## Compilar y correr
 
 ```sh
-cargo run -p nuide --bin nuide
-cargo build --release -p nuide --bin nuide
+cargo run --bin nuide
+cargo build --release --bin nuide
 ```
 
 Para iterar la UI sin compilar:
 
 ```sh
-slint-viewer apps/nuide/ui/nuide_ui.slint
-slint-viewer --check apps/nuide/ui/nuide_ui.slint
-slint-viewer --screenshot ui.png apps/nuide/ui/nuide_ui.slint
+slint-viewer ui/nuide_ui.slint
+slint-viewer --check ui/nuide_ui.slint
+slint-viewer --screenshot ui.png ui/nuide_ui.slint
 ```
 
 ## Interacción
