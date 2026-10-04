@@ -1,5 +1,5 @@
 import { IdeTheme } from "ide_theme.slint";
-import { IdeTab, IdeCodeLine } from "ide_types.slint";
+import { IdeTab, IdeCodeLine, IdeOutlineItem } from "ide_types.slint";
 
 // Pestaña del editor con punto de "sin guardar" y botón de cierre.
 component IdeTabButton inherits Rectangle {
@@ -206,6 +206,9 @@ export component IdeEditor inherits FocusScope {
     in property <bool> show-preview: false;
     in property <styled-text> preview-styled;
     in property <bool> is-markdown: false;
+    // Esquema de símbolos del archivo.
+    in property <[IdeOutlineItem]> outline: [];
+    in-out property <bool> outline-open: false;
     callback tab-selected(int);
     callback tab-closed(int);
     // Tecla cruda: (texto, ¿control?, ¿shift?), igual que en la terminal.
@@ -230,6 +233,8 @@ export component IdeEditor inherits FocusScope {
     callback image-zoom-in();
     callback image-zoom-out();
     callback image-zoom-reset();
+    // Salta a la línea de un símbolo del esquema.
+    callback goto-line(int);
 
     focus-on-click: true;
 
@@ -295,6 +300,27 @@ export component IdeEditor inherits FocusScope {
                 }
 
                 Rectangle { horizontal-stretch: 1; background: transparent; }
+
+                if root.outline.length > 0: Rectangle {
+                    width: outline-text.width + 16px;
+                    border-radius: IdeTheme.radius-sm;
+                    background: outline-ta.has-hover ? IdeTheme.control-hi : transparent;
+
+                    outline-text := Text {
+                        x: 8px;
+                        y: (parent.height - self.height) / 2;
+                        text: "Esquema";
+                        color: root.outline-open ? IdeTheme.mint : IdeTheme.text-soft;
+                        font-family: IdeTheme.sans;
+                        font-size: 11px;
+                        vertical-alignment: center;
+                    }
+
+                    outline-ta := TouchArea {
+                        mouse-cursor: MouseCursor.pointer;
+                        clicked => { root.outline-open = !root.outline-open; }
+                    }
+                }
 
                 if root.is-markdown: Rectangle {
                     width: md-text.width + 16px;
@@ -649,6 +675,67 @@ export component IdeEditor inherits FocusScope {
                 default-font-family: IdeTheme.sans;
                 default-font-size: 13px;
                 link-color: IdeTheme.mint;
+            }
+        }
+
+        // --- capa que cierra el esquema al hacer clic afuera ---
+        if root.outline-open: TouchArea {
+            clicked => { root.outline-open = false; }
+        }
+
+        // --- desplegable del esquema (outline) ---
+        if root.outline-open: Rectangle {
+            x: parent.width - 260px;
+            y: 34px;
+            width: 250px;
+            height: min(parent.height - 40px, root.outline.length * 24px + 12px);
+            background: IdeTheme.panel;
+            border-width: 1px;
+            border-color: IdeTheme.border-soft;
+            border-radius: IdeTheme.radius-sm;
+            clip: true;
+
+            Flickable {
+                x: 0;
+                y: 6px;
+                width: parent.width;
+                height: parent.height - 12px;
+                content-width: self.width;
+                content-height: outline-menu.preferred-height;
+
+                outline-menu := VerticalLayout {
+                    width: parent.width;
+                    spacing: 0;
+
+                    for item in root.outline: Rectangle {
+                        height: 24px;
+                        background: outline-row.has-hover ? IdeTheme.control-hi : transparent;
+
+                        Text {
+                            x: 10px;
+                            y: (parent.height - self.height) / 2;
+                            text: item.label;
+                            color: item.kind == 0 ? IdeTheme.mint : IdeTheme.text;
+                            font-family: IdeTheme.mono;
+                            font-size: 12px;
+                            vertical-alignment: center;
+                        }
+                        Text {
+                            x: parent.width - self.width - 10px;
+                            y: (parent.height - self.height) / 2;
+                            text: item.detail;
+                            color: IdeTheme.text-dim;
+                            font-family: IdeTheme.sans;
+                            font-size: 11px;
+                            vertical-alignment: center;
+                        }
+
+                        outline-row := TouchArea {
+                            mouse-cursor: MouseCursor.pointer;
+                            clicked => { root.goto-line(item.line); root.outline-open = false; }
+                        }
+                    }
+                }
             }
         }
     }

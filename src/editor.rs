@@ -34,7 +34,9 @@ use crate::highlight;
 use crate::lint;
 use crate::pty::{self, Pty, PtyEvent};
 use crate::spasm::Toolchain;
-use crate::ui::{IdeCodeLine, IdeTab, IdeToken, IdeTreeNode, NuIdeWindow, TermLine, TermRun};
+use crate::ui::{
+    IdeCodeLine, IdeOutlineItem, IdeTab, IdeToken, IdeTreeNode, NuIdeWindow, TermLine, TermRun,
+};
 use crate::vt::{Screen, Selection};
 
 /// Tope de líneas que se abren de un archivo. Un archivo enorme no puede
@@ -410,6 +412,8 @@ pub struct Ide {
     find: Find,
     /// Diagnósticos del archivo activo (errores del parser de SpASM).
     diagnostics: Vec<lint::Diagnostic>,
+    /// Esquema del archivo activo (funciones y variables).
+    outline: Vec<lint::Symbol>,
     /// Archivo al que corresponden los diagnósticos actuales.
     diagnostics_path: Option<PathBuf>,
     /// Canal del linter (corre en un hilo).
@@ -485,6 +489,7 @@ impl Ide {
             redo: Vec::new(),
             find: Find::default(),
             diagnostics: Vec::new(),
+            outline: Vec::new(),
             diagnostics_path: None,
             lint_tx,
             lint_rx,
@@ -985,6 +990,32 @@ impl Ide {
         }
     }
 
+    /// Mueve el cursor a una línea (1-based) del archivo activo.
+    fn goto_line(&mut self, line: i32) {
+        if self.tabs.is_empty() || line < 1 {
+            return;
+        }
+        let last = self.tabs[self.active_tab].lines.len().saturating_sub(1);
+        let new = (line as usize - 1).min(last);
+        let old = self.tabs[self.active_tab].cursor.line;
+        self.set_cursor(Cursor { line: new, col: 0 }, old, false);
+    }
+
+    /// Ir a la definición del identificador bajo el cursor (F12): busca el
+    /// símbolo con ese nombre en el esquema y salta a su línea.
+    fn go_to_definition(&mut self) {
+        let Some(tab) = self.tabs.get(self.active_tab) else {
+            return;
+        };
+        let Some(word) = word_under_cursor(tab) else {
+            return;
+        };
+        if let Some(symbol) = self.outline.iter().find(|s| s.name == word) {
+            let line = symbol.line as i32;
+            self.goto_line(line);
+        }
+    }
+
     /// Salta al diagnóstico siguiente o anterior (F8 / Shift+F8), circular.
     fn diagnostic_step(&mut self, forward: bool) {
         let lines: Vec<usize> = self
@@ -1329,6 +1360,11 @@ impl Ide {
             self.diagnostic_step(!shift);
             return;
         }
+        if text == "\u{F70f}" {
+            // F12: ir a la definición del símbolo bajo el cursor.
+            self.go_to_definition();
+            return;
+        }
         if control && shift && text.eq_ignore_ascii_case("m") {
             // Ctrl+Shift+M: vista previa de Markdown.
             self.toggle_preview();
@@ -1465,10 +1501,12 @@ impl Ide {
         }
     }
 
-    /// Borra los diagnósticos (al cambiar a un archivo que no se analiza).
+    /// Borra los diagnósticos y el esquema (al cambiar a un archivo que no se
+    /// analiza).
     fn clear_diagnostics(&mut self) {
-        if !self.diagnostics.is_empty() {
+        if !self.diagnostics.is_empty() || !self.outline.is_empty() {
             self.diagnostics.clear();
+            self.outline.clear();
             self.diagnostics_path = None;
             self.editor_full = true;
         }
@@ -2503,6 +2541,17 @@ impl Ide {
             let is_markdown = active.is_some_and(|t| t.language == highlight::Language::Markdown);
             w.set_language(language.into());
             w.set_diagnostics(self.diagnostics_summary().into());
+            let outline: Vec<IdeOutlineItem> = self
+                .outline
+                .iter()
+                .map(|s| IdeOutlineItem {
+                    label: s.name.clone().into(),
+                    detail: s.detail.clone().into(),
+                    line: s.line as i32,
+                    kind: s.kind,
+                })
+                .collect();
+            w.set_outline(ModelRc::from(Rc::new(VecModel::from(outline))));
             w.set_show_image(is_image);
             w.set_active_image(image);
             w.set_image_zoom(active.map(|t| t.image_zoom).unwrap_or(1.0));
@@ -2559,6 +2608,7 @@ impl Ide {
             let active = self.tabs.get(self.active_tab).map(|t| t.path.clone());
             if active.as_deref() == Some(result.path.as_path()) {
                 self.diagnostics = result.diagnostics;
+                self.outline = result.symbols;
                 self.diagnostics_path = Some(result.path);
                 self.editor_full = true;
             }
@@ -2765,6 +2815,14 @@ fn split_at_cursor(text: &str, cursor: usize) -> (String, String) {
 /// `true` si el carácter es parte de un identificador.
 fn is_word_char(c: char) -> bool {
     c.is_alphanumeric() || c == '_'
+}
+
+/// La palabra (identificador) bajo el cursor de `tab`, si la hay.
+fn word_under_cursor(tab: &OpenTab) -> Option<String> {
+    let text = tab.lines.get(tab.cursor.line)?;
+    let (start, end) = word_at(text, tab.cursor.col)?;
+    let word: String = text.chars().skip(start).take(end - start).collect();
+    (!word.is_empty()).then_some(word)
 }
 
 /// Rango `(inicio, fin)` en caracteres de la palabra bajo (o justo después de)
@@ -3131,6 +3189,17 @@ pub fn attach(window: &NuIdeWindow, ide: Rc<RefCell<Ide>>) {
             if let Some(w) = weak.upgrade() {
                 let mut e = ide.borrow_mut();
                 e.image_zoom_reset();
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_goto_line(move |line| {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.goto_line(line);
                 e.sync(&w);
             }
         });
@@ -4034,6 +4103,30 @@ mod tests {
         // Hacia atrás desde la 2: a la 5.
         ide.diagnostic_step(false);
         assert_eq!(ide.tabs[0].cursor.line, 4);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn ir_a_definicion_con_el_esquema() {
+        let dir = temp_dir("goto");
+        let f = dir.join("a.spasm");
+        std::fs::write(
+            &f,
+            "programa \"x\"\nmain {\n    let total = 0\n    let x = total\n}\n",
+        )
+        .unwrap();
+        let mut ide = Ide::new();
+        ide.open_file(f);
+        ide.outline = vec![lint::Symbol {
+            kind: 1,
+            name: "total".into(),
+            line: 3,
+            detail: String::new(),
+        }];
+        // Cursor sobre "total" en la línea 4 (índice 3, columna 13).
+        ide.tabs[0].cursor = Cursor { line: 3, col: 13 };
+        ide.go_to_definition();
+        assert_eq!(ide.tabs[0].cursor.line, 2); // línea 3 (índice 2)
         let _ = std::fs::remove_dir_all(&dir);
     }
 

@@ -49,3 +49,11 @@ export struct TermRun {
 export struct TermLine {
     runs: [TermRun],
 }
+
+// Símbolo del esquema (outline): función (kind 0) o variable (kind 1).
+export struct IdeOutlineItem {
+    label: string,
+    detail: string,
+    line: int,
+    kind: int,
+}

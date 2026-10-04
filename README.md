@@ -46,6 +46,7 @@ hasta abrir el primer archivo).
 | 15 | editor: resaltado por lenguaje (SpASM, Slint, Python, C, …) | ✅ |
 | 16 | visores: imágenes + vista previa de Markdown | ✅ |
 | 17 | build/run desde la IDE con errores navegables (`F8`) | ✅ |
+| 18 | esquema (outline) + ir a definición (`F12`) | ✅ |
 
 > El parte de estado detallado —qué se cambió en cada iteración, limitaciones y
 > pendientes con su enfoque— está en [`docs/ESTADO.md`](docs/ESTADO.md).
@@ -107,6 +108,7 @@ entero al abrir, cambiar de pestaña o cambiar el número de líneas.
 | `Ctrl+B` | Compila el archivo activo. |
 | `F6` | Analiza el archivo activo con el parser de SpASM (diagnóstico). |
 | `F8` / `Shift+F8` | Salta al diagnóstico siguiente / anterior. |
+| `F12` | Va a la definición del identificador bajo el cursor (esquema del AST). |
 | Clic en una fila | Ubica el cursor en la columna más cercana a la x. |
 | Arrastrar | Selecciona con el mouse, cruzando líneas. |
 
@@ -116,6 +118,11 @@ hilo aparte y muestra el primer error: la línea se marca en rojo en el margen
 (barra y número) y el mensaje aparece en la **barra de estado**. Requiere Python
 y el frontend del compilador (se descubre junto a `spasmc.py`, en
 `F:\SpAMS-Oficial`, o con `NUIDE_SPASM_FRONTEND`).
+
+**Esquema e ir a definición.** De la misma corrida del parser sale el **esquema**
+del archivo (funciones y variables del AST): el botón **Esquema**, en la barra de
+pestañas, abre la lista y un clic salta a la línea; **`F12`** va a la definición
+del identificador bajo el cursor.
 
 **Visores de documentos.** Las imágenes (`.png`, `.jpg`, `.webp`, …) se abren en
 una pestaña y se muestran (no se editan), con **zoom** (botones `−` / `+` /
@@ -328,7 +335,7 @@ la hoja de ruta acordada. El enfoque de cada uno está en
 
 ### Estado al 2026-10-04
 
-Compilado y publicado: `gitlab.com/nutoys-group/nuide` (`main`). 62 tests OK;
+Compilado y publicado: `gitlab.com/nutoys-group/nuide` (`main`). 63 tests OK;
 clon limpio genera `nuide.exe`. Las dos terminales son PTY reales (shell local y
 TUI de `opencode`), el proyecto se elige con diálogo nativo y se recuerda, el
 editor tiene buscar/reemplazar, resaltados, **resaltado por lenguaje y visores**

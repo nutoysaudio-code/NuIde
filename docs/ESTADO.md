@@ -205,6 +205,17 @@ ui/*.slint          la ventana, paneles y tema
   entre ellos.
 - Los menús Ejecutar/Compilar ya no escriben en la shell: ejecutan y capturan.
 
+### 3.11 Esquema (outline) e ir a definición
+
+- La misma corrida de `spasm-asm-gen.py` devuelve, además de los diagnósticos, el
+  **esquema** del AST: funciones (`("func", nombre, …, línea, ret)`) y variables
+  `let`/`recurso` (walk recursivo).
+- `Ide.outline` lo vuelca a `IdeOutlineItem`; el editor tiene un botón **Esquema**
+  con un desplegable (funciones en menta, variables normales) cuya fila salta a
+  la línea (`goto-line`).
+- **`F12`** va a la definición: toma el identificador bajo el cursor (`word_at`) y
+  busca el símbolo con ese nombre en el esquema.
+
 ---
 
 ## 4. Limitaciones conocidas
@@ -232,6 +243,11 @@ ui/*.slint          la ventana, paneles y tema
   la ejercitan pruebas de integración del toolchain. Candidata a eliminar o
   migrar sus pruebas al PTY.
 - **Empaquetado básico.** No hay icono/versión en el `.exe` ni instalador.
+- **Instalador de SpASM.** El paquete principal puede dejar `spasmc.py` sin sus
+  generadores (`spasm-asm-gen.py`, `spasm-c-gen.py`), y entonces ese compilador
+  falla. NuIde usa el que descubre (`NUIDE_SPASMC`/`SPASMC`); el `.iss` del
+  compilador ya declara los scripts, así que un instalador reconstruido los
+  incluye. En esta máquina se completó la instalación copiando los que faltaban.
 - **Alternar proyectos relanza el agente** y pierde su sesión en curso (a
   propósito: el agente trabaja sobre la raíz del proyecto).
 
@@ -302,7 +318,7 @@ script de instalación.
 ## 6. Verificación
 
 - `cargo build` / `cargo check` sin warnings.
-- `cargo test`: **62 pruebas OK** (unitarias; las de PTY, el linter y el build
+- `cargo test`: **63 pruebas OK** (unitarias; las de PTY, el linter y el build
   lanzan `cmd`/`opencode`/Python/spasmc reales y se saltean si no están).
 - `cargo fmt --check` limpio.
 - `slint-viewer --check ui/nuide_ui.slint` OK.

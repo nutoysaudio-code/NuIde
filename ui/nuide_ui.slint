@@ -1,6 +1,6 @@
 import { IdeTheme } from "ide_theme.slint";
 export { IdeTheme }
-import { IdeTreeNode, IdeTab, IdeCodeLine, TermLine } from "ide_types.slint";
+import { IdeTreeNode, IdeTab, IdeCodeLine, TermLine, IdeOutlineItem } from "ide_types.slint";
 import { IdeTopBar } from "ide_topbar.slint";
 import { IdeStatusBar } from "ide_statusbar.slint";
 import { IdeExplorer } from "ide_explorer.slint";
@@ -64,6 +64,8 @@ export component NuIdeWindow inherits Window {
     in-out property <bool> show-preview: false;
     in-out property <styled-text> preview-styled;
     in-out property <bool> is-markdown: false;
+    // Esquema de símbolos del archivo activo.
+    in-out property <[IdeOutlineItem]> outline: [];
     // Diagnóstico de SpASM (vacío si no hay errores).
     in-out property <string> diagnostics: "";
 
@@ -134,6 +136,8 @@ export component NuIdeWindow inherits Window {
     callback image-zoom-in();
     callback image-zoom-out();
     callback image-zoom-reset();
+    // Esquema: saltar a una línea.
+    callback goto-line(int);
     // Panel del agente.
     callback agent-key(string, bool, bool, bool);
     callback agent-resize(length, length);
@@ -376,6 +380,7 @@ export component NuIdeWindow inherits Window {
             show-preview: root.show-preview;
             preview-styled: root.preview-styled;
             is-markdown: root.is-markdown;
+            outline: root.outline;
             tab-selected(i) => { root.tab-activated(i); }
             tab-closed(i) => { root.tab-closed(i); }
             key-input(text, ctrl, shift) => { root.editor-key(text, ctrl, shift); }
@@ -394,6 +399,7 @@ export component NuIdeWindow inherits Window {
             image-zoom-in => { root.image-zoom-in(); }
             image-zoom-out => { root.image-zoom-out(); }
             image-zoom-reset => { root.image-zoom-reset(); }
+            goto-line(line) => { root.goto-line(line); }
         }
 
         // --- panel: terminal local (dock configurable) ---
