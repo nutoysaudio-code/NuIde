@@ -51,10 +51,19 @@ export component NuIdeWindow inherits Window {
     in-out property <string> agent-version: "OpenCode CLI";
     in-out property <string> agent-model: "por defecto";
 
+    // Terminal real: estado del scrollback (lo llena Rust).
+    in-out property <int> term-scroll-total: 0;
+    in-out property <float> term-scroll-pos: 1.0;
+    in-out property <float> term-scroll-thumb: 1.0;
+
     callback menu-activated(string);
     callback close-requested();
     callback terminal-key(string, bool, bool, bool);
     callback terminal-resize(length, length);
+    callback terminal-scroll(length);
+    callback terminal-selection-start(length, length);
+    callback terminal-selection-update(length, length);
+    callback terminal-selection-end();
     callback session-selected(int);
     callback new-session();
     callback close-session();
@@ -222,9 +231,16 @@ export component NuIdeWindow inherits Window {
             sessions: root.term-sessions;
             active-session: root.active-session;
             lines: root.term-lines;
+            scroll-total: root.term-scroll-total;
+            scroll-pos: root.term-scroll-pos;
+            scroll-thumb: root.term-scroll-thumb;
             session-selected(i) => { root.session-selected(i); }
             key-input(text, ctrl, shift, alt) => { root.terminal-key(text, ctrl, shift, alt); }
             resized(w, h) => { root.terminal-resize(w, h); }
+            scrolled(dy) => { root.terminal-scroll(dy); }
+            selection-start(y, x) => { root.terminal-selection-start(y, x); }
+            selection-update(y, x) => { root.terminal-selection-update(y, x); }
+            selection-end => { root.terminal-selection-end(); }
             new-session => { root.new-session(); }
             close => { root.close-session(); }
             split => { root.split-terminal(); }

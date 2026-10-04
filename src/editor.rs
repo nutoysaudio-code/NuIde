@@ -35,7 +35,7 @@ use crate::terminal::{self, Line, Msg, Terminal};
 use crate::ui::{
     IdeCodeLine, IdeTab, IdeTermLine, IdeToken, IdeTreeNode, NuIdeWindow, TermLine, TermRun,
 };
-use crate::vt::Screen;
+use crate::vt::{Screen, Selection};
 
 /// Tope de líneas que se abren de un archivo. Un archivo enorme no puede
 /// congelar la UI; lo que sobra no se muestra.
@@ -201,6 +201,33 @@ struct LocalSession {
     powershell: bool,
     /// El proceso sigue vivo.
     alive: bool,
+    /// Selección de texto en coordenadas de la vista, si la hay.
+    sel: Option<TermSel>,
+}
+
+/// Ancla y extremo de una selección de terminal: dos celdas `(fila, columna)`
+/// en coordenadas de la vista (las mismas que devuelve `Screen::snapshot`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct TermSel {
+    anchor: (u16, u16),
+    head: (u16, u16),
+}
+
+impl TermSel {
+    /// Región ordenada con el fin **exclusivo**, lista para pintar y copiar.
+    /// `None` si no hay nada seleccionado (un clic suelto).
+    fn region(&self, cols: u16) -> Option<Selection> {
+        let (start, end) = if self.anchor <= self.head {
+            (self.anchor, self.head)
+        } else {
+            (self.head, self.anchor)
+        };
+        if start == end {
+            return None;
+        }
+        let end_col = (end.1 + 1).min(cols);
+        Some((start.0, start.1, end.0, end_col))
+    }
 }
 
 /// Estado completo de la IDE.
@@ -365,6 +392,7 @@ impl Ide {
             screen,
             powershell,
             alive: true,
+            sel: None,
         });
         self.local_active = self.local.len() - 1;
     }
@@ -376,7 +404,44 @@ impl Ide {
 
 impl Ide {
     /// Teclas de la terminal real: se traducen a bytes y van al PTY activo.
+    ///
+    /// Antes de mandarlas se atienden los atajos que no son de la shell:
+    /// `Ctrl+Shift+C/V` copian/pegan la selección y `Shift+PageUp/Down` recorren
+    /// el scrollback. Cualquier otra tecla vuelve la vista al final.
     fn local_key(&mut self, text: &str, control: bool, shift: bool, alt: bool) {
+        if control && shift {
+            match text.to_ascii_lowercase().as_str() {
+                "c" => {
+                    self.copy_local_selection();
+                    return;
+                }
+                "v" => {
+                    self.paste_local();
+                    return;
+                }
+                _ => {}
+            }
+        }
+        if shift {
+            match text {
+                "\u{F72c}" => {
+                    let half = (self.local_rows / 2).max(1) as i32;
+                    self.scroll_local(half);
+                    return;
+                }
+                "\u{F72d}" => {
+                    let half = (self.local_rows / 2).max(1) as i32;
+                    self.scroll_local(-half);
+                    return;
+                }
+                _ => {}
+            }
+        }
+        // Cualquier tecla normal abandona el historial y la selección.
+        if let Some(session) = self.local.get_mut(self.local_active) {
+            session.sel = None;
+            session.screen.scroll_to_end();
+        }
         let Some(bytes) = encode_key(text, control, shift, alt) else {
             return;
         };
@@ -390,6 +455,107 @@ impl Ide {
                 let _ = pty.write(bytes);
             }
         }
+    }
+
+    /// Traduce una `(y, x)` en píxeles (relativas a la pantalla de la terminal)
+    /// a la celda más cercana. Usa las mismas métricas de celda que el PTY.
+    fn term_cell(&self, y: f32, x: f32) -> (u16, u16) {
+        let rows = self.local_rows.max(1) as i64;
+        let cols = self.local_cols.max(1) as i64;
+        let row = ((y.max(0.0) / TERM_CELL_H).floor() as i64).clamp(0, rows - 1) as u16;
+        let col = ((x.max(0.0) / TERM_CELL_W).floor() as i64).clamp(0, cols - 1) as u16;
+        (row, col)
+    }
+
+    /// Empieza (o reinicia) una selección con el mouse.
+    fn local_select_start(&mut self, y: f32, x: f32) {
+        let cell = self.term_cell(y, x);
+        if let Some(session) = self.local.get_mut(self.local_active) {
+            session.sel = Some(TermSel {
+                anchor: cell,
+                head: cell,
+            });
+        }
+    }
+
+    /// Extiende la selección hasta la celda bajo el mouse.
+    fn local_select_update(&mut self, y: f32, x: f32) {
+        let cell = self.term_cell(y, x);
+        if let Some(session) = self.local.get_mut(self.local_active) {
+            if let Some(sel) = session.sel.as_mut() {
+                sel.head = cell;
+            }
+        }
+    }
+
+    /// Cierra la selección y, si quedó texto, lo copia al portapapeles.
+    fn local_select_end(&mut self) {
+        let text = self.selected_local_text();
+        if !text.is_empty() {
+            let _ = clipboard_write(&text);
+        }
+    }
+
+    /// Texto de la selección activa, sin espacios sobrantes al final de cada
+    /// línea. `String::new()` si no hay selección.
+    fn selected_local_text(&self) -> String {
+        let Some(session) = self.local.get(self.local_active) else {
+            return String::new();
+        };
+        let Some((sr, sc, er, ec)) = session.sel.and_then(|s| s.region(session.screen.size().1))
+        else {
+            return String::new();
+        };
+        session
+            .screen
+            .text_between(sr, sc, er, ec)
+            .split('\n')
+            .map(str::trim_end)
+            .collect::<Vec<_>>()
+            .join("\n")
+            .trim_end()
+            .to_string()
+    }
+
+    /// Copia la selección actual, si la hay.
+    fn copy_local_selection(&mut self) {
+        let text = self.selected_local_text();
+        if !text.is_empty() {
+            let _ = clipboard_write(&text);
+        }
+    }
+
+    /// Manda el portapapeles al PTY activo (como si se tipeara).
+    fn paste_local(&mut self) {
+        if let Some(text) = read_clipboard() {
+            if !text.is_empty() {
+                let text = text.replace("\r\n", "\r").replace('\n', "\r");
+                self.write_to_local(text.as_bytes());
+            }
+        }
+    }
+
+    /// Recorre el scrollback de la sesión activa (`delta` positivo = más atrás).
+    fn scroll_local(&mut self, delta: i32) {
+        if let Some(session) = self.local.get_mut(self.local_active) {
+            session.sel = None;
+            session.screen.scroll_by(delta);
+        }
+    }
+
+    /// Rueda del mouse: `dy` es el delta en píxeles (positivo = hacia abajo).
+    fn local_wheel(&mut self, dy: f32) {
+        let lines = (-dy / TERM_CELL_H).round() as i32;
+        let lines = if lines == 0 {
+            if dy > 0.0 {
+                -1
+            } else {
+                1
+            }
+        } else {
+            lines
+        };
+        self.scroll_local(lines);
     }
 
     /// Escribe una línea de comando en la shell activa (menú Ejecutar/Compilar).
@@ -1220,27 +1386,50 @@ impl Ide {
         w.set_term_sessions(ModelRc::from(Rc::new(VecModel::from(sessions))));
         w.set_active_session(self.local_active as i32);
 
-        let term_lines: Vec<TermLine> = match self.local.get(self.local_active) {
-            Some(session) => {
-                let (rows, _cursor) = session.screen.snapshot();
-                rows.into_iter()
-                    .map(|runs| TermLine {
-                        runs: ModelRc::from(Rc::new(VecModel::from(
-                            runs.into_iter()
-                                .map(|run| TermRun {
-                                    text: run.text.into(),
-                                    fg: to_color(run.fg),
-                                    bg: to_color(run.bg),
-                                    bold: run.bold,
-                                })
-                                .collect::<Vec<_>>(),
-                        ))),
-                    })
-                    .collect()
-            }
-            None => Vec::new(),
-        };
+        let (term_lines, scroll_total, scroll_pos, scroll_thumb) =
+            match self.local.get_mut(self.local_active) {
+                Some(session) => {
+                    let (visible_rows, cols) = session.screen.size();
+                    let sel = session.sel.and_then(|s| s.region(cols));
+                    let total = session.screen.scrollback_total();
+                    let offset = session.screen.scrollback();
+                    let (rows, _cursor) = session.screen.snapshot(sel);
+                    let lines: Vec<TermLine> = rows
+                        .into_iter()
+                        .map(|runs| TermLine {
+                            runs: ModelRc::from(Rc::new(VecModel::from(
+                                runs.into_iter()
+                                    .map(|run| TermRun {
+                                        text: run.text.into(),
+                                        fg: to_color(run.fg),
+                                        bg: to_color(run.bg),
+                                        bold: run.bold,
+                                    })
+                                    .collect::<Vec<_>>(),
+                            ))),
+                        })
+                        .collect();
+                    // Posición de la barra: 0 arriba (lo más viejo), 1 abajo.
+                    let total_f = total as f32;
+                    let pos = if total == 0 {
+                        1.0
+                    } else {
+                        (total - offset) as f32 / total_f
+                    };
+                    let visible_f = visible_rows as f32;
+                    let thumb = if total == 0 {
+                        1.0
+                    } else {
+                        (visible_f / (visible_f + total_f)).clamp(0.08, 1.0)
+                    };
+                    (lines, total as i32, pos, thumb)
+                }
+                None => (Vec::new(), 0, 1.0, 1.0),
+            };
         w.set_term_lines(ModelRc::from(Rc::new(VecModel::from(term_lines))));
+        w.set_term_scroll_total(scroll_total);
+        w.set_term_scroll_pos(scroll_pos);
+        w.set_term_scroll_thumb(scroll_thumb);
 
         // --- panel del agente ---
         let agent_lines: Vec<IdeTermLine> = self
@@ -1354,6 +1543,13 @@ impl Ide {
                     }
                 }
                 s.screen.process(&bytes);
+                // Salida nueva con la vista al final: el contenido se corrió y
+                // la selección quedaría sobre texto que ya no es el mismo. Si
+                // se está mirando el historial, `vt100` ancla la vista y la
+                // selección sigue siendo válida.
+                if s.screen.scrollback() == 0 {
+                    s.sel = None;
+                }
             }
             PtyEvent::Exit { session, code } => {
                 if let Some(s) = self.local.iter_mut().find(|s| s.id == session) {
@@ -1631,6 +1827,50 @@ pub fn attach(window: &NuIdeWindow, ide: Rc<RefCell<Ide>>) {
             if let Some(w) = weak.upgrade() {
                 let mut e = ide.borrow_mut();
                 e.local_resize(w_px, h_px);
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_terminal_scroll(move |dy| {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.local_wheel(dy);
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_terminal_selection_start(move |y, x| {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.local_select_start(y, x);
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_terminal_selection_update(move |y, x| {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.local_select_update(y, x);
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_terminal_selection_end(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.local_select_end();
                 e.sync(&w);
             }
         });
@@ -1975,6 +2215,39 @@ mod tests {
             Cursor { line: 2, col: 0 }
         );
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn la_region_de_seleccion_ordena_y_hace_exclusivo_el_fin() {
+        let sel = TermSel {
+            anchor: (1, 4),
+            head: (0, 2),
+        };
+        assert_eq!(sel.region(80), Some((0, 2, 1, 5)));
+        // Un clic sin arrastre no selecciona nada.
+        let click = TermSel {
+            anchor: (2, 3),
+            head: (2, 3),
+        };
+        assert_eq!(click.region(80), None);
+        // El fin se acota al ancho de la terminal.
+        let end = TermSel {
+            anchor: (0, 0),
+            head: (0, 79),
+        };
+        assert_eq!(end.region(80), Some((0, 0, 0, 80)));
+    }
+
+    #[test]
+    fn la_celda_se_traduce_desde_pixeles_y_se_acota() {
+        let mut ide = Ide::new();
+        ide.local_cols = 80;
+        ide.local_rows = 24;
+        // Fila 1, columna 2 (celda de 16 px de alto y ~7.2 de ancho).
+        assert_eq!(ide.term_cell(20.0, 15.0), (1, 2));
+        // Fuera del área se acota a la primera / última celda.
+        assert_eq!(ide.term_cell(-5.0, -5.0), (0, 0));
+        assert_eq!(ide.term_cell(9_999.0, 9_999.0), (23, 79));
     }
 
     #[test]

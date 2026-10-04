@@ -34,6 +34,7 @@ hasta abrir el primer archivo).
 | 4 | editor: edición, guardado y resaltado real de SpASM | ✅ |
 | 5 | terminal real (PTY/ConPTY) + panel de OpenCode CLI | ✅ |
 | 6 | integración con el toolchain `spasm`/`spasmc` (build/run) | ✅ |
+| 7 | terminal: scrollback + selección y copia con el mouse | ✅ |
 
 ### El explorador (real)
 
@@ -102,6 +103,13 @@ invirtiendo la celda (sin calcular píxeles).
   `NUIDE_SHELL`. Si no hay ninguna, cae a `cmd.exe`.
 - El panel **se redimensiona con la ventana**: la UI le avisa a Rust el tamaño y
   Rust ajusta el PTY (SIGWINCH) y el emulador.
+- **Scrollback de 2000 líneas.** La rueda del mouse y `Shift+PageUp`/`PageDown`
+  recorren el historial; una barra fina a la derecha indica la posición. Mientras
+  se mira hacia atrás, la salida nueva no mueve la vista (la ancla `vt100`).
+- **Selección con el mouse y copia.** Se arrastra sobre la pantalla y al soltar
+  se copia al portapapeles del sistema; `Ctrl+Shift+C` vuelve a copiar y
+  `Ctrl+Shift+V` pega (el texto se le manda al PTY). Cualquier tecla normal
+  vuelve al final y descarta la selección.
 - Varias sesiones (pestañas) con `+`, cerrar con `×`. Cada una es una shell
   propia. «Dividir» abre otra sesión.
 - El teclado se traduce a los bytes del terminal (flechas, Backspace, Delete,
@@ -224,23 +232,21 @@ slint-viewer --screenshot ui.png ui/nuide_ui.slint
 Ordenados por impacto para usar el IDE día a día. (Nada de esto está hecho; es
 la hoja de ruta acordada.)
 
-1. **Terminal: scrollback y mouse.** Hoy sólo se ve la pantalla visible
-   (scrollback = 0 en `vt100`) y no se puede seleccionar/copiar con el mouse.
-   Falta buffer de scrollback + barra/rueca para recorrerlo, y copiar texto.
-2. **Panel del agente con PTY real.** Hoy usa `opencode run` (un proceso por
+1. **Panel del agente con PTY real.** Hoy usa `opencode run` (un proceso por
    prompt). El paso grande es correr `opencode` en un PTY para tener su TUI.
-3. **Elegir proyecto.** El explorador arranca en la carpeta de lanzamiento; falta
+2. **Elegir proyecto.** El explorador arranca en la carpeta de lanzamiento; falta
    un diálogo para abrir otra carpeta como raíz (y recordarla).
-4. **Persistencia de estado.** Guardar entre ejecuciones: tamaño/posición de la
+3. **Persistencia de estado.** Guardar entre ejecuciones: tamaño/posición de la
    ventana, proyecto, pestañas abiertas y sesiones.
-5. **Git.** Barra de estado con rama y estado reales + acciones básicas (stage,
+4. **Git.** Barra de estado con rama y estado reales + acciones básicas (stage,
    commit, push) desde la IDE.
-6. **Atajos y búsqueda.** `F5` ejecutar / `Ctrl+B` compilar, paleta de comandos y
+5. **Atajos y búsqueda.** `F5` ejecutar / `Ctrl+B` compilar, paleta de comandos y
    búsqueda de archivos; buscar/reemplazar dentro del editor.
-7. **Empaquetado.** `.exe` release con icono y versión, e instalador, como las
+6. **Empaquetado.** `.exe` release con icono y versión, e instalador, como las
    otras apps del ecosistema.
 
 ### Estado al 2026-10-04
 
-Compilado y publicado: `gitlab.com/nutoys-group/nuide` (`main`). 37 tests OK;
-clon limpio genera `nuide.exe`. Falta local: los ítems de arriba.
+Compilado y publicado: `gitlab.com/nutoys-group/nuide` (`main`). 41 tests OK;
+clon limpio genera `nuide.exe`. La terminal ya tiene scrollback y
+selección/copia con el mouse. Falta local: los ítems de arriba.
