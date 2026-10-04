@@ -132,7 +132,7 @@ export component IdeTopBar inherits Rectangle {
     in property <bool> show-right: true;
     in property <bool> show-bottom: true;
     callback menu-activated(string);
-    callback toggle-panel(int);
+    callback toggle-region(int);
     callback close-requested();
     // Se clickeó el nombre del proyecto: abrir el selector de carpeta.
     callback project-clicked();
@@ -233,9 +233,9 @@ export component IdeTopBar inherits Rectangle {
         alignment: start;
         cross-axis-alignment: center;
 
-        IdeLayoutButton { area: 0; active: root.show-left;   activated => { root.toggle-panel(0); } }
-        IdeLayoutButton { area: 1; active: root.show-right;  activated => { root.toggle-panel(1); } }
-        IdeLayoutButton { area: 2; active: root.show-bottom; activated => { root.toggle-panel(2); } }
+        IdeLayoutButton { area: 0; active: root.show-left;   activated => { root.toggle-region(0); } }
+        IdeLayoutButton { area: 1; active: root.show-right;  activated => { root.toggle-region(1); } }
+        IdeLayoutButton { area: 2; active: root.show-bottom; activated => { root.toggle-region(2); } }
         IdeLayoutButton { area: 3; active: root.view-active; activated => { root.menu-activated("Ver"); } }
     }
 

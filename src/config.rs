@@ -54,6 +54,12 @@ impl Config {
             .unwrap_or(default)
     }
 
+    pub fn i32(&self, key: &str, default: i32) -> i32 {
+        self.get(key)
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(default)
+    }
+
     pub fn usize(&self, key: &str, default: usize) -> usize {
         self.get(key)
             .and_then(|v| v.parse().ok())

@@ -1,51 +1,61 @@
 import { IdeTheme } from "ide_theme.slint";
 
-// Fila del menú "Ver": etiqueta + tilde cuando el panel está visible.
+// Fila del menú "Ver": panel + dónde está acoplado. Al hacer clic cicla el dock
+// (izquierda → derecha → abajo → oculto).
 component IdeViewItem inherits Rectangle {
     in property <string> label: "";
-    in property <bool> checked: true;
+    in property <string> detail: "";
+    in property <bool> hidden: false;
     in property <int> kind: 0;
-    callback toggled(int);
+    callback activated(int);
 
     height: 26px;
     border-radius: IdeTheme.radius-sm;
     background: ta.has-hover ? IdeTheme.control-hi : transparent;
 
-    label-text := Text {
+    Text {
         x: 10px;
         y: (parent.height - self.height) / 2;
         text: root.label;
-        color: ta.has-hover ? IdeTheme.text : IdeTheme.text-soft;
+        color: ta.has-hover ? IdeTheme.text : (root.hidden ? IdeTheme.text-dim : IdeTheme.text-soft);
         font-family: IdeTheme.sans;
         font-size: 12px;
         vertical-alignment: center;
     }
 
-    Text {
-        x: parent.width - 22px;
+    detail-text := Text {
+        x: parent.width - self.width - 10px;
         y: (parent.height - self.height) / 2;
-        text: root.checked ? "✓" : "";
-        color: IdeTheme.mint;
+        text: root.detail;
+        color: root.hidden ? IdeTheme.text-dim : IdeTheme.mint;
         font-family: IdeTheme.sans;
-        font-size: 12px;
+        font-size: 11px;
         vertical-alignment: center;
     }
 
     ta := TouchArea {
         mouse-cursor: MouseCursor.pointer;
-        clicked => { root.toggled(root.kind); }
+        clicked => { root.activated(root.kind); }
     }
 }
 
-// Menú desplegable del ítem "Ver": muestra/oculta los paneles de la ventana.
-// `kind`: 0 explorador (izquierda), 1 OpenCode (derecha), 2 terminal (abajo).
+// Menú desplegable del ítem "Ver": controla dónde vive cada panel. `kind`:
+// 0 explorador, 1 OpenCode, 2 terminal. El dock: 0 izquierda, 1 derecha,
+// 2 abajo, 3 oculto.
 export component IdeViewMenu inherits Rectangle {
-    in property <bool> show-left: true;
-    in property <bool> show-right: true;
-    in property <bool> show-bottom: true;
-    callback toggle(int);
+    in property <int> dock-explorer: 0;
+    in property <int> dock-agent: 1;
+    in property <int> dock-terminal: 2;
+    callback cycle-dock(int);
 
-    width: 200px;
+    function dock-label(value: int) -> string {
+        return value == 0 ? "izquierda"
+            : value == 1 ? "derecha"
+            : value == 2 ? "abajo"
+            : "oculto";
+    }
+
+    width: 220px;
     height: menu.preferred-height + 12px;
     background: IdeTheme.panel;
     border-width: 1px;
@@ -60,8 +70,26 @@ export component IdeViewMenu inherits Rectangle {
         spacing: 0;
         alignment: start;
 
-        IdeViewItem { label: "Explorador";    checked: root.show-left;   kind: 0; toggled(k) => { root.toggle(k); } }
-        IdeViewItem { label: "OpenCode CLI";  checked: root.show-right;  kind: 1; toggled(k) => { root.toggle(k); } }
-        IdeViewItem { label: "Terminal";      checked: root.show-bottom; kind: 2; toggled(k) => { root.toggle(k); } }
+        IdeViewItem {
+            label: "Explorador";
+            detail: root.dock-label(root.dock-explorer);
+            hidden: root.dock-explorer == 3;
+            kind: 0;
+            activated(k) => { root.cycle-dock(k); }
+        }
+        IdeViewItem {
+            label: "OpenCode CLI";
+            detail: root.dock-label(root.dock-agent);
+            hidden: root.dock-agent == 3;
+            kind: 1;
+            activated(k) => { root.cycle-dock(k); }
+        }
+        IdeViewItem {
+            label: "Terminal";
+            detail: root.dock-label(root.dock-terminal);
+            hidden: root.dock-terminal == 3;
+            kind: 2;
+            activated(k) => { root.cycle-dock(k); }
+        }
     }
 }

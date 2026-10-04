@@ -39,6 +39,10 @@ export component NuIdeWindow inherits Window {
     in-out property <bool> show-left: true;
     in-out property <bool> show-right: true;
     in-out property <bool> show-bottom: true;
+    // Dock de cada panel: 0 izquierda, 1 derecha, 2 abajo, 3 oculto.
+    in-out property <int> dock-explorer: 0;
+    in-out property <int> dock-agent: 1;
+    in-out property <int> dock-terminal: 2;
     in-out property <bool> view-open: false;
 
     // Selección de la UI (índices, no modelos reconstruidos).
@@ -91,8 +95,9 @@ export component NuIdeWindow inherits Window {
     callback new-session();
     callback close-session();
     callback split-terminal();
-    // Menú "Ver": mostrar/ocultar paneles y cerrar el menú.
-    callback toggle-panel(int);
+    // Menú "Ver": mostrar/ocultar regiones y cambiar el dock de cada panel.
+    callback toggle-region(int);
+    callback cycle-dock(int);
     callback view-menu-close();
     // Explorador y editor.
     callback node-activated(int);
@@ -127,26 +132,72 @@ export component NuIdeWindow inherits Window {
     private property <length> view-menu-x: topbar.view-menu-x;
     private property <length> content-w: self.width;
     private property <length> content-h: max(0px, self.height - IdeTheme.topbar-h - IdeTheme.statusbar-h);
-    private property <length> left-w: root.show-left ? root.content-w * root.left-frac : 0px;
-    private property <length> right-w: root.show-right ? root.content-w * root.right-frac : 0px;
-    private property <length> left-gap: root.show-left ? IdeTheme.splitter : 0px;
-    private property <length> right-gap: root.show-right ? IdeTheme.splitter : 0px;
+
+    // Cada panel tiene un dock (0 izquierda, 1 derecha, 2 abajo, 3 oculto) y los
+    // que comparten región se apilan en el orden 0 Explorador, 1 OpenCode,
+    // 2 Terminal.
+    function dock-of(panel: int) -> int {
+        return panel == 0 ? root.dock-explorer : panel == 1 ? root.dock-agent : root.dock-terminal;
+    }
+    function count-in(region: int) -> int {
+        return (root.dock-explorer == region ? 1 : 0)
+             + (root.dock-agent == region ? 1 : 0)
+             + (root.dock-terminal == region ? 1 : 0);
+    }
+    function index-in(region: int, panel: int) -> int {
+        return (panel > 0 && root.dock-explorer == region ? 1 : 0)
+             + (panel > 1 && root.dock-agent == region ? 1 : 0);
+    }
+    function region-shown(region: int) -> bool {
+        return region == 0 ? root.show-left : region == 1 ? root.show-right : root.show-bottom;
+    }
+    function region-visible(region: int) -> bool {
+        return root.count-in(region) > 0 && root.region-shown(region);
+    }
+    function panel-visible(panel: int) -> bool {
+        let dock = root.dock-of(panel);
+        return dock != 3 && root.region-visible(dock);
+    }
+    function slot-h(region: int) -> length {
+        let n = root.count-in(region);
+        if (n <= 0) { return 0px; }
+        return (region == 2 ? root.bottom-h : root.content-h) / n;
+    }
+    function slot-y(region: int, panel: int) -> length {
+        let n = root.count-in(region);
+        let base = region == 2 ? root.editor-h + root.bottom-gap : 0px;
+        if (n <= 0) { return base; }
+        return base + (root.index-in(region, panel) * (region == 2 ? root.bottom-h : root.content-h)) / n;
+    }
+    function panel-x(panel: int) -> length {
+        let dock = root.dock-of(panel);
+        return dock == 0 ? 0px : dock == 1 ? root.content-w - root.right-w : root.center-x;
+    }
+    function panel-w(panel: int) -> length {
+        let dock = root.dock-of(panel);
+        return dock == 0 ? root.left-w : dock == 1 ? root.right-w : root.center-w;
+    }
+
+    private property <length> left-w: root.region-visible(0) ? root.content-w * root.left-frac : 0px;
+    private property <length> right-w: root.region-visible(1) ? root.content-w * root.right-frac : 0px;
+    private property <length> left-gap: root.region-visible(0) ? IdeTheme.splitter : 0px;
+    private property <length> right-gap: root.region-visible(1) ? IdeTheme.splitter : 0px;
     private property <length> center-x: root.left-w + root.left-gap;
     private property <length> center-w: max(0px, root.content-w - root.left-w - root.right-w - root.left-gap - root.right-gap);
-    private property <length> editor-h: root.show-bottom ? root.content-h * (1 - root.bottom-frac) : root.content-h;
-    private property <length> bottom-gap: root.show-bottom ? IdeTheme.splitter : 0px;
-    private property <length> term-h: max(0px, root.content-h - root.editor-h - root.bottom-gap);
+    private property <length> editor-h: root.region-visible(2) ? root.content-h * (1 - root.bottom-frac) : root.content-h;
+    private property <length> bottom-gap: root.region-visible(2) ? IdeTheme.splitter : 0px;
+    private property <length> bottom-h: max(0px, root.content-h - root.editor-h - root.bottom-gap);
 
     // Qué divisor está bajo el cursor: 0 nada, 1 izquierda, 2 derecha, 3 horizontal.
-    // Un divisor sólo cuenta si su panel está visible.
+    // Un divisor sólo cuenta si su región está visible.
     function hit-test(px: length, py: length) -> int {
-        if (root.show-left && px >= root.left-w - 3px && px <= root.left-w + IdeTheme.splitter + 3px) {
+        if (root.region-visible(0) && px >= root.left-w - 3px && px <= root.left-w + IdeTheme.splitter + 3px) {
             return 1;
         }
-        if (root.show-right && px >= root.content-w - root.right-w - IdeTheme.splitter - 3px && px <= root.content-w - root.right-w + 3px) {
+        if (root.region-visible(1) && px >= root.content-w - root.right-w - IdeTheme.splitter - 3px && px <= root.content-w - root.right-w + 3px) {
             return 2;
         }
-        if (root.show-bottom && py >= root.editor-h - 3px && py <= root.editor-h + IdeTheme.splitter + 3px
+        if (root.region-visible(2) && py >= root.editor-h - 3px && py <= root.editor-h + IdeTheme.splitter + 3px
             && px >= root.center-x && px <= root.center-x + root.center-w) {
             return 3;
         }
@@ -174,7 +225,7 @@ export component NuIdeWindow inherits Window {
         show-right: root.show-right;
         show-bottom: root.show-bottom;
         menu-activated(label) => { root.menu-activated(label); }
-        toggle-panel(kind) => { root.toggle-panel(kind); }
+        toggle-region(kind) => { root.toggle-region(kind); }
         project-clicked => { root.open-project(); }
         close-requested => { root.close-requested(); }
     }
@@ -228,7 +279,7 @@ export component NuIdeWindow inherits Window {
                 y: 0;
                 width: 2px;
                 height: root.content-h;
-                visible: root.show-left;
+                visible: root.region-visible(0);
                 background: root.drag-mode == 1 ? IdeTheme.mint : IdeTheme.border-soft;
             }
             Rectangle {
@@ -236,7 +287,7 @@ export component NuIdeWindow inherits Window {
                 y: 0;
                 width: 2px;
                 height: root.content-h;
-                visible: root.show-right;
+                visible: root.region-visible(1);
                 background: root.drag-mode == 2 ? IdeTheme.mint : IdeTheme.border-soft;
             }
             Rectangle {
@@ -244,18 +295,18 @@ export component NuIdeWindow inherits Window {
                 y: root.editor-h + IdeTheme.splitter / 2 - 1px;
                 width: root.center-w;
                 height: 2px;
-                visible: root.show-bottom;
+                visible: root.region-visible(2);
                 background: root.drag-mode == 3 ? IdeTheme.mint : IdeTheme.border-soft;
             }
         }
 
-        // --- columna izquierda: explorador ---
+        // --- panel: explorador (dock configurable) ---
         IdeExplorer {
-            x: 0;
-            y: 0;
-            width: root.left-w;
-            height: parent.height;
-            visible: root.show-left;
+            x: root.panel-x(0);
+            y: root.slot-y(root.dock-of(0), 0);
+            width: root.panel-w(0);
+            height: root.slot-h(root.dock-of(0));
+            visible: root.panel-visible(0);
             nodes: root.tree-nodes;
             selected-index: root.explorer-selected;
             node-clicked(i) => { root.explorer-selected = i; root.node-activated(i); }
@@ -300,13 +351,13 @@ export component NuIdeWindow inherits Window {
             replace-all => { root.replace-all(); }
         }
 
-        // --- columna central: terminal local ---
+        // --- panel: terminal local (dock configurable) ---
         terminal := IdeTerminal {
-            x: root.center-x;
-            y: root.editor-h + root.bottom-gap;
-            width: root.center-w;
-            height: root.term-h;
-            visible: root.show-bottom;
+            x: root.panel-x(2);
+            y: root.slot-y(root.dock-of(2), 2);
+            width: root.panel-w(2);
+            height: root.slot-h(root.dock-of(2));
+            visible: root.panel-visible(2);
             sessions: root.term-sessions;
             active-session: root.active-session;
             lines: root.term-lines;
@@ -325,13 +376,13 @@ export component NuIdeWindow inherits Window {
             split => { root.split-terminal(); }
         }
 
-        // --- columna derecha: OpenCode CLI ---
+        // --- panel: OpenCode CLI (dock configurable) ---
         IdeOpenCode {
-            x: root.content-w - root.right-w;
-            y: 0;
-            width: root.right-w;
-            height: parent.height;
-            visible: root.show-right;
+            x: root.panel-x(1);
+            y: root.slot-y(root.dock-of(1), 1);
+            width: root.panel-w(1);
+            height: root.slot-h(root.dock-of(1));
+            visible: root.panel-visible(1);
             connected: root.agent-connected;
             version: root.agent-version;
             model: root.agent-model;
@@ -366,10 +417,10 @@ export component NuIdeWindow inherits Window {
     if root.view-open: IdeViewMenu {
         x: root.view-menu-x;
         y: IdeTheme.topbar-h;
-        show-left: root.show-left;
-        show-right: root.show-right;
-        show-bottom: root.show-bottom;
-        toggle(kind) => { root.toggle-panel(kind); }
+        dock-explorer: root.dock-explorer;
+        dock-agent: root.dock-agent;
+        dock-terminal: root.dock-terminal;
+        cycle-dock(kind) => { root.cycle-dock(kind); }
     }
 
     // =======================================================================

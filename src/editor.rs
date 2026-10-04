@@ -239,6 +239,45 @@ enum Target {
     Agent,
 }
 
+/// Dónde vive un panel. Los que comparten región se apilan (hasta 3 por lado).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Dock {
+    Left,
+    Right,
+    Bottom,
+    Hidden,
+}
+
+impl Dock {
+    fn from_code(code: i32) -> Dock {
+        match code {
+            0 => Dock::Left,
+            1 => Dock::Right,
+            2 => Dock::Bottom,
+            _ => Dock::Hidden,
+        }
+    }
+
+    fn code(self) -> i32 {
+        match self {
+            Dock::Left => 0,
+            Dock::Right => 1,
+            Dock::Bottom => 2,
+            Dock::Hidden => 3,
+        }
+    }
+
+    /// Siguiente dock al hacer clic en el menú Ver.
+    fn next(self) -> Dock {
+        match self {
+            Dock::Left => Dock::Right,
+            Dock::Right => Dock::Bottom,
+            Dock::Bottom => Dock::Hidden,
+            Dock::Hidden => Dock::Left,
+        }
+    }
+}
+
 /// Estado de la búsqueda del editor.
 #[derive(Default)]
 struct Find {
@@ -301,10 +340,14 @@ pub struct Ide {
     /// Archivos abiertos en el editor.
     tabs: Vec<OpenTab>,
     active_tab: usize,
-    /// Visibilidad de los paneles (menú Ver): explorador, OpenCode y terminal.
+    /// Visibilidad de las regiones (barra izquierda, barra derecha, panel
+    /// inferior). Las regiones las controlan los botones de la barra.
     show_left: bool,
     show_right: bool,
     show_bottom: bool,
+    /// Dónde vive cada panel (Explorador, OpenCode, Terminal). Los que comparten
+    /// región se apilan.
+    docks: [Dock; 3],
     /// El menú desplegable de "Ver" está abierto.
     view_menu_open: bool,
     /// Configuración persistida (proyecto, paneles, ventana, pestañas).
@@ -350,6 +393,11 @@ impl Ide {
         let show_left = config.bool("show.left", true);
         let show_right = config.bool("show.right", true);
         let show_bottom = config.bool("show.bottom", true);
+        let docks = [
+            Dock::from_code(config.i32("panel.0.dock", 0)),
+            Dock::from_code(config.i32("panel.1.dock", 1)),
+            Dock::from_code(config.i32("panel.2.dock", 2)),
+        ];
         let (local_tx, local_rx) = mpsc::channel();
         let (agent_tx, agent_rx) = mpsc::channel();
 
@@ -369,6 +417,7 @@ impl Ide {
             show_left,
             show_right,
             show_bottom,
+            docks,
             view_menu_open: false,
             config,
             code_model: Rc::new(VecModel::default()),
@@ -431,6 +480,9 @@ impl Ide {
         self.config.set("show.left", u8::from(self.show_left));
         self.config.set("show.right", u8::from(self.show_right));
         self.config.set("show.bottom", u8::from(self.show_bottom));
+        for (i, dock) in self.docks.iter().enumerate() {
+            self.config.set(&format!("panel.{i}.dock"), dock.code());
+        }
         self.config.set("tabs", self.tabs.len());
         for (i, tab) in self.tabs.iter().enumerate() {
             self.config.set(&format!("tab.{i}"), tab.path.display());
@@ -846,13 +898,21 @@ impl Ide {
         }
     }
 
-    /// Muestra u oculta un panel. `kind`: 0 explorador, 1 OpenCode, 2 terminal.
-    fn toggle_panel(&mut self, kind: i32) {
+    /// Muestra u oculta una región. `kind`: 0 izquierda, 1 derecha, 2 inferior.
+    fn toggle_region(&mut self, kind: i32) {
         match kind {
             0 => self.show_left = !self.show_left,
             1 => self.show_right = !self.show_right,
             2 => self.show_bottom = !self.show_bottom,
             _ => {}
+        }
+    }
+
+    /// Cambia un panel de dock (izquierda → derecha → abajo → oculto). `kind`:
+    /// 0 Explorador, 1 OpenCode, 2 Terminal.
+    fn cycle_dock(&mut self, kind: i32) {
+        if let Some(dock) = self.docks.get_mut(kind as usize) {
+            *dock = dock.next();
         }
     }
 
@@ -2072,6 +2132,9 @@ impl Ide {
         w.set_show_left(self.show_left);
         w.set_show_right(self.show_right);
         w.set_show_bottom(self.show_bottom);
+        w.set_dock_explorer(self.docks[0].code());
+        w.set_dock_agent(self.docks[1].code());
+        w.set_dock_terminal(self.docks[2].code());
         w.set_view_open(self.view_menu_open);
 
         // --- terminal real ---
@@ -2655,16 +2718,27 @@ pub fn attach(window: &NuIdeWindow, ide: Rc<RefCell<Ide>>) {
         });
     }
 
-    // Menú "Ver": mostrar/ocultar paneles.
+    // Menú "Ver": mostrar/ocultar regiones y cambiar el dock de cada panel.
     {
         let ide = Rc::clone(&ide);
         let weak = window.as_weak();
-        window.on_toggle_panel(move |kind| {
+        window.on_toggle_region(move |kind| {
             if let Some(w) = weak.upgrade() {
                 let mut e = ide.borrow_mut();
-                e.toggle_panel(kind);
+                e.toggle_region(kind);
                 e.sync(&w);
-                // La visibilidad de los paneles se recuerda entre ejecuciones.
+                e.save_state(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_cycle_dock(move |kind| {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.cycle_dock(kind);
+                e.sync(&w);
                 e.save_state(&w);
             }
         });
@@ -3437,17 +3511,41 @@ mod tests {
 
         ide.menu("Ver");
         assert!(ide.view_menu_open);
-        ide.toggle_panel(0);
+        ide.toggle_region(0);
         assert!(!ide.show_left);
-        ide.toggle_panel(1);
+        ide.toggle_region(1);
         assert!(!ide.show_right);
-        ide.toggle_panel(2);
+        ide.toggle_region(2);
         assert!(!ide.show_bottom);
         // Un tipo desconocido no rompe.
-        ide.toggle_panel(9);
+        ide.toggle_region(9);
 
         ide.close_view_menu();
         assert!(!ide.view_menu_open);
+    }
+
+    #[test]
+    fn el_dock_de_los_paneles_cicla_y_se_apila() {
+        let mut ide = Ide::new();
+        // Por defecto: explorador a la izquierda, agente a la derecha, terminal
+        // abajo.
+        assert_eq!(ide.docks, [Dock::Left, Dock::Right, Dock::Bottom]);
+
+        // El explorador cicla izquierda → derecha → abajo → oculto → izquierda.
+        ide.cycle_dock(0);
+        assert_eq!(ide.docks[0], Dock::Right);
+        ide.cycle_dock(0);
+        assert_eq!(ide.docks[0], Dock::Bottom);
+        ide.cycle_dock(0);
+        assert_eq!(ide.docks[0], Dock::Hidden);
+        ide.cycle_dock(0);
+        assert_eq!(ide.docks[0], Dock::Left);
+
+        // Si el agente va a la izquierda, los dos quedan apilados ahí.
+        ide.cycle_dock(1); // agente a abajo
+        ide.cycle_dock(1); // agente a oculto
+        ide.cycle_dock(1); // agente a izquierda
+        assert_eq!(ide.docks[1], Dock::Left);
     }
 
     #[test]

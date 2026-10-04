@@ -57,9 +57,10 @@ ui/*.slint          la ventana, paneles y tema
   mismos gestos que la terminal local.
 - **Proyecto**: se elige con el diálogo nativo (clic en el nombre en la barra
   superior) y se recuerda entre arranques.
-- **Layout modular**: se muestran/ocultan el explorador, el panel de OpenCode y la
-  terminal inferior desde los **botones de layout** de la barra superior o desde
-  el menú **Ver**; el editor ocupa el espacio liberado.
+- **Layout modular**: cada panel (Explorador, OpenCode, Terminal) tiene un
+  **dock** (izquierda/derecha/abajo/oculto) y los que comparten lado se **apilan**
+  (hasta 3). Se controla desde los botones de layout de la barra o el menú Ver; el
+  editor ocupa el resto y el dock se recuerda.
 - **Barra de estado**: lenguaje, codificación y posición del cursor reales. La
   rama está fija en `main` (ver §4).
 
@@ -116,17 +117,22 @@ ui/*.slint          la ventana, paneles y tema
 
 ### 3.5 Layout modular y menú Ver
 
-- La ventana calcula su geometría según qué paneles están visibles
-  (`show-left`, `show-right`, `show-bottom`): el editor se ensancha/alarga y los
-  divisores de los paneles ocultos dejan de responder.
+- La ventana calcula su geometría según el **dock** y la visibilidad de cada
+  región (`show-left`, `show-right`, `show-bottom`): reparte la altura entre los
+  paneles apilados, el editor ocupa el resto y los divisores de las regiones
+  vacías dejan de responder.
 - El ítem **Ver** de la barra superior abre un desplegable (`ui/ide_viewmenu.slint`)
-  con **Explorador**, **OpenCode CLI** y **Terminal**; cada fila muestra u oculta
-  su panel. El menú se ancla bajo el ítem `Ver` (la barra publica su x) y se
-  cierra al hacer clic afuera.
+  con **Explorador**, **OpenCode CLI** y **Terminal**; cada fila muestra el dock
+  actual y al hacer clic lo cicla (izquierda → derecha → abajo → oculto). El menú
+  se ancla bajo el ítem `Ver` (la barra publica su x) y se cierra al hacer clic
+  afuera.
 - El estado de visibilidad vive en `Ide` y lo vuelca `sync`.
 - La barra superior suma **botones de layout** (marco con la banda del área,
-  en menta cuando está visible) para las tres áreas y uno que abre el menú Ver;
-  reflejan y controlan el mismo estado. La visibilidad se persiste en la config.
+  en menta cuando está visible) para las tres regiones y uno que abre el menú Ver.
+- El menú Ver cicla el **dock** de cada panel (izquierda → derecha → abajo →
+  oculto) y muestra dónde está. La geometría de la ventana calcula cuántos paneles
+  hay por región y reparte la altura entre los apilados. Dock y visibilidad de
+  región se persisten en la config.
 
 ---
 
@@ -134,12 +140,12 @@ ui/*.slint          la ventana, paneles y tema
 
 - **Sin *mouse reporting*.** El mouse se usa para seleccionar/copiar, así que no
   se reenvía a los procesos que lo piden (la TUI de OpenCode, `vim`, etc.).
-- **Persistencia parcial.** Sólo se recuerda la carpeta del proyecto. El tamaño y
-  la posición de la ventana, las pestañas abiertas, las sesiones de terminal y la
-  visibilidad de los paneles se pierden al cerrar.
-- **Sólo dos columnas laterales.** El layout soporta mostrar/ocultar el
-  explorador y OpenCode, pero no apilar varias columnas por lado (agregar
-  paneles nuevos requiere tocar el layout).
+- **Persistencia parcial.** Se recuerda el proyecto, el dock/visibilidad de los
+  paneles, la geometría de la ventana y las pestañas abiertas. Las sesiones de
+  terminal, la posición del cursor y el estado de la búsqueda no.
+- **Apilado básico.** Cada región apila hasta 3 paneles repartiendo la altura en
+  partes iguales (sin divisor arrastrable entre los apilados), y un panel existe
+  una sola vez: no se puede duplicar para llenar más de 3 por lado.
 - **La shell local no cambia de carpeta** al cambiar de proyecto (sí lo hacen las
   sesiones nuevas y el agente, que se relanza).
 - **Git decorativo.** La barra inferior muestra `main` fijo; no hay estado real ni
@@ -221,7 +227,7 @@ script de instalación.
 ## 6. Verificación
 
 - `cargo build` / `cargo check` sin warnings.
-- `cargo test`: **51 pruebas OK** (unitarias; las de PTY lanzan `cmd`/`opencode`
+- `cargo test`: **52 pruebas OK** (unitarias; las de PTY lanzan `cmd`/`opencode`
   reales y se saltean si no están).
 - `cargo fmt --check` limpio.
 - `slint-viewer --check ui/nuide_ui.slint` OK.

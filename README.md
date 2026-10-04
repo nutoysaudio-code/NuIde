@@ -40,6 +40,7 @@ hasta abrir el primer archivo).
 | 9 | elegir proyecto (diálogo nativo) + recordarlo | ✅ |
 | 10 | editor: buscar/reemplazar + resaltados de contexto | ✅ |
 | 11 | layout modular: controles en la barra + menú Ver | ✅ |
+| 12 | dock por panel + apilado por lado (hasta 3) | ✅ |
 
 > El parte de estado detallado —qué se cambió en cada iteración, limitaciones y
 > pendientes con su enfoque— está en [`docs/ESTADO.md`](docs/ESTADO.md).
@@ -250,12 +251,13 @@ slint-viewer --screenshot ui.png ui/nuide_ui.slint
   detecta la zona pulsada (huecos de 6 px) y reparte el espacio con
   `left-frac` / `right-frac` / `bottom-frac`. Cambiar la terminal inferior solo
   afecta a la columna central.
-- **Layout modular**: se muestra u oculta cada área desde dos lugares —los
-  **botones de layout** en la barra superior (barra izquierda, panel inferior,
-  barra derecha y menú) y el desplegable del menú **Ver** (Explorador, OpenCode
-  CLI, Terminal). Al ocultar un área el editor ocupa el espacio liberado y el
-  divisor correspondiente deja de responder. Las columnas laterales son
-  independientes y el zócalo inferior sigue a la central.
+- **Layout modular**: cada panel —**Explorador**, **OpenCode CLI** y
+  **Terminal**— tiene un **dock** (izquierda, derecha, abajo u oculto). Los que
+  comparten lado **se apilan** (hasta 3 por lado). Se controla desde dos lugares:
+  los **botones de layout** de la barra superior (prenden/apagan cada región:
+  izquierda, derecha, inferior) y el menú **Ver**, donde cada fila muestra dónde
+  está el panel y un clic lo cicla (izquierda → derecha → abajo → oculto). El
+  editor ocupa el espacio libre y el dock elegido se recuerda entre ejecuciones.
 - **Cada área hace su propio scroll**: el explorador y el editor con `Flickable`;
   las dos terminales con el scrollback del emulador `vt` (rueda y barra).
 - **Selección por índice**: la UI guarda índices (`explorer-selected`,
@@ -289,9 +291,9 @@ la hoja de ruta acordada. El enfoque de cada uno está en
 
 ### Estado al 2026-10-04
 
-Compilado y publicado: `gitlab.com/nutoys-group/nuide` (`main`). 51 tests OK;
+Compilado y publicado: `gitlab.com/nutoys-group/nuide` (`main`). 52 tests OK;
 clon limpio genera `nuide.exe`. Las dos terminales son PTY reales (shell local y
 TUI de `opencode`), el proyecto se elige con diálogo nativo y se recuerda, el
-editor tiene buscar/reemplazar y resaltados de contexto, y las áreas de la
-ventana se controlan desde la barra y el menú Ver (y se recuerdan). Falta local:
-los ítems de arriba.
+editor tiene buscar/reemplazar y resaltados de contexto, y los paneles se
+acoplan/apilan por lado desde la barra y el menú Ver (y se recuerdan). Falta
+local: los ítems de arriba.
