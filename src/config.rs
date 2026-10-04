@@ -1,16 +1,81 @@
-//! Configuración mínima de NuIde persistida entre ejecuciones.
+//! Configuración de NuIde persistida entre ejecuciones.
 //!
-//! Por ahora sólo recuerda la **carpeta del último proyecto**. El formato es
-//! `clave=valor` en un archivo de texto chico, sin dependencias de parseo. No es
-//! crítico: si el archivo no existe o no se puede escribir, se sigue andando con
-//! la carpeta de lanzamiento.
+//! Un *store* mínimo `clave=valor` en un archivo de texto. Guarda la carpeta del
+//! proyecto, qué paneles están visibles, la geometría de la ventana y las
+//! pestañas abiertas. No es crítico: si el archivo no existe o no se puede
+//! escribir, la IDE arranca con los valores por defecto.
 
-use std::path::{Path, PathBuf};
+use std::collections::BTreeMap;
+use std::path::PathBuf;
 
 /// Nombre del archivo dentro de la carpeta de configuración.
 const FILE: &str = "config";
-/// Clave de la carpeta del proyecto.
-const KEY_PROJECT: &str = "project";
+
+/// Configuración cargada en memoria. Se modifica con `set` y se vuelca con
+/// `save`.
+pub struct Config {
+    values: BTreeMap<String, String>,
+    dir: PathBuf,
+}
+
+impl Config {
+    /// Lee el archivo de configuración del usuario (si existe). En las pruebas
+    /// se ignora para que el estado real de la máquina no afecte los tests.
+    pub fn load() -> Self {
+        if cfg!(test) {
+            return Self {
+                values: BTreeMap::new(),
+                dir: config_dir(),
+            };
+        }
+        let dir = config_dir();
+        let values = std::fs::read_to_string(dir.join(FILE))
+            .ok()
+            .map(|text| parse(&text))
+            .unwrap_or_default();
+        Self { values, dir }
+    }
+
+    pub fn get(&self, key: &str) -> Option<&str> {
+        self.values.get(key).map(String::as_str)
+    }
+
+    pub fn bool(&self, key: &str, default: bool) -> bool {
+        match self.get(key) {
+            Some("1") | Some("true") => true,
+            Some("0") | Some("false") => false,
+            _ => default,
+        }
+    }
+
+    pub fn f32(&self, key: &str, default: f32) -> f32 {
+        self.get(key)
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(default)
+    }
+
+    pub fn usize(&self, key: &str, default: usize) -> usize {
+        self.get(key)
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(default)
+    }
+
+    pub fn set(&mut self, key: &str, value: impl std::fmt::Display) {
+        self.values.insert(key.to_string(), value.to_string());
+    }
+
+    /// Escribe el archivo. Falla en silencio.
+    pub fn save(&self) {
+        let _ = std::fs::create_dir_all(&self.dir);
+        let _ = std::fs::write(self.dir.join(FILE), serialize(&self.values));
+    }
+
+    /// Carpeta del proyecto recordada, si sigue existiendo.
+    pub fn project(&self) -> Option<PathBuf> {
+        let path = PathBuf::from(self.get("project")?);
+        path.is_dir().then_some(path)
+    }
+}
 
 /// Carpeta de configuración del usuario: `%APPDATA%\NuIde` en Windows y
 /// `$XDG_CONFIG_HOME/nuide` (o `~/.config/nuide`) en el resto. Si no hay ninguna
@@ -36,86 +101,96 @@ pub fn config_dir() -> PathBuf {
     PathBuf::from(".nuide")
 }
 
-/// Último proyecto guardado, si el archivo existe y la carpeta sigue estando.
-pub fn load_project() -> Option<PathBuf> {
-    load_project_from(&config_dir())
-}
-
-/// Guarda la carpeta del proyecto. Falla en silencio: no vale la pena molestar
-/// al usuario si no se puede escribir la config.
-pub fn save_project(path: &Path) {
-    save_project_to(&config_dir(), path)
-}
-
-fn load_project_from(dir: &Path) -> Option<PathBuf> {
-    let text = std::fs::read_to_string(dir.join(FILE)).ok()?;
-    let path = parse_project(&text)?;
-    path.is_dir().then_some(path)
-}
-
-fn save_project_to(dir: &Path, path: &Path) {
-    let _ = std::fs::create_dir_all(dir);
-    let _ = std::fs::write(dir.join(FILE), serialize_project(path));
-}
-
-/// Lee el valor de `project=` del archivo de config.
-fn parse_project(text: &str) -> Option<PathBuf> {
-    text.lines().find_map(|line| {
-        let (key, value) = line.split_once('=')?;
-        if key.trim() != KEY_PROJECT {
-            return None;
+/// Parsea `clave=valor` por línea. Ignora líneas vacías y comentarios.
+fn parse(text: &str) -> BTreeMap<String, String> {
+    let mut map = BTreeMap::new();
+    for line in text.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
         }
-        let path = PathBuf::from(value.trim());
-        (!path.as_os_str().is_empty()).then_some(path)
-    })
+        if let Some((key, value)) = line.split_once('=') {
+            map.insert(key.trim().to_string(), value.trim().to_string());
+        }
+    }
+    map
 }
 
-/// Serializa la carpeta del proyecto al formato `clave=valor`.
-fn serialize_project(path: &Path) -> String {
-    format!("{KEY_PROJECT}={}\n", path.display())
+/// Serializa el store, una clave por línea.
+fn serialize(values: &BTreeMap<String, String>) -> String {
+    let mut out = String::new();
+    for (key, value) in values {
+        out.push_str(key);
+        out.push('=');
+        out.push_str(value);
+        out.push('\n');
+    }
+    out
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn temp_dir(name: &str) -> PathBuf {
-        let d = std::env::temp_dir().join(format!("nuide-config-{name}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&d);
-        d
-    }
-
     #[test]
-    fn parsea_y_serializa_la_carpeta_del_proyecto() {
-        let dir = Path::new("F:\\proyectos\\coquito");
-        let text = serialize_project(dir);
-        assert_eq!(parse_project(&text).as_deref(), Some(dir));
-
-        // Espacios alrededor y otras claves no molestan.
-        let con_ruido = "tema=oscuro\nproject =  C:\\x  \n";
+    fn parsea_y_serializa_clave_valor() {
+        let mut values = BTreeMap::new();
+        values.insert("project".to_string(), "F:\\proyectos\\coquito".to_string());
+        values.insert("show.left".to_string(), "0".to_string());
+        let text = serialize(&values);
+        let back = parse(&text);
         assert_eq!(
-            parse_project(con_ruido).as_deref(),
-            Some(Path::new("C:\\x"))
+            back.get("project").map(String::as_str),
+            Some("F:\\proyectos\\coquito")
         );
-        assert_eq!(parse_project("tema=oscuro\n"), None);
+        assert_eq!(back.get("show.left").map(String::as_str), Some("0"));
+
+        // Comentarios y espacios no molestan.
+        let con_ruido = "# comentario\n\n show.right = 1 \nproject = C:\\x\n";
+        let map = parse(con_ruido);
+        assert_eq!(map.get("show.right").map(String::as_str), Some("1"));
+        assert_eq!(map.get("project").map(String::as_str), Some("C:\\x"));
     }
 
     #[test]
-    fn guarda_y_recupera_solo_si_la_carpeta_existe() {
-        let dir = temp_dir("roundtrip");
+    fn los_tipos_tienen_default_y_parsean() {
+        let mut values = BTreeMap::new();
+        values.insert("win.w".to_string(), "1280".to_string());
+        values.insert("show.left".to_string(), "0".to_string());
+        values.insert("tabs".to_string(), "2".to_string());
+        let cfg = Config {
+            values,
+            dir: PathBuf::from("."),
+        };
+        assert_eq!(cfg.f32("win.w", 0.0), 1280.0);
+        assert!(!cfg.bool("show.left", true));
+        assert!(cfg.bool("show.right", true)); // default
+        assert_eq!(cfg.usize("tabs", 0), 2);
+        assert_eq!(cfg.usize("falta", 7), 7);
+    }
+
+    #[test]
+    fn guarda_y_recupera_solo_si_la_carpeta_del_proyecto_existe() {
+        let dir = std::env::temp_dir().join(format!("nuide-config-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
         let proyecto = dir.join("proyecto");
         std::fs::create_dir_all(&proyecto).unwrap();
 
-        save_project_to(&dir, &proyecto);
-        assert_eq!(load_project_from(&dir).as_deref(), Some(proyecto.as_path()));
+        let mut cfg = Config {
+            values: BTreeMap::new(),
+            dir: dir.clone(),
+        };
+        cfg.set("project", proyecto.display());
+        cfg.save();
+        let loaded = Config {
+            values: parse(&std::fs::read_to_string(dir.join(FILE)).unwrap()),
+            dir: dir.clone(),
+        };
+        assert_eq!(loaded.project().as_deref(), Some(proyecto.as_path()));
 
-        // Si la carpeta ya no está, se ignora la configuración.
+        // Si la carpeta ya no está, se ignora.
         std::fs::remove_dir_all(&proyecto).unwrap();
-        assert_eq!(load_project_from(&dir), None);
-
-        // Y con un archivo vacío tampoco explota.
-        std::fs::write(dir.join(FILE), "").unwrap();
-        assert_eq!(load_project_from(&dir), None);
+        assert_eq!(loaded.project(), None);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -27,7 +27,7 @@ use std::time::Duration;
 
 use slint::{ComponentHandle, Model, ModelRc, Timer, TimerMode, VecModel};
 
-use crate::config;
+use crate::config::Config;
 use crate::explorer::{Action, Explorer};
 use crate::highlight;
 use crate::pty::{self, Pty, PtyEvent};
@@ -307,6 +307,8 @@ pub struct Ide {
     show_bottom: bool,
     /// El menú desplegable de "Ver" está abierto.
     view_menu_open: bool,
+    /// Configuración persistida (proyecto, paneles, ventana, pestañas).
+    config: Config,
     /// Modelo de líneas del editor. Se muta por fila para no reconstruir todo en
     /// cada tecla; se rehace entero al abrir/cambiar de pestaña o cambiar el
     /// número de líneas.
@@ -342,8 +344,12 @@ pub struct Ide {
 impl Ide {
     pub fn new() -> Self {
         let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+        let config = Config::load();
         // Si hay un proyecto recordado y sigue existiendo, se arranca ahí.
-        let root = config::load_project().unwrap_or(cwd);
+        let root = config.project().unwrap_or(cwd);
+        let show_left = config.bool("show.left", true);
+        let show_right = config.bool("show.right", true);
+        let show_bottom = config.bool("show.bottom", true);
         let (local_tx, local_rx) = mpsc::channel();
         let (agent_tx, agent_rx) = mpsc::channel();
 
@@ -360,10 +366,11 @@ impl Ide {
             explorer_selected: -1,
             tabs: Vec::new(),
             active_tab: 0,
-            show_left: true,
-            show_right: true,
-            show_bottom: true,
+            show_left,
+            show_right,
+            show_bottom,
             view_menu_open: false,
+            config,
             code_model: Rc::new(VecModel::default()),
             model_attached: false,
             editor_full: false,
@@ -387,8 +394,68 @@ impl Ide {
         // arranque de `opencode` en un PTY se cubre con `pty::tests`.
         if !cfg!(test) {
             ide.start_agent();
+            ide.restore_tabs();
         }
         ide
+    }
+
+    /// Reabre las pestañas recordadas (si el archivo sigue existiendo).
+    fn restore_tabs(&mut self) {
+        let count = self.config.usize("tabs", 0);
+        let paths: Vec<PathBuf> = (0..count)
+            .filter_map(|i| self.config.get(&format!("tab.{i}")).map(PathBuf::from))
+            .collect();
+        for path in paths {
+            self.open_file(path);
+        }
+        if let Some(active) = self
+            .config
+            .get("active_tab")
+            .and_then(|v| v.parse::<usize>().ok())
+        {
+            if active < self.tabs.len() {
+                self.tab_activated(active as i32);
+            }
+        }
+    }
+
+    /// Vuelca a la config el estado que sobrevive entre ejecuciones: geometría
+    /// de la ventana, paneles visibles y pestañas abiertas.
+    pub fn save_state(&mut self, window: &NuIdeWindow) {
+        let size = window.window().size();
+        self.config.set("win.w", size.width);
+        self.config.set("win.h", size.height);
+        let position = window.window().position();
+        self.config.set("win.x", position.x);
+        self.config.set("win.y", position.y);
+        self.config.set("show.left", u8::from(self.show_left));
+        self.config.set("show.right", u8::from(self.show_right));
+        self.config.set("show.bottom", u8::from(self.show_bottom));
+        self.config.set("tabs", self.tabs.len());
+        for (i, tab) in self.tabs.iter().enumerate() {
+            self.config.set(&format!("tab.{i}"), tab.path.display());
+        }
+        self.config.set("active_tab", self.active_tab);
+        self.config.save();
+    }
+
+    /// Aplica la geometría recordada (sin salirse de la pantalla por una
+    /// posición vieja).
+    pub fn apply_window(&self, window: &NuIdeWindow) {
+        let width = self.config.f32("win.w", 0.0);
+        let height = self.config.f32("win.h", 0.0);
+        if width >= 400.0 && height >= 300.0 {
+            window
+                .window()
+                .set_size(slint::PhysicalSize::new(width as u32, height as u32));
+        }
+        let x = self.config.f32("win.x", f32::MIN);
+        let y = self.config.f32("win.y", f32::MIN);
+        if x > -5000.0 && y > -5000.0 {
+            window
+                .window()
+                .set_position(slint::PhysicalPosition::new(x as i32, y as i32));
+        }
     }
 
     /// Estado listo para compartir con los callbacks de Slint.
@@ -474,7 +541,8 @@ impl Ide {
             return;
         }
         self.explorer.set_root(dir.clone());
-        config::save_project(&dir);
+        self.config.set("project", dir.display());
+        self.config.save();
         // El agente corre en la raíz del proyecto: se relanza ahí.
         self.restart_agent();
         // Las migas de pan dependen de la raíz; se rehace el editor.
@@ -2558,6 +2626,8 @@ fn quote(p: &Path) -> String {
 /// Engancha los callbacks de la ventana y arranca el bucle de drenado.
 pub fn attach(window: &NuIdeWindow, ide: Rc<RefCell<Ide>>) {
     ide.borrow_mut().sync(window);
+    // Restaura el tamaño/posición recordados (si los hay).
+    ide.borrow().apply_window(window);
 
     // Menú superior.
     {
@@ -2594,6 +2664,8 @@ pub fn attach(window: &NuIdeWindow, ide: Rc<RefCell<Ide>>) {
                 let mut e = ide.borrow_mut();
                 e.toggle_panel(kind);
                 e.sync(&w);
+                // La visibilidad de los paneles se recuerda entre ejecuciones.
+                e.save_state(&w);
             }
         });
     }
@@ -2609,10 +2681,19 @@ pub fn attach(window: &NuIdeWindow, ide: Rc<RefCell<Ide>>) {
         });
     }
 
-    // Cerrar desde el control de la barra superior.
-    window.on_close_requested(|| {
-        let _ = slint::quit_event_loop();
-    });
+    // Cerrar desde el control de la barra superior: guarda el estado.
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_close_requested(move || {
+            if let Some(w) = weak.upgrade() {
+                if let Ok(mut e) = ide.try_borrow_mut() {
+                    e.save_state(&w);
+                }
+            }
+            let _ = slint::quit_event_loop();
+        });
+    }
 
     // Teclado de la terminal.
     {
