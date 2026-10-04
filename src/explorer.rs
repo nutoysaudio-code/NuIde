@@ -5,9 +5,10 @@
 //! UI; el aplanado lo hace este módulo, que además guarda el `path` real de cada
 //! fila para poder actuar al hacer clic.
 //!
-//! La raíz sigue a la carpeta de la sesión activa de la terminal: un `cd` en la
-//! consola mueve el árbol. Hay topes de entradas por carpeta y de nodos totales
-//! para que una carpeta enorme (`target/`, `node_modules/`) no cuelgue la UI.
+//! La raíz es la carpeta del proyecto: la última elegida (recordada en la
+//! config) o la carpeta de lanzamiento. Se cambia con `set_root`. Hay topes de
+//! entradas por carpeta y de nodos totales para que una carpeta enorme
+//! (`target/`, `node_modules/`) no cuelgue la UI.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};

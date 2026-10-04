@@ -26,6 +26,7 @@ use std::time::Duration;
 
 use slint::{ComponentHandle, Model, ModelRc, Timer, TimerMode, VecModel};
 
+use crate::config;
 use crate::explorer::{Action, Explorer};
 use crate::highlight;
 use crate::pty::{self, Pty, PtyEvent};
@@ -289,6 +290,8 @@ pub struct Ide {
 impl Ide {
     pub fn new() -> Self {
         let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+        // Si hay un proyecto recordado y sigue existiendo, se arranca ahí.
+        let root = config::load_project().unwrap_or(cwd);
         let (local_tx, local_rx) = mpsc::channel();
         let (agent_tx, agent_rx) = mpsc::channel();
 
@@ -301,7 +304,7 @@ impl Ide {
             local_rows: TERM_ROWS,
             local_tx,
             local_rx,
-            explorer: Explorer::new(cwd),
+            explorer: Explorer::new(root),
             explorer_selected: -1,
             tabs: Vec::new(),
             active_tab: 0,
@@ -392,6 +395,40 @@ impl Ide {
             alive,
             sel: None,
         });
+    }
+
+    /// Abre el diálogo nativo para elegir la carpeta del proyecto y la fija como
+    /// raíz del explorador.
+    fn pick_project(&mut self) {
+        let start = self.explorer.root().to_path_buf();
+        if let Some(dir) = rfd::FileDialog::new()
+            .set_title("Elegir carpeta del proyecto")
+            .set_directory(&start)
+            .pick_folder()
+        {
+            self.set_project(dir);
+        }
+    }
+
+    /// Fija `dir` como raíz: reconstruye el explorador, reinicia el agente en la
+    /// carpeta nueva y recuerda la elección.
+    fn set_project(&mut self, dir: PathBuf) {
+        if !dir.is_dir() || dir == self.explorer.root() {
+            return;
+        }
+        self.explorer.set_root(dir.clone());
+        config::save_project(&dir);
+        // El agente corre en la raíz del proyecto: se relanza ahí.
+        self.restart_agent();
+        // Las migas de pan dependen de la raíz; se rehace el editor.
+        self.editor_full = true;
+    }
+
+    /// Relanza la TUI del agente (al cambiar de proyecto). Al soltar el `Pty`
+    /// anterior se cierra su proceso.
+    fn restart_agent(&mut self) {
+        self.agent = None;
+        self.start_agent();
     }
 
     /// Abre una shell nueva en un PTY y la deja activa.
@@ -1801,6 +1838,19 @@ pub fn attach(window: &NuIdeWindow, ide: Rc<RefCell<Ide>>) {
             if let Some(w) = weak.upgrade() {
                 let mut e = ide.borrow_mut();
                 e.menu(&label);
+                e.sync(&w);
+            }
+        });
+    }
+
+    // Elegir carpeta del proyecto.
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_open_project(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.pick_project();
                 e.sync(&w);
             }
         });

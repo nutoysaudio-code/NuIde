@@ -59,6 +59,7 @@ export component NuIdeWindow inherits Window {
 
     callback menu-activated(string);
     callback close-requested();
+    callback open-project();
     callback terminal-key(string, bool, bool, bool);
     callback terminal-resize(length, length);
     callback terminal-scroll(length);
@@ -130,6 +131,7 @@ export component NuIdeWindow inherits Window {
         width: parent.width;
         project: root.project-name;
         menu-activated(label) => { root.menu-activated(label); }
+        project-clicked => { root.open-project(); }
         close-requested => { root.close-requested(); }
     }
 

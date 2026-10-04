@@ -5,8 +5,9 @@ resaltado, terminal local y una terminal dedicada a **OpenCode CLI**.
 
 NuIde es un **proyecto independiente**: una aplicación de escritorio en
 **Rust + Slint** que no depende del workspace de audio ni de ningún crate
-compartido de plugins. Sus únicas dependencias son `slint` (UI) y `arboard`
-(portapapeles). Tiene su propio `[workspace]` para compilarse solo.
+compartido de plugins. Sus dependencias son `slint` (UI), `arboard`
+(portapapeles), `portable-pty` + `vt100` (terminales reales) y `rfd` (diálogo
+nativo de carpetas). Tiene su propio `[workspace]` para compilarse solo.
 
 La paleta es oscura y propia (instrumento electrónico sobrio): vive en
 `ui/ide_theme.slint`. La especificación visual está en
@@ -36,6 +37,7 @@ hasta abrir el primer archivo).
 | 6 | integración con el toolchain `spasm`/`spasmc` (build/run) | ✅ |
 | 7 | terminal: scrollback + selección y copia con el mouse | ✅ |
 | 8 | panel del agente: `opencode` en un PTY (TUI real) | ✅ |
+| 9 | elegir proyecto (diálogo nativo) + recordarlo | ✅ |
 
 ### El explorador (real)
 
@@ -49,6 +51,12 @@ se lanzó NuIde. Hay topes de 500 entradas por carpeta y 4000 nodos para que un
   activo para los menús Ejecutar/Compilar.
 - Las extensiones de configuración (`.toml`, `.json`, `.yaml`, …) llevan el
   icono de engranaje.
+
+La **raíz** es la carpeta del proyecto: la última elegida o la carpeta de
+lanzamiento. Se cambia con **clic en el nombre del proyecto** en la barra
+superior, que abre el diálogo nativo de carpetas (`rfd`). Al elegir otra, el
+explorador se reconstruye, el agente se relanza en la carpeta nueva y la
+elección se recuerda en `%APPDATA%\NuIde\config` para el próximo arranque.
 
 ### El editor (edición + resaltado)
 
@@ -179,6 +187,7 @@ nuide/
     terminal.rs            consola lineal heredada (sólo pruebas de integración)
     explorer.rs            árbol de archivos plano con profundidad
     highlight.rs           tokenizador/resaltado de SpASM
+    config.rs              configuración persistida (carpeta del proyecto)
     editor.rs              estado de la IDE (explorador, editor, terminales) + wiring
     main.rs                crea la ventana, engancha y corre
   ui/
@@ -220,8 +229,8 @@ slint-viewer --screenshot ui.png ui/nuide_ui.slint
 - **Selección por índice**: la UI guarda índices (`explorer-selected`,
   `active-tab`, `active-session`) en vez de reconstruir los modelos.
 - **Explorador y editor reales**: clic en carpeta abre/cierra; clic en archivo lo
-  abre en una pestaña con resaltado SpASM. La raíz del árbol es la carpeta de
-  arranque (elegir proyecto desde la UI queda pendiente).
+  abre en una pestaña con resaltado SpASM. La raíz del árbol se elige con clic en
+  el nombre del proyecto (diálogo nativo) y se recuerda entre arranques.
 - **Foco de teclado**: `IdeTerminal`, `IdeEditor` e `IdeOpenCode` heredan de
   `FocusScope` y tienen `focus-on-click`. La ventana hace `forward-focus` a la
   terminal local, así que ésta recibe el teclado apenas se abre; clic en el
@@ -233,23 +242,20 @@ slint-viewer --screenshot ui.png ui/nuide_ui.slint
 Ordenados por impacto para usar el IDE día a día. (Nada de esto está hecho; es
 la hoja de ruta acordada.)
 
-1. **Elegir proyecto.** El explorador arranca en la carpeta de lanzamiento; falta
-   un diálogo para abrir otra carpeta como raíz (y recordarla). Hoy la única
-   forma de cambiar de raíz es relanzar la IDE.
-2. **Persistencia de estado.** Guardar entre ejecuciones: tamaño/posición de la
-   ventana, proyecto, pestañas abiertas y sesiones.
-3. **Git.** Barra de estado con rama y estado reales + acciones básicas (stage,
+1. **Persistencia de estado.** Guardar entre ejecuciones algo más que el
+   proyecto: tamaño/posición de la ventana, pestañas abiertas y sesiones.
+2. **Git.** Barra de estado con rama y estado reales + acciones básicas (stage,
    commit, push) desde la IDE.
-4. **Atajos y búsqueda.** `F5` ejecutar / `Ctrl+B` compilar, paleta de comandos y
+3. **Atajos y búsqueda.** `F5` ejecutar / `Ctrl+B` compilar, paleta de comandos y
    búsqueda de archivos; buscar/reemplazar dentro del editor.
-5. **Mouse reporting en las terminales.** Reenviar el mouse a los procesos que lo
+4. **Mouse reporting en las terminales.** Reenviar el mouse a los procesos que lo
    pidan (la TUI de OpenCode, `vim`…) sin perder la selección/copia.
-6. **Empaquetado.** `.exe` release con icono y versión, e instalador, como las
+5. **Empaquetado.** `.exe` release con icono y versión, e instalador, como las
    otras apps del ecosistema.
 
 ### Estado al 2026-10-04
 
-Compilado y publicado: `gitlab.com/nutoys-group/nuide` (`main`). 41 tests OK;
-clon limpio genera `nuide.exe`. Las dos terminales son PTY reales: la local con
-shell y el panel del agente con la TUI de `opencode`. Falta local: los ítems de
-arriba.
+Compilado y publicado: `gitlab.com/nutoys-group/nuide` (`main`). 44 tests OK;
+clon limpio genera `nuide.exe`. Las dos terminales son PTY reales (shell local y
+TUI de `opencode`) y el proyecto se elige con diálogo nativo y se recuerda.
+Falta local: los ítems de arriba.

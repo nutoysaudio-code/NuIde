@@ -59,6 +59,8 @@ export component IdeTopBar inherits Rectangle {
     in property <string> project: "coquito";
     callback menu-activated(string);
     callback close-requested();
+    // Se clickeó el nombre del proyecto: abrir el selector de carpeta.
+    callback project-clicked();
 
     height: IdeTheme.topbar-h;
     background: IdeTheme.panel;
@@ -114,12 +116,12 @@ export component IdeTopBar inherits Rectangle {
         IdeMenuItem { label: "Compilar"; activated => { root.menu-activated(self.label); } }
     }
 
-    // Proyecto, centrado en la barra.
+    // Proyecto, centrado en la barra. Es clickeable: abre el selector de carpeta.
     project-text := Text {
         x: (parent.width - self.width) / 2;
         y: (parent.height - self.height) / 2;
         text: root.project;
-        color: IdeTheme.text-soft;
+        color: project-hit.has-hover ? IdeTheme.text : IdeTheme.text-soft;
         font-family: IdeTheme.sans;
         font-size: 12px;
         letter-spacing: 0.4px;
@@ -133,6 +135,15 @@ export component IdeTopBar inherits Rectangle {
         height: 6px;
         border-radius: 3px;
         background: IdeTheme.mint;
+    }
+
+    project-hit := TouchArea {
+        x: project-text.x - 16px;
+        y: (parent.height - 24px) / 2;
+        width: project-text.width + 32px;
+        height: 24px;
+        mouse-cursor: MouseCursor.pointer;
+        clicked => { root.project-clicked(); }
     }
 
     // Controles de ventana (decorativos en este esqueleto; cerrar sí cierra).

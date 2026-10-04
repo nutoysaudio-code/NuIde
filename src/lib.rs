@@ -6,6 +6,7 @@
 //
 // Ver `README.md` y `docs/NUIDE_IDEA.md` en esta carpeta.
 
+pub mod config;
 pub mod editor;
 pub mod explorer;
 pub mod highlight;
