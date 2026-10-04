@@ -57,6 +57,8 @@ ui/*.slint          la ventana, paneles y tema
   mismos gestos que la terminal local.
 - **Proyecto**: se elige con el diálogo nativo (clic en el nombre en la barra
   superior) y se recuerda entre arranques.
+- **Layout modular**: el menú **Ver** muestra u oculta el explorador, el panel de
+  OpenCode y la terminal inferior; el editor ocupa el espacio liberado.
 - **Barra de estado**: lenguaje, codificación y posición del cursor reales. La
   rama está fija en `main` (ver §4).
 
@@ -111,6 +113,17 @@ ui/*.slint          la ventana, paneles y tema
   selecciones se mapean a esa coordenada (antes quedaban corridos en líneas con
   tabs).
 
+### 3.5 Layout modular y menú Ver
+
+- La ventana calcula su geometría según qué paneles están visibles
+  (`show-left`, `show-right`, `show-bottom`): el editor se ensancha/alarga y los
+  divisores de los paneles ocultos dejan de responder.
+- El ítem **Ver** de la barra superior abre un desplegable (`ui/ide_viewmenu.slint`)
+  con **Explorador**, **OpenCode CLI** y **Terminal**; cada fila muestra u oculta
+  su panel. El menú se ancla bajo el ítem `Ver` (la barra publica su x) y se
+  cierra al hacer clic afuera.
+- El estado de visibilidad vive en `Ide` y lo vuelca `sync`.
+
 ---
 
 ## 4. Limitaciones conocidas
@@ -118,8 +131,11 @@ ui/*.slint          la ventana, paneles y tema
 - **Sin *mouse reporting*.** El mouse se usa para seleccionar/copiar, así que no
   se reenvía a los procesos que lo piden (la TUI de OpenCode, `vim`, etc.).
 - **Persistencia parcial.** Sólo se recuerda la carpeta del proyecto. El tamaño y
-  la posición de la ventana, las pestañas abiertas y las sesiones de terminal se
-  pierden al cerrar.
+  la posición de la ventana, las pestañas abiertas, las sesiones de terminal y la
+  visibilidad de los paneles se pierden al cerrar.
+- **Sólo dos columnas laterales.** El layout soporta mostrar/ocultar el
+  explorador y OpenCode, pero no apilar varias columnas por lado (agregar
+  paneles nuevos requiere tocar el layout).
 - **La shell local no cambia de carpeta** al cambiar de proyecto (sí lo hacen las
   sesiones nuevas y el agente, que se relanza).
 - **Git decorativo.** La barra inferior muestra `main` fijo; no hay estado real ni
@@ -143,7 +159,8 @@ Ordenados por impacto para el uso diario.
 ### 5.1 Persistencia de estado
 
 **Objetivo:** recordar entre ejecuciones el tamaño/posición de la ventana, las
-pestañas abiertas y las sesiones de terminal (además del proyecto, ya hecho).
+pestañas abiertas, las sesiones de terminal y **qué paneles están visibles**
+(además del proyecto, ya hecho).
 
 **Enfoque:** ampliar `config.rs` a un pequeño *store* `clave=valor` (ya parsea
 líneas) y guardar desde `editor.rs`/`main.rs` en los cambios relevantes. La
@@ -200,7 +217,7 @@ script de instalación.
 ## 6. Verificación
 
 - `cargo build` / `cargo check` sin warnings.
-- `cargo test`: **49 pruebas OK** (unitarias; las de PTY lanzan `cmd`/`opencode`
+- `cargo test`: **50 pruebas OK** (unitarias; las de PTY lanzan `cmd`/`opencode`
   reales y se saltean si no están).
 - `cargo fmt --check` limpio.
 - `slint-viewer --check ui/nuide_ui.slint` OK.

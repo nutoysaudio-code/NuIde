@@ -3,18 +3,19 @@ import { IdeTheme } from "ide_theme.slint";
 // Elemento de menú de la barra superior.
 component IdeMenuItem inherits Rectangle {
     in property <string> label: "Archivo";
+    in property <bool> active: false;
     callback activated();
 
     height: 24px;
     width: menu-text.width + 18px;
     border-radius: IdeTheme.radius-sm;
-    background: ta.has-hover ? IdeTheme.control : transparent;
+    background: (ta.has-hover || root.active) ? IdeTheme.control : transparent;
 
     menu-text := Text {
         x: 9px;
         y: (parent.height - self.height) / 2;
         text: root.label;
-        color: ta.has-hover ? IdeTheme.text : IdeTheme.text-soft;
+        color: (ta.has-hover || root.active) ? IdeTheme.text : IdeTheme.text-soft;
         font-family: IdeTheme.sans;
         font-size: 12px;
         vertical-alignment: center;
@@ -57,10 +58,13 @@ component IdeWindowButton inherits Rectangle {
 // Barra superior: icono + marca, menú, proyecto centrado y controles.
 export component IdeTopBar inherits Rectangle {
     in property <string> project: "coquito";
+    in property <bool> view-active: false;
     callback menu-activated(string);
     callback close-requested();
     // Se clickeó el nombre del proyecto: abrir el selector de carpeta.
     callback project-clicked();
+    // Posición del ítem "Ver": la ventana ancla ahí el menú desplegable.
+    out property <length> view-menu-x: view-item.x;
 
     height: IdeTheme.topbar-h;
     background: IdeTheme.panel;
@@ -111,7 +115,7 @@ export component IdeTopBar inherits Rectangle {
 
         IdeMenuItem { label: "Archivo"; activated => { root.menu-activated(self.label); } }
         IdeMenuItem { label: "Editar";  activated => { root.menu-activated(self.label); } }
-        IdeMenuItem { label: "Ver";     activated => { root.menu-activated(self.label); } }
+        view-item := IdeMenuItem { label: "Ver"; active: root.view-active; activated => { root.menu-activated(self.label); } }
         IdeMenuItem { label: "Ejecutar"; activated => { root.menu-activated(self.label); } }
         IdeMenuItem { label: "Compilar"; activated => { root.menu-activated(self.label); } }
     }

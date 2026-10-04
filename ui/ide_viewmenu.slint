@@ -1,0 +1,67 @@
+import { IdeTheme } from "ide_theme.slint";
+
+// Fila del menú "Ver": etiqueta + tilde cuando el panel está visible.
+component IdeViewItem inherits Rectangle {
+    in property <string> label: "";
+    in property <bool> checked: true;
+    in property <int> kind: 0;
+    callback toggled(int);
+
+    height: 26px;
+    border-radius: IdeTheme.radius-sm;
+    background: ta.has-hover ? IdeTheme.control-hi : transparent;
+
+    label-text := Text {
+        x: 10px;
+        y: (parent.height - self.height) / 2;
+        text: root.label;
+        color: ta.has-hover ? IdeTheme.text : IdeTheme.text-soft;
+        font-family: IdeTheme.sans;
+        font-size: 12px;
+        vertical-alignment: center;
+    }
+
+    Text {
+        x: parent.width - 22px;
+        y: (parent.height - self.height) / 2;
+        text: root.checked ? "✓" : "";
+        color: IdeTheme.mint;
+        font-family: IdeTheme.sans;
+        font-size: 12px;
+        vertical-alignment: center;
+    }
+
+    ta := TouchArea {
+        mouse-cursor: MouseCursor.pointer;
+        clicked => { root.toggled(root.kind); }
+    }
+}
+
+// Menú desplegable del ítem "Ver": muestra/oculta los paneles de la ventana.
+// `kind`: 0 explorador (izquierda), 1 OpenCode (derecha), 2 terminal (abajo).
+export component IdeViewMenu inherits Rectangle {
+    in property <bool> show-left: true;
+    in property <bool> show-right: true;
+    in property <bool> show-bottom: true;
+    callback toggle(int);
+
+    width: 200px;
+    height: menu.preferred-height + 12px;
+    background: IdeTheme.panel;
+    border-width: 1px;
+    border-color: IdeTheme.border-soft;
+    border-radius: IdeTheme.radius-sm;
+
+    menu := VerticalLayout {
+        x: 6px;
+        y: 6px;
+        width: parent.width - 12px;
+        height: self.preferred-height;
+        spacing: 0;
+        alignment: start;
+
+        IdeViewItem { label: "Explorador";    checked: root.show-left;   kind: 0; toggled(k) => { root.toggle(k); } }
+        IdeViewItem { label: "OpenCode CLI";  checked: root.show-right;  kind: 1; toggled(k) => { root.toggle(k); } }
+        IdeViewItem { label: "Terminal";      checked: root.show-bottom; kind: 2; toggled(k) => { root.toggle(k); } }
+    }
+}

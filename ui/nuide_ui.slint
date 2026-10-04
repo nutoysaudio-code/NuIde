@@ -6,6 +6,7 @@ import { IdeExplorer } from "ide_explorer.slint";
 import { IdeEditor } from "ide_editor.slint";
 import { IdeTerminal } from "ide_terminal.slint";
 import { IdeOpenCode } from "ide_opencode.slint";
+import { IdeViewMenu } from "ide_viewmenu.slint";
 
 // ---------------------------------------------------------------------------
 // NuIde — SpASM Studio (walking skeleton)
@@ -33,6 +34,12 @@ export component NuIdeWindow inherits Window {
     in-out property <float> right-frac: 0.28;
     in-out property <float> bottom-frac: 0.25;
     in-out property <int> drag-mode: 0;
+
+    // Paneles visibles y estado del menú "Ver". Los maneja Rust.
+    in-out property <bool> show-left: true;
+    in-out property <bool> show-right: true;
+    in-out property <bool> show-bottom: true;
+    in-out property <bool> view-open: false;
 
     // Selección de la UI (índices, no modelos reconstruidos).
     in-out property <int> explorer-selected: 2;
@@ -84,6 +91,9 @@ export component NuIdeWindow inherits Window {
     callback new-session();
     callback close-session();
     callback split-terminal();
+    // Menú "Ver": mostrar/ocultar paneles y cerrar el menú.
+    callback toggle-panel(int);
+    callback view-menu-close();
     // Explorador y editor.
     callback node-activated(int);
     callback tab-activated(int);
@@ -114,24 +124,29 @@ export component NuIdeWindow inherits Window {
     forward-focus: terminal;
 
     // --- geometría derivada (todo relativo al área de contenido) ---
+    private property <length> view-menu-x: topbar.view-menu-x;
     private property <length> content-w: self.width;
     private property <length> content-h: max(0px, self.height - IdeTheme.topbar-h - IdeTheme.statusbar-h);
-    private property <length> left-w: root.content-w * root.left-frac;
-    private property <length> right-w: root.content-w * root.right-frac;
-    private property <length> center-x: root.left-w + IdeTheme.splitter;
-    private property <length> center-w: max(0px, root.content-w - root.left-w - root.right-w - 2 * IdeTheme.splitter);
-    private property <length> editor-h: root.content-h * (1 - root.bottom-frac);
-    private property <length> term-h: max(0px, root.content-h - root.editor-h - IdeTheme.splitter);
+    private property <length> left-w: root.show-left ? root.content-w * root.left-frac : 0px;
+    private property <length> right-w: root.show-right ? root.content-w * root.right-frac : 0px;
+    private property <length> left-gap: root.show-left ? IdeTheme.splitter : 0px;
+    private property <length> right-gap: root.show-right ? IdeTheme.splitter : 0px;
+    private property <length> center-x: root.left-w + root.left-gap;
+    private property <length> center-w: max(0px, root.content-w - root.left-w - root.right-w - root.left-gap - root.right-gap);
+    private property <length> editor-h: root.show-bottom ? root.content-h * (1 - root.bottom-frac) : root.content-h;
+    private property <length> bottom-gap: root.show-bottom ? IdeTheme.splitter : 0px;
+    private property <length> term-h: max(0px, root.content-h - root.editor-h - root.bottom-gap);
 
     // Qué divisor está bajo el cursor: 0 nada, 1 izquierda, 2 derecha, 3 horizontal.
+    // Un divisor sólo cuenta si su panel está visible.
     function hit-test(px: length, py: length) -> int {
-        if (px >= root.left-w - 3px && px <= root.left-w + IdeTheme.splitter + 3px) {
+        if (root.show-left && px >= root.left-w - 3px && px <= root.left-w + IdeTheme.splitter + 3px) {
             return 1;
         }
-        if (px >= root.content-w - root.right-w - IdeTheme.splitter - 3px && px <= root.content-w - root.right-w + 3px) {
+        if (root.show-right && px >= root.content-w - root.right-w - IdeTheme.splitter - 3px && px <= root.content-w - root.right-w + 3px) {
             return 2;
         }
-        if (py >= root.editor-h - 3px && py <= root.editor-h + IdeTheme.splitter + 3px
+        if (root.show-bottom && py >= root.editor-h - 3px && py <= root.editor-h + IdeTheme.splitter + 3px
             && px >= root.center-x && px <= root.center-x + root.center-w) {
             return 3;
         }
@@ -149,11 +164,12 @@ export component NuIdeWindow inherits Window {
     }
 
     // --- barra superior ---
-    IdeTopBar {
+    topbar := IdeTopBar {
         x: 0;
         y: 0;
         width: parent.width;
         project: root.project-name;
+        view-active: root.view-open;
         menu-activated(label) => { root.menu-activated(label); }
         project-clicked => { root.open-project(); }
         close-requested => { root.close-requested(); }
@@ -202,11 +218,13 @@ export component NuIdeWindow inherits Window {
                 : MouseCursor.default;
 
             // Guías visuales de los divisores (viven en los huecos entre paneles).
+            // Sólo se ven si el panel que dividen está presente.
             Rectangle {
                 x: root.left-w + IdeTheme.splitter / 2 - 1px;
                 y: 0;
                 width: 2px;
                 height: root.content-h;
+                visible: root.show-left;
                 background: root.drag-mode == 1 ? IdeTheme.mint : IdeTheme.border-soft;
             }
             Rectangle {
@@ -214,6 +232,7 @@ export component NuIdeWindow inherits Window {
                 y: 0;
                 width: 2px;
                 height: root.content-h;
+                visible: root.show-right;
                 background: root.drag-mode == 2 ? IdeTheme.mint : IdeTheme.border-soft;
             }
             Rectangle {
@@ -221,6 +240,7 @@ export component NuIdeWindow inherits Window {
                 y: root.editor-h + IdeTheme.splitter / 2 - 1px;
                 width: root.center-w;
                 height: 2px;
+                visible: root.show-bottom;
                 background: root.drag-mode == 3 ? IdeTheme.mint : IdeTheme.border-soft;
             }
         }
@@ -231,6 +251,7 @@ export component NuIdeWindow inherits Window {
             y: 0;
             width: root.left-w;
             height: parent.height;
+            visible: root.show-left;
             nodes: root.tree-nodes;
             selected-index: root.explorer-selected;
             node-clicked(i) => { root.explorer-selected = i; root.node-activated(i); }
@@ -278,9 +299,10 @@ export component NuIdeWindow inherits Window {
         // --- columna central: terminal local ---
         terminal := IdeTerminal {
             x: root.center-x;
-            y: root.editor-h + IdeTheme.splitter;
+            y: root.editor-h + root.bottom-gap;
             width: root.center-w;
             height: root.term-h;
+            visible: root.show-bottom;
             sessions: root.term-sessions;
             active-session: root.active-session;
             lines: root.term-lines;
@@ -305,6 +327,7 @@ export component NuIdeWindow inherits Window {
             y: 0;
             width: root.right-w;
             height: parent.height;
+            visible: root.show-right;
             connected: root.agent-connected;
             version: root.agent-version;
             model: root.agent-model;
@@ -320,6 +343,29 @@ export component NuIdeWindow inherits Window {
             selection-update(y, x) => { root.agent-selection-update(y, x); }
             selection-end => { root.agent-selection-end(); }
         }
+    }
+
+    // --- capa que cierra el menú "Ver" al hacer clic fuera ---
+    if root.view-open: Rectangle {
+        x: 0;
+        y: 0;
+        width: parent.width;
+        height: parent.height;
+        background: transparent;
+
+        TouchArea {
+            clicked => { root.view-menu-close(); }
+        }
+    }
+
+    // --- menú desplegable del ítem "Ver" ---
+    if root.view-open: IdeViewMenu {
+        x: root.view-menu-x;
+        y: IdeTheme.topbar-h;
+        show-left: root.show-left;
+        show-right: root.show-right;
+        show-bottom: root.show-bottom;
+        toggle(kind) => { root.toggle-panel(kind); }
     }
 
     // =======================================================================

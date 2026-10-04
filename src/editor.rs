@@ -301,6 +301,12 @@ pub struct Ide {
     /// Archivos abiertos en el editor.
     tabs: Vec<OpenTab>,
     active_tab: usize,
+    /// Visibilidad de los paneles (menú Ver): explorador, OpenCode y terminal.
+    show_left: bool,
+    show_right: bool,
+    show_bottom: bool,
+    /// El menú desplegable de "Ver" está abierto.
+    view_menu_open: bool,
     /// Modelo de líneas del editor. Se muta por fila para no reconstruir todo en
     /// cada tecla; se rehace entero al abrir/cambiar de pestaña o cambiar el
     /// número de líneas.
@@ -354,6 +360,10 @@ impl Ide {
             explorer_selected: -1,
             tabs: Vec::new(),
             active_tab: 0,
+            show_left: true,
+            show_right: true,
+            show_bottom: true,
+            view_menu_open: false,
             code_model: Rc::new(VecModel::default()),
             model_attached: false,
             editor_full: false,
@@ -762,8 +772,25 @@ impl Ide {
         match label {
             "Ejecutar" => self.run(None),
             "Compilar" => self.build(""),
+            // "Ver" abre/cierra el desplegable de paneles.
+            "Ver" => self.view_menu_open = !self.view_menu_open,
             _ => {}
         }
+    }
+
+    /// Muestra u oculta un panel. `kind`: 0 explorador, 1 OpenCode, 2 terminal.
+    fn toggle_panel(&mut self, kind: i32) {
+        match kind {
+            0 => self.show_left = !self.show_left,
+            1 => self.show_right = !self.show_right,
+            2 => self.show_bottom = !self.show_bottom,
+            _ => {}
+        }
+    }
+
+    /// Cierra el menú desplegable de "Ver".
+    fn close_view_menu(&mut self) {
+        self.view_menu_open = false;
     }
 }
 
@@ -1973,6 +2000,12 @@ impl Ide {
 
     /// Vuelca el estado a la ventana. Idempotente.
     fn sync(&mut self, w: &NuIdeWindow) {
+        // --- paneles (menú Ver) ---
+        w.set_show_left(self.show_left);
+        w.set_show_right(self.show_right);
+        w.set_show_bottom(self.show_bottom);
+        w.set_view_open(self.view_menu_open);
+
         // --- terminal real ---
         let sessions: Vec<slint::SharedString> =
             self.local.iter().map(|s| s.name.clone().into()).collect();
@@ -2547,6 +2580,30 @@ pub fn attach(window: &NuIdeWindow, ide: Rc<RefCell<Ide>>) {
             if let Some(w) = weak.upgrade() {
                 let mut e = ide.borrow_mut();
                 e.pick_project();
+                e.sync(&w);
+            }
+        });
+    }
+
+    // Menú "Ver": mostrar/ocultar paneles.
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_toggle_panel(move |kind| {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.toggle_panel(kind);
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_view_menu_close(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.close_view_menu();
                 e.sync(&w);
             }
         });
@@ -3289,6 +3346,27 @@ mod tests {
         // El toggle de palabra completa queda activo.
         ide.find_toggle_word();
         assert!(ide.find.whole_word);
+    }
+
+    #[test]
+    fn el_menu_ver_alterna_los_paneles() {
+        let mut ide = Ide::new();
+        assert!(ide.show_left && ide.show_right && ide.show_bottom);
+        assert!(!ide.view_menu_open);
+
+        ide.menu("Ver");
+        assert!(ide.view_menu_open);
+        ide.toggle_panel(0);
+        assert!(!ide.show_left);
+        ide.toggle_panel(1);
+        assert!(!ide.show_right);
+        ide.toggle_panel(2);
+        assert!(!ide.show_bottom);
+        // Un tipo desconocido no rompe.
+        ide.toggle_panel(9);
+
+        ide.close_view_menu();
+        assert!(!ide.view_menu_open);
     }
 
     #[test]

@@ -39,6 +39,7 @@ hasta abrir el primer archivo).
 | 8 | panel del agente: `opencode` en un PTY (TUI real) | ✅ |
 | 9 | elegir proyecto (diálogo nativo) + recordarlo | ✅ |
 | 10 | editor: buscar/reemplazar + resaltados de contexto | ✅ |
+| 11 | layout modular: menú Ver (mostrar/ocultar paneles) | ✅ |
 
 > El parte de estado detallado —qué se cambió en cada iteración, limitaciones y
 > pendientes con su enfoque— está en [`docs/ESTADO.md`](docs/ESTADO.md).
@@ -222,6 +223,7 @@ nuide/
     ide_editor.slint       pestañas + ruta + área de código
     ide_terminal.slint     terminal local + `TerminalScreen` reutilizable
     ide_opencode.slint     panel de OpenCode CLI (TUI en PTY)
+    ide_viewmenu.slint     desplegable del menú Ver (paneles)
     nuide_ui.slint         la ventana: layout, divisores y datos demo
   docs/NUIDE_IDEA.md       especificación visual/funcional
   docs/ESTADO.md           parte de estado (hecho, limitaciones, pendientes)
@@ -248,6 +250,11 @@ slint-viewer --screenshot ui.png ui/nuide_ui.slint
   detecta la zona pulsada (huecos de 6 px) y reparte el espacio con
   `left-frac` / `right-frac` / `bottom-frac`. Cambiar la terminal inferior solo
   afecta a la columna central.
+- **Layout modular (menú Ver)**: el ítem **Ver** de la barra superior abre un
+  desplegable con **Explorador**, **OpenCode CLI** y **Terminal**. Cada uno se
+  muestra u oculta por separado; al ocultarlos, el editor ocupa el espacio
+  liberado y el divisor del panel oculto deja de responder. Las columnas
+  laterales son independientes y el zócalo inferior sigue a la central.
 - **Cada área hace su propio scroll**: el explorador y el editor con `Flickable`;
   las dos terminales con el scrollback del emulador `vt` (rueda y barra).
 - **Selección por índice**: la UI guarda índices (`explorer-selected`,
@@ -268,7 +275,8 @@ la hoja de ruta acordada. El enfoque de cada uno está en
 [`docs/ESTADO.md`](docs/ESTADO.md#5-pendientes-hoja-de-ruta).)
 
 1. **Persistencia de estado.** Guardar entre ejecuciones algo más que el
-   proyecto: tamaño/posición de la ventana, pestañas abiertas y sesiones.
+   proyecto: tamaño/posición de la ventana, pestañas abiertas, sesiones y qué
+   paneles están visibles.
 2. **Git.** Barra de estado con rama y estado reales + acciones básicas (stage,
    commit, push) desde la IDE.
 3. **Atajos y búsqueda.** `F5` ejecutar / `Ctrl+B` compilar, paleta de comandos y
@@ -280,8 +288,8 @@ la hoja de ruta acordada. El enfoque de cada uno está en
 
 ### Estado al 2026-10-04
 
-Compilado y publicado: `gitlab.com/nutoys-group/nuide` (`main`). 49 tests OK;
+Compilado y publicado: `gitlab.com/nutoys-group/nuide` (`main`). 50 tests OK;
 clon limpio genera `nuide.exe`. Las dos terminales son PTY reales (shell local y
-TUI de `opencode`), el proyecto se elige con diálogo nativo y se recuerda, y el
-editor tiene buscar/reemplazar y resaltados de contexto. Falta local: los ítems
-de arriba.
+TUI de `opencode`), el proyecto se elige con diálogo nativo y se recuerda, el
+editor tiene buscar/reemplazar y resaltados de contexto, y los paneles se
+muestran/ocultan desde el menú Ver. Falta local: los ítems de arriba.
