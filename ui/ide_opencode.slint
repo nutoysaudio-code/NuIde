@@ -18,6 +18,7 @@ export component IdeOpenCode inherits FocusScope {
     in property <int> scroll-total: 0;
     in property <float> scroll-pos: 1.0;
     in property <float> scroll-thumb: 1.0;
+    in property <length> cell-width: 7.2px;
     callback key-input(string, bool, bool, bool);
     // Tamaño del área de pantalla en píxeles, para dimensionar el PTY.
     callback resized(length, length);
@@ -163,6 +164,7 @@ export component IdeOpenCode inherits FocusScope {
             scroll-total: root.scroll-total;
             scroll-pos: root.scroll-pos;
             scroll-thumb: root.scroll-thumb;
+            cell-width: root.cell-width;
             selection-start(y, x) => { root.focus(); root.selection-start(y, x); }
             selection-update(y, x) => { root.selection-update(y, x); }
             selection-end => { root.selection-end(); }

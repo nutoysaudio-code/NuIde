@@ -36,6 +36,8 @@ const SCROLLBACK: usize = 2_000;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Run {
     pub text: String,
+    /// Columna (celda) donde arranca el tramo dentro de la fila.
+    pub col: u16,
     pub fg: Rgb,
     pub bg: Rgb,
     pub bold: bool,
@@ -168,7 +170,13 @@ impl Screen {
                         if let Some(run) = current.take() {
                             runs.push(run);
                         }
-                        current = Some(Run { text, fg, bg, bold });
+                        current = Some(Run {
+                            text,
+                            col,
+                            fg,
+                            bg,
+                            bold,
+                        });
                     }
                 }
             }

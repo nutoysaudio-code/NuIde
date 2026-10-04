@@ -147,6 +147,17 @@ ui/*.slint          la ventana, paneles y tema
   `F:\SpAMS-Oficial` o por `NUIDE_SPASM_FRONTEND`. Test de punta a punta real
   (se saltea si falta Python o el frontend).
 
+### 3.7 Terminales: grilla exacta y ancho de celda medido
+
+- La TUI de `opencode` se desalineaba porque el ancho de celda asumido
+  (`7.2 px`) no coincidía con el avance real de la fuente monoespaciada elegida.
+- Ahora la ventana **mide** una celda (32 `M` a 12 px, `Text.preferred-width`)
+  y avisa a Rust (`cell-width`), que recalcula las **columnas del PTY** con esa
+  medida.
+- `TerminalScreen` dibuja cada tramo en su **columna** (`run.col * cell-width`,
+  ancho `run.cols * cell-width`, con clip) en vez de encadenar anchos de texto.
+  Así los glifos de caja/bloque (`▀ █ ┃ ╹`) caen en la grilla y no se superponen.
+
 ---
 
 ## 4. Limitaciones conocidas

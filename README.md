@@ -42,6 +42,7 @@ hasta abrir el primer archivo).
 | 11 | layout modular: controles en la barra + menú Ver | ✅ |
 | 12 | dock por panel + apilado por lado (hasta 3) | ✅ |
 | 13 | diagnóstico real: parser de SpASM en el editor | ✅ |
+| 14 | terminales: grilla exacta (ancho de celda medido) | ✅ |
 
 > El parte de estado detallado —qué se cambió en cada iteración, limitaciones y
 > pendientes con su enfoque— está en [`docs/ESTADO.md`](docs/ESTADO.md).
@@ -157,6 +158,10 @@ invirtiendo la celda (sin calcular píxeles).
   propia. «Dividir» abre otra sesión.
 - El teclado se traduce a los bytes del terminal (flechas, Backspace, Delete,
   Home/End, PageUp/Down, Ctrl+letra, Shift+flechas).
+- **Grilla exacta**: la ventana **mide** el ancho real de una celda monoespaciada
+  y cada tramo se ubica por su columna (no por el ancho del texto). Así las TUI
+  con glifos de caja/bloque (la de `opencode`) quedan alineadas aunque la fuente
+  no sea monoespaciada perfecta.
 
 Los menús **Ejecutar** y **Compilar** de la barra superior actúan sobre el
 archivo activo y **escriben la orden en la shell activa**, así la salida aparece

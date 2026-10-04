@@ -35,9 +35,11 @@ export struct IdeCodeLine {
 }
 
 // Tramo de texto de la **terminal real**: celdas contiguas con el mismo frente,
-// fondo y negrita. Agruparlos evita un `Text` por carácter.
+// fondo y negrita. `col`/`cols` ubican el tramo en la grilla de celdas.
 export struct TermRun {
     text: string,
+    col: int,
+    cols: int,
     fg: color,
     bg: color,
     bold: bool,

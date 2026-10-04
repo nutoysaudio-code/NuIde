@@ -334,6 +334,13 @@ pub struct Ide {
     local_rows: u16,
     local_tx: Sender<PtyEvent>,
     local_rx: Receiver<PtyEvent>,
+    /// Ancho real de una celda monoespaciada (lo mide la UI). Se usa para
+    /// calcular las columnas del PTY y para ubicar las celdas en la grilla.
+    cell_w: f32,
+    /// Último tamaño en píxeles de cada terminal (para recalcular al cambiar la
+    /// celda).
+    local_px: (f32, f32),
+    agent_px: (f32, f32),
     /// Árbol de archivos.
     explorer: Explorer,
     /// Índice seleccionado en el explorador (-1 = nada).
@@ -419,6 +426,9 @@ impl Ide {
             local_rows: TERM_ROWS,
             local_tx,
             local_rx,
+            cell_w: TERM_CELL_W,
+            local_px: (0.0, 0.0),
+            agent_px: (0.0, 0.0),
             explorer: Explorer::new(root),
             explorer_selected: -1,
             tabs: Vec::new(),
@@ -761,7 +771,7 @@ impl Ide {
         let rows = rows.max(1) as i64;
         let cols = cols.max(1) as i64;
         let row = ((y.max(0.0) / TERM_CELL_H).floor() as i64).clamp(0, rows - 1) as u16;
-        let col = ((x.max(0.0) / TERM_CELL_W).floor() as i64).clamp(0, cols - 1) as u16;
+        let col = ((x.max(0.0) / self.cell_w.max(1.0)).floor() as i64).clamp(0, cols - 1) as u16;
         (row, col)
     }
 
@@ -994,7 +1004,8 @@ impl Ide {
     /// La UI informa el tamaño del área de pantalla de la terminal local (en
     /// píxeles, sin el encabezado).
     fn local_resize(&mut self, w: f32, h: f32) {
-        let (cols, rows) = cells_for(w, h);
+        self.local_px = (w, h);
+        let (cols, rows) = cells_for(w, h, self.cell_w);
         if cols != self.local_cols || rows != self.local_rows {
             self.local_cols = cols;
             self.local_rows = rows;
@@ -1004,12 +1015,26 @@ impl Ide {
 
     /// Igual que `local_resize`, pero para el panel del agente.
     fn agent_resize(&mut self, w: f32, h: f32) {
-        let (cols, rows) = cells_for(w, h);
+        self.agent_px = (w, h);
+        let (cols, rows) = cells_for(w, h, self.cell_w);
         if cols != self.agent_cols || rows != self.agent_rows {
             self.agent_cols = cols;
             self.agent_rows = rows;
             self.resize_agent();
         }
+    }
+
+    /// La UI mide el ancho real de una celda monoespaciada y lo informa. Con eso
+    /// se recalculan las columnas del PTY para que coincidan con la grilla.
+    fn set_cell_width(&mut self, width: f32) {
+        if !(4.0..=24.0).contains(&width) || (width - self.cell_w).abs() < 0.05 {
+            return;
+        }
+        self.cell_w = width;
+        let (lw, lh) = self.local_px;
+        let (aw, ah) = self.agent_px;
+        self.local_resize(lw, lh);
+        self.agent_resize(aw, ah);
     }
 }
 
@@ -2171,11 +2196,16 @@ impl Ide {
             .map(|runs| TermLine {
                 runs: ModelRc::from(Rc::new(VecModel::from(
                     runs.into_iter()
-                        .map(|run| TermRun {
-                            text: run.text.into(),
-                            fg: to_color(run.fg),
-                            bg: to_color(run.bg),
-                            bold: run.bold,
+                        .map(|run| {
+                            let cols = run.text.chars().count() as i32;
+                            TermRun {
+                                text: run.text.into(),
+                                col: run.col as i32,
+                                cols,
+                                fg: to_color(run.fg),
+                                bg: to_color(run.bg),
+                                bold: run.bold,
+                            }
                         })
                         .collect::<Vec<_>>(),
                 ))),
@@ -2696,8 +2726,9 @@ fn file_name(path: &Path) -> String {
 
 /// Traduce el tamaño de un panel en píxeles a celdas de terminal (columnas ×
 /// filas), acotado a un rango razonable para el PTY.
-fn cells_for(w: f32, h: f32) -> (u16, u16) {
-    let cols = ((w / TERM_CELL_W).floor() as i64).clamp(20, 500) as u16;
+fn cells_for(w: f32, h: f32, cell_w: f32) -> (u16, u16) {
+    let cell_w = cell_w.max(1.0);
+    let cols = ((w / cell_w).floor() as i64).clamp(20, 500) as u16;
     let rows = ((h / TERM_CELL_H).floor() as i64).clamp(2, 200) as u16;
     (cols, rows)
 }
@@ -2869,6 +2900,17 @@ pub fn attach(window: &NuIdeWindow, ide: Rc<RefCell<Ide>>) {
             if let Some(w) = weak.upgrade() {
                 let mut e = ide.borrow_mut();
                 e.local_resize(w_px, h_px);
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_cell_width(move |width| {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.set_cell_width(width);
                 e.sync(&w);
             }
         });
