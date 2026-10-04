@@ -170,8 +170,10 @@ ui/*.slint          la ventana, paneles y tema
 ### 3.8 Editor: resaltado por lenguaje
 
 - `highlight.rs` define `Language` (detectado por extensión) y `tokenize_line(line,
-  lang)`. Tokenizadores: **SpASM** (el original), **Slint**, **JSON**, **TOML**,
-  **YAML**, **Markdown**, **shell** y **Rust**; el resto va texto plano.
+  lang)`. Tokenizadores: **SpASM**, **Slint**, **JSON**, **TOML**, **YAML**,
+  **Markdown**, **shell**, **Rust**, **Python**, **JavaScript**, **TypeScript**,
+  **C**, **C++**, **C#**, **Java**, **Go**, **Kotlin**, **Swift**, **Lua**,
+  **Ruby**, **PHP**, **HTML**, **XML**, **CSS** y **SQL**; el resto va texto plano.
 - Cada `OpenTab` guarda su `Language`; `build_row` resalta con el del archivo y la
   **barra de estado** muestra el lenguaje real (antes decía siempre "SpASM").
 - Los tokenizadores genéricos se parametrizan con un `Spec` (comentarios, comillas,
@@ -284,7 +286,7 @@ script de instalación.
 ## 6. Verificación
 
 - `cargo build` / `cargo check` sin warnings.
-- `cargo test`: **56 pruebas OK** (unitarias; las de PTY y el linter lanzan
+- `cargo test`: **57 pruebas OK** (unitarias; las de PTY y el linter lanzan
   `cmd`/`opencode`/Python reales y se saltean si no están).
 - `cargo fmt --check` limpio.
 - `slint-viewer --check ui/nuide_ui.slint` OK.

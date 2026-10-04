@@ -43,7 +43,7 @@ hasta abrir el primer archivo).
 | 12 | dock por panel + apilado por lado (hasta 3) | ✅ |
 | 13 | diagnóstico real: parser de SpASM en el editor | ✅ |
 | 14 | terminales: grilla exacta (ancho de celda medido) | ✅ |
-| 15 | editor: resaltado por lenguaje (SpASM, Slint, JSON, …) | ✅ |
+| 15 | editor: resaltado por lenguaje (SpASM, Slint, Python, C, …) | ✅ |
 | 16 | visores: imágenes + vista previa de Markdown | ✅ |
 
 > El parte de estado detallado —qué se cambió en cada iteración, limitaciones y
@@ -72,12 +72,13 @@ elección se recuerda en `%APPDATA%\NuIde\config` para el próximo arranque.
 ### El editor (edición + resaltado)
 
 `src/highlight.rs` detecta el **lenguaje por la extensión** y resalta cada tipo de
-documento con su tokenizador: **SpASM** (`;`/`//`, strings, números, keywords,
-etiquetas `nombre:`), **Slint**, **JSON**, **TOML**, **YAML**, **Markdown**,
-**shell** y **Rust** (y texto plano para el resto). La **barra de estado** muestra
-el lenguaje real del archivo activo. Los tabs se expanden a cuatro espacios y la
-concatenación de tokens reproduce la línea exacta, que es lo que necesita el
-render monoespaciado.
+documento con su tokenizador: **SpASM**, **Slint**, **JSON**, **TOML**, **YAML**,
+**Markdown**, **shell**, **Rust**, **Python**, **JavaScript**, **TypeScript**,
+**C**, **C++**, **C#**, **Java**, **Go**, **Kotlin**, **Swift**, **Lua**, **Ruby**,
+**PHP**, **HTML**, **XML**, **CSS** y **SQL** (y texto plano para el resto). La
+**barra de estado** muestra el lenguaje real del archivo activo. Los tabs se
+expanden a cuatro espacios y la concatenación de tokens reproduce la línea
+exacta, que es lo que necesita el render monoespaciado.
 
 El buffer es un `Vec<String>` por pestaña, con cursor por **caracteres** (no
 bytes, para no romper acentos) y flag de cambios sin guardar (el punto ámbar de
@@ -320,7 +321,7 @@ la hoja de ruta acordada. El enfoque de cada uno está en
 
 ### Estado al 2026-10-04
 
-Compilado y publicado: `gitlab.com/nutoys-group/nuide` (`main`). 56 tests OK;
+Compilado y publicado: `gitlab.com/nutoys-group/nuide` (`main`). 57 tests OK;
 clon limpio genera `nuide.exe`. Las dos terminales son PTY reales (shell local y
 TUI de `opencode`), el proyecto se elige con diálogo nativo y se recuerda, el
 editor tiene buscar/reemplazar, resaltados, **resaltado por lenguaje y visores**
