@@ -39,12 +39,16 @@ hasta abrir el primer archivo).
 | 8 | panel del agente: `opencode` en un PTY (TUI real) | ✅ |
 | 9 | elegir proyecto (diálogo nativo) + recordarlo | ✅ |
 
+> El parte de estado detallado —qué se cambió en cada iteración, limitaciones y
+> pendientes con su enfoque— está en [`docs/ESTADO.md`](docs/ESTADO.md).
+
 ### El explorador (real)
 
 `src/explorer.rs` arma un árbol **plano con profundidad**, que es lo que dibuja
-`IdeExplorer`, y guarda el `path` real de cada fila. La raíz es la carpeta donde
-se lanzó NuIde. Hay topes de 500 entradas por carpeta y 4000 nodos para que un
-`target/` o un `node_modules/` no cuelguen la UI.
+`IdeExplorer`, y guarda el `path` real de cada fila. La raíz es la carpeta del
+proyecto (la última elegida o la de lanzamiento). Hay topes de 500 entradas por
+carpeta y 4000 nodos para que un `target/` o un `node_modules/` no cuelguen la
+UI.
 
 - Clic en una carpeta: se abre o se cierra.
 - Clic en un archivo: se abre en una pestaña, se resalta y queda como archivo
@@ -201,6 +205,7 @@ nuide/
     ide_opencode.slint     panel de OpenCode CLI (TUI en PTY)
     nuide_ui.slint         la ventana: layout, divisores y datos demo
   docs/NUIDE_IDEA.md       especificación visual/funcional
+  docs/ESTADO.md           parte de estado (hecho, limitaciones, pendientes)
 ```
 
 ## Compilar y correr
@@ -240,7 +245,8 @@ slint-viewer --screenshot ui.png ui/nuide_ui.slint
 ## Próximos pasos
 
 Ordenados por impacto para usar el IDE día a día. (Nada de esto está hecho; es
-la hoja de ruta acordada.)
+la hoja de ruta acordada. El enfoque de cada uno está en
+[`docs/ESTADO.md`](docs/ESTADO.md#5-pendientes-hoja-de-ruta).)
 
 1. **Persistencia de estado.** Guardar entre ejecuciones algo más que el
    proyecto: tamaño/posición de la ventana, pestañas abiertas y sesiones.
