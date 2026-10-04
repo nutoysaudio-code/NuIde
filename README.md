@@ -93,15 +93,19 @@ entero al abrir, cambiar de pestaña o cambiar el número de líneas.
 | `Ctrl+Z` / `Ctrl+Y` | Deshace / rehace (pila de 500 por archivo; `Ctrl+Shift+Z` también rehace). |
 | `Ctrl+F` | Abre la barra de búsqueda. |
 | `Ctrl+H` | Abre la búsqueda con el campo de reemplazo. |
+| `F5` | Ejecuta el archivo activo con el intérprete de SpASM. |
+| `Ctrl+B` | Compila el archivo activo. |
 | Clic en una fila | Ubica el cursor en la columna más cercana a la x. |
 | Arrastrar | Selecciona con el mouse, cruzando líneas. |
 
 **Buscar y reemplazar.** Con la barra abierta, el teclado edita la búsqueda:
 `Enter` / `Shift+Enter` saltan a la coincidencia siguiente / anterior, `Tab`
-alterna entre los campos de buscar y reemplazar, y `Esc` cierra. El botón `Aa`
-distingue mayúsculas y `⇄` muestra u oculta el reemplazo. «Reemplazar» cambia la
-coincidencia actual y «Todo» el resto del archivo (ambos con deshacer). El
-contador muestra `actual/total`.
+alterna entre los campos de buscar y reemplazar, y `Esc` cierra. Los campos se
+editan con `←`/`→`, `Home`/`End`, `Backspace` y `Delete` (con el caret a la
+vista). El botón `Aa` distingue mayúsculas, `Palabra` busca palabras completas y
+`⇄` muestra u oculta el reemplazo. «Reemplazar» cambia la coincidencia actual y
+«Todo» el resto del archivo (ambos con deshacer). El contador muestra
+`actual/total`.
 
 **Resaltados de contexto.** Además del resaltado de sintaxis, el editor pinta
 todas las apariciones de la **palabra bajo el cursor**, el **par de llaves**
@@ -276,7 +280,7 @@ la hoja de ruta acordada. El enfoque de cada uno está en
 
 ### Estado al 2026-10-04
 
-Compilado y publicado: `gitlab.com/nutoys-group/nuide` (`main`). 48 tests OK;
+Compilado y publicado: `gitlab.com/nutoys-group/nuide` (`main`). 49 tests OK;
 clon limpio genera `nuide.exe`. Las dos terminales son PTY reales (shell local y
 TUI de `opencode`), el proyecto se elige con diálogo nativo y se recuerda, y el
 editor tiene buscar/reemplazar y resaltados de contexto. Falta local: los ítems

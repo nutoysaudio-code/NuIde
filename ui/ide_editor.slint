@@ -188,6 +188,13 @@ export component IdeEditor inherits FocusScope {
     in property <string> find-info: "";
     in property <bool> find-focus-replace: false;
     in property <bool> find-case: false;
+    in property <bool> find-whole-word: false;
+    // Texto antes y después del cursor de cada campo (para dibujar el caret en
+    // su posición sin operaciones de string en Slint).
+    in property <string> find-query-before: "";
+    in property <string> find-query-after: "";
+    in property <string> find-replace-before: "";
+    in property <string> find-replace-after: "";
     callback tab-selected(int);
     callback tab-closed(int);
     // Tecla cruda: (texto, ¿control?, ¿shift?), igual que en la terminal.
@@ -202,6 +209,7 @@ export component IdeEditor inherits FocusScope {
     callback find-close();
     callback find-toggle-replace();
     callback find-toggle-case();
+    callback find-toggle-word();
     callback find-focus(bool);
     callback replace-one();
     callback replace-all();
@@ -374,7 +382,7 @@ export component IdeEditor inherits FocusScope {
                             cross-axis-alignment: center;
 
                             Text {
-                                text: root.find-query;
+                                text: root.find-query-before;
                                 color: IdeTheme.text;
                                 font-family: IdeTheme.mono;
                                 font-size: 12px;
@@ -385,6 +393,13 @@ export component IdeEditor inherits FocusScope {
                                 width: 1px;
                                 height: 13px;
                                 background: IdeTheme.mint;
+                            }
+                            Text {
+                                text: root.find-query-after;
+                                color: IdeTheme.text;
+                                font-family: IdeTheme.mono;
+                                font-size: 12px;
+                                vertical-alignment: center;
                             }
                         }
 
@@ -405,6 +420,7 @@ export component IdeEditor inherits FocusScope {
                     IdeFindButton { label: "‹"; activated => { root.find-prev(); } }
                     IdeFindButton { label: "›"; activated => { root.find-next(); } }
                     IdeFindButton { label: "Aa"; active: root.find-case; activated => { root.find-toggle-case(); } }
+                    IdeFindButton { label: "Palabra"; active: root.find-whole-word; activated => { root.find-toggle-word(); } }
                     IdeFindButton { label: "⇄"; active: root.find-replace-open; activated => { root.find-toggle-replace(); } }
                     IdeFindButton { label: "×"; danger: true; activated => { root.find-close(); } }
                 }
@@ -441,7 +457,7 @@ export component IdeEditor inherits FocusScope {
                             cross-axis-alignment: center;
 
                             Text {
-                                text: root.find-replace;
+                                text: root.find-replace-before;
                                 color: IdeTheme.text;
                                 font-family: IdeTheme.mono;
                                 font-size: 12px;
@@ -452,6 +468,13 @@ export component IdeEditor inherits FocusScope {
                                 width: 1px;
                                 height: 13px;
                                 background: IdeTheme.mint;
+                            }
+                            Text {
+                                text: root.find-replace-after;
+                                color: IdeTheme.text;
+                                font-family: IdeTheme.mono;
+                                font-size: 12px;
+                                vertical-alignment: center;
                             }
                         }
 

@@ -249,8 +249,13 @@ struct Find {
     query: String,
     replace: String,
     case_sensitive: bool,
+    /// Sólo coincidencias que sean palabras completas.
+    whole_word: bool,
     /// El foco está en el campo de reemplazo (si no, en el de búsqueda).
     focus_replace: bool,
+    /// Posición del cursor dentro de cada campo (en caracteres).
+    query_cursor: usize,
+    replace_cursor: usize,
     /// Coincidencias de la pestaña activa: `(línea, col_inicio, col_fin)`, con el
     /// fin **exclusivo** y columnas en caracteres.
     matches: Vec<(usize, usize, usize)>,
@@ -949,6 +954,11 @@ impl Ide {
         if self.tabs.is_empty() {
             return;
         }
+        // Atajos globales del IDE, aun con la búsqueda abierta.
+        if text == "\u{F708}" {
+            self.run(None);
+            return;
+        }
         if control {
             match text.to_ascii_lowercase().as_str() {
                 "s" => {
@@ -962,6 +972,10 @@ impl Ide {
                 }
                 "h" => {
                     self.find_open(true);
+                    return;
+                }
+                "b" => {
+                    self.build("");
                     return;
                 }
                 _ => {}
@@ -1097,6 +1111,8 @@ impl Ide {
             self.find.replace_open = true;
         }
         self.find.focus_replace = false;
+        self.find.query_cursor = self.find.query.chars().count();
+        self.find.replace_cursor = self.find.replace.chars().count();
         self.find_recompute();
         self.editor_full = true;
     }
@@ -1126,12 +1142,24 @@ impl Ide {
         self.editor_full = true;
     }
 
+    /// Alterna buscar sólo palabras completas.
+    fn find_toggle_word(&mut self) {
+        self.find.whole_word = !self.find.whole_word;
+        self.find_recompute();
+        self.editor_full = true;
+    }
+
     /// Pone el foco en uno de los dos campos.
     fn find_focus(&mut self, replace: bool) {
         if replace && !self.find.replace_open {
             self.find.replace_open = true;
         }
         self.find.focus_replace = replace;
+        if replace {
+            self.find.replace_cursor = self.find.replace.chars().count();
+        } else {
+            self.find.query_cursor = self.find.query.chars().count();
+        }
     }
 
     /// Recalcula las coincidencias de la pestaña activa y lleva el cursor a la
@@ -1145,11 +1173,12 @@ impl Ide {
             return;
         }
         let case = self.find.case_sensitive;
+        let whole = self.find.whole_word;
         let Some(tab) = self.tabs.get(self.active_tab) else {
             return;
         };
         for (line, text) in tab.lines.iter().enumerate() {
-            let hits = find_in_line(text, &query, case);
+            let hits = find_in_line(text, &query, case, whole);
             if !hits.is_empty() {
                 self.find
                     .matches
@@ -1188,17 +1217,64 @@ impl Ide {
         }
     }
 
-    /// El campo de búsqueda o el de reemplazo, según el foco.
-    fn find_field(&mut self) -> &mut String {
+    /// El campo de búsqueda o el de reemplazo junto con su cursor, según el foco.
+    fn find_field(&mut self) -> (&mut String, &mut usize) {
         if self.find.focus_replace {
-            &mut self.find.replace
+            (&mut self.find.replace, &mut self.find.replace_cursor)
         } else {
-            &mut self.find.query
+            (&mut self.find.query, &mut self.find.query_cursor)
+        }
+    }
+
+    /// Inserta un carácter en el cursor del campo con foco.
+    fn find_insert(&mut self, ch: char) {
+        let (text, cursor) = self.find_field();
+        let mut chars: Vec<char> = text.chars().collect();
+        let at = (*cursor).min(chars.len());
+        chars.insert(at, ch);
+        *text = chars.into_iter().collect();
+        *cursor = at + 1;
+    }
+
+    /// Borra el carácter anterior al cursor.
+    fn find_backspace(&mut self) {
+        let (text, cursor) = self.find_field();
+        let mut chars: Vec<char> = text.chars().collect();
+        let at = (*cursor).min(chars.len());
+        if at == 0 {
+            return;
+        }
+        chars.remove(at - 1);
+        *text = chars.into_iter().collect();
+        *cursor = at - 1;
+    }
+
+    /// Borra el carácter bajo el cursor.
+    fn find_delete(&mut self) {
+        let (text, cursor) = self.find_field();
+        let mut chars: Vec<char> = text.chars().collect();
+        let at = (*cursor).min(chars.len());
+        if at >= chars.len() {
+            return;
+        }
+        chars.remove(at);
+        *text = chars.into_iter().collect();
+    }
+
+    /// Mueve el cursor del campo con foco `delta` posiciones (o a un extremo).
+    fn find_move_cursor(&mut self, delta: i32, to_end: bool) {
+        let (text, cursor) = self.find_field();
+        let len = text.chars().count();
+        if to_end {
+            *cursor = len;
+        } else {
+            let at = (*cursor).min(len) as i32;
+            *cursor = (at + delta).clamp(0, len as i32) as usize;
         }
     }
 
     /// Teclado mientras la barra de búsqueda está abierta: edita el campo con
-    /// foco, navega y cierra.
+    /// foco (con cursor), navega entre coincidencias y cierra.
     fn find_key(&mut self, text: &str, control: bool, shift: bool) {
         if control {
             match text.to_ascii_lowercase().as_str() {
@@ -1228,15 +1304,27 @@ impl Ide {
                 '\t' => {
                     if self.find.replace_open {
                         self.find.focus_replace = !self.find.focus_replace;
+                        self.find_move_cursor(0, true);
                     }
                     return;
                 }
-                '\u{8}' | '\u{7f}' => {
-                    self.find_field().pop();
+                '\u{8}' => {
+                    self.find_backspace();
                     edited = true;
                 }
+                '\u{7f}' => {
+                    self.find_delete();
+                    edited = true;
+                }
+                '\u{F702}' => self.find_move_cursor(-1, false),
+                '\u{F703}' => self.find_move_cursor(1, false),
+                '\u{F729}' => {
+                    let (_, cursor) = self.find_field();
+                    *cursor = 0;
+                }
+                '\u{F72b}' => self.find_move_cursor(0, true),
                 c if c >= ' ' && c < '\u{E000}' => {
-                    self.find_field().push(c);
+                    self.find_insert(c);
                     edited = true;
                 }
                 _ => {}
@@ -1283,12 +1371,13 @@ impl Ide {
         }
         let replacement = self.find.replace.clone();
         let case = self.find.case_sensitive;
+        let whole = self.find.whole_word;
         let mut changed = false;
         self.push_undo();
         {
             let t = &mut self.tabs[self.active_tab];
             for line in t.lines.iter_mut() {
-                let (updated, count) = replace_in_line(line, &query, &replacement, case);
+                let (updated, count) = replace_in_line(line, &query, &replacement, case, whole);
                 if count > 0 {
                     *line = updated;
                     changed = true;
@@ -1965,6 +2054,13 @@ impl Ide {
             w.set_find_replace(self.find.replace.clone().into());
             w.set_find_focus_replace(self.find.focus_replace);
             w.set_find_case(self.find.case_sensitive);
+            w.set_find_whole_word(self.find.whole_word);
+            let (qb, qa) = split_at_cursor(&self.find.query, self.find.query_cursor);
+            let (rb, ra) = split_at_cursor(&self.find.replace, self.find.replace_cursor);
+            w.set_find_query_before(qb.into());
+            w.set_find_query_after(qa.into());
+            w.set_find_replace_before(rb.into());
+            w.set_find_replace_after(ra.into());
             let info = if self.find.query.is_empty() {
                 String::new()
             } else {
@@ -2141,6 +2237,14 @@ fn tab_map(line: &str) -> Vec<usize> {
     map
 }
 
+/// Parte `text` en el cursor: lo de antes y lo de después. Sirve para que la UI
+/// dibuje el caret en su posición.
+fn split_at_cursor(text: &str, cursor: usize) -> (String, String) {
+    let before: String = text.chars().take(cursor).collect();
+    let after: String = text.chars().skip(cursor).collect();
+    (before, after)
+}
+
 /// `true` si el carácter es parte de un identificador.
 fn is_word_char(c: char) -> bool {
     c.is_alphanumeric() || c == '_'
@@ -2271,8 +2375,13 @@ fn char_eq(a: char, b: char, case_sensitive: bool) -> bool {
 }
 
 /// Apariciones de `query` en `line`, como rangos de caracteres con el fin
-/// exclusivo. No se solapan.
-fn find_in_line(line: &str, query: &str, case_sensitive: bool) -> Vec<(usize, usize)> {
+/// exclusivo. No se solapan. Con `whole_word`, exige bordes de palabra.
+fn find_in_line(
+    line: &str,
+    query: &str,
+    case_sensitive: bool,
+    whole_word: bool,
+) -> Vec<(usize, usize)> {
     let hay: Vec<char> = line.chars().collect();
     let needle: Vec<char> = query.chars().collect();
     if needle.is_empty() || needle.len() > hay.len() {
@@ -2281,7 +2390,11 @@ fn find_in_line(line: &str, query: &str, case_sensitive: bool) -> Vec<(usize, us
     let mut out = Vec::new();
     let mut i = 0;
     while i + needle.len() <= hay.len() {
-        if (0..needle.len()).all(|j| char_eq(hay[i + j], needle[j], case_sensitive)) {
+        let matches = (0..needle.len()).all(|j| char_eq(hay[i + j], needle[j], case_sensitive));
+        let boundary = !whole_word
+            || ((i == 0 || !is_word_char(hay[i - 1]))
+                && (i + needle.len() == hay.len() || !is_word_char(hay[i + needle.len()])));
+        if matches && boundary {
             out.push((i, i + needle.len()));
             i += needle.len();
         } else {
@@ -2298,8 +2411,9 @@ fn replace_in_line(
     query: &str,
     replacement: &str,
     case_sensitive: bool,
+    whole_word: bool,
 ) -> (String, usize) {
-    let hits = find_in_line(line, query, case_sensitive);
+    let hits = find_in_line(line, query, case_sensitive, whole_word);
     if hits.is_empty() {
         return (line.to_string(), 0);
     }
@@ -2682,6 +2796,17 @@ pub fn attach(window: &NuIdeWindow, ide: Rc<RefCell<Ide>>) {
     {
         let ide = Rc::clone(&ide);
         let weak = window.as_weak();
+        window.on_find_toggle_word(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.find_toggle_word();
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
         window.on_find_focus(move |replace| {
             if let Some(w) = weak.upgrade() {
                 let mut e = ide.borrow_mut();
@@ -2886,17 +3011,26 @@ mod tests {
     #[test]
     fn encuentra_y_reemplaza_en_una_linea() {
         assert_eq!(
-            find_in_line("hola hola", "hola", true),
+            find_in_line("hola hola", "hola", true, false),
             vec![(0, 4), (5, 9)]
         );
         // Sin distinguir mayúsculas.
-        assert_eq!(find_in_line("HoLa", "hola", false), vec![(0, 4)]);
+        assert_eq!(find_in_line("HoLa", "hola", false, false), vec![(0, 4)]);
         assert_eq!(
-            find_in_line("HoLa", "hola", true),
+            find_in_line("HoLa", "hola", true, false),
             Vec::<(usize, usize)>::new()
         );
+        // Palabra completa: "hola" no coincide dentro de "holanda".
+        assert_eq!(
+            find_in_line("hola holanda", "hola", true, true),
+            vec![(0, 4)]
+        );
+        assert_eq!(
+            find_in_line("hola holanda", "hola", true, false),
+            vec![(0, 4), (5, 9)]
+        );
 
-        let (line, count) = replace_in_line("uno dos uno", "uno", "X", true);
+        let (line, count) = replace_in_line("uno dos uno", "uno", "X", true, false);
         assert_eq!(line, "X dos X");
         assert_eq!(count, 2);
     }
@@ -3131,6 +3265,30 @@ mod tests {
         assert_eq!(total, 0);
         assert_eq!(pos, 1.0);
         assert_eq!(thumb, 1.0);
+    }
+
+    #[test]
+    fn edita_el_campo_de_busqueda_con_cursor() {
+        let mut ide = Ide::new();
+        ide.find_open(false);
+        // Se escribe "ac", se vuelve atrás y se corrige en el medio.
+        ide.find_insert('a');
+        ide.find_insert('c');
+        ide.find_move_cursor(-1, false);
+        ide.find_insert('b');
+        assert_eq!(ide.find.query, "abc");
+        assert_eq!(ide.find.query_cursor, 2);
+
+        ide.find_backspace();
+        assert_eq!(ide.find.query, "ac");
+        assert_eq!(ide.find.query_cursor, 1);
+
+        ide.find_move_cursor(0, true);
+        assert_eq!(ide.find.query_cursor, 2);
+
+        // El toggle de palabra completa queda activo.
+        ide.find_toggle_word();
+        assert!(ide.find.whole_word);
     }
 
     #[test]
