@@ -38,10 +38,9 @@ hasta abrir el primer archivo).
 ### El explorador (real)
 
 `src/explorer.rs` arma un árbol **plano con profundidad**, que es lo que dibuja
-`IdeExplorer`, y guarda el `path` real de cada fila. La raíz sigue a la carpeta
-de la sesión activa de la terminal: un `cd` mueve el árbol. Hay topes de 500
-entradas por carpeta y 4000 nodos para que un `target/` o un `node_modules/` no
-cuelguen la UI.
+`IdeExplorer`, y guarda el `path` real de cada fila. La raíz es la carpeta donde
+se lanzó NuIde. Hay topes de 500 entradas por carpeta y 4000 nodos para que un
+`target/` o un `node_modules/` no cuelguen la UI.
 
 - Clic en una carpeta: se abre o se cierra.
 - Clic en un archivo: se abre en una pestaña, se resalta y queda como archivo
@@ -212,10 +211,36 @@ slint-viewer --screenshot ui.png ui/nuide_ui.slint
 - **Selección por índice**: la UI guarda índices (`explorer-selected`,
   `active-tab`, `active-session`) en vez de reconstruir los modelos.
 - **Explorador y editor reales**: clic en carpeta abre/cierra; clic en archivo lo
-  abre en una pestaña con resaltado SpASM. La raíz del árbol sigue a la carpeta
-  de la sesión activa de la terminal (`cd` la mueve).
+  abre en una pestaña con resaltado SpASM. La raíz del árbol es la carpeta de
+  arranque (elegir proyecto desde la UI queda pendiente).
 - **Foco de teclado**: `IdeTerminal`, `IdeEditor` e `IdeOpenCode` heredan de
   `FocusScope` y tienen `focus-on-click`. La ventana hace `forward-focus` a la
   terminal local, así que ésta recibe el teclado apenas se abre; clic en el
   editor le pasa el foco (para tipear código), y clic en cualquiera de las dos
   consolas lo devuelve.
+
+## Próximos pasos
+
+Ordenados por impacto para usar el IDE día a día. (Nada de esto está hecho; es
+la hoja de ruta acordada.)
+
+1. **Terminal: scrollback y mouse.** Hoy sólo se ve la pantalla visible
+   (scrollback = 0 en `vt100`) y no se puede seleccionar/copiar con el mouse.
+   Falta buffer de scrollback + barra/rueca para recorrerlo, y copiar texto.
+2. **Panel del agente con PTY real.** Hoy usa `opencode run` (un proceso por
+   prompt). El paso grande es correr `opencode` en un PTY para tener su TUI.
+3. **Elegir proyecto.** El explorador arranca en la carpeta de lanzamiento; falta
+   un diálogo para abrir otra carpeta como raíz (y recordarla).
+4. **Persistencia de estado.** Guardar entre ejecuciones: tamaño/posición de la
+   ventana, proyecto, pestañas abiertas y sesiones.
+5. **Git.** Barra de estado con rama y estado reales + acciones básicas (stage,
+   commit, push) desde la IDE.
+6. **Atajos y búsqueda.** `F5` ejecutar / `Ctrl+B` compilar, paleta de comandos y
+   búsqueda de archivos; buscar/reemplazar dentro del editor.
+7. **Empaquetado.** `.exe` release con icono y versión, e instalador, como las
+   otras apps del ecosistema.
+
+### Estado al 2026-10-04
+
+Compilado y publicado: `gitlab.com/nutoys-group/nuide` (`main`). 37 tests OK;
+clon limpio genera `nuide.exe`. Falta local: los ítems de arriba.
