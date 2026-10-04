@@ -90,11 +90,28 @@ struct Cursor {
     col: usize,
 }
 
+/// Qué tipo de documento tiene una pestaña.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DocKind {
+    /// Texto editable con resaltado.
+    Text,
+    /// Imagen (se muestra, no se edita).
+    Image,
+}
+
 /// Un archivo abierto en una pestaña del editor.
 struct OpenTab {
     path: PathBuf,
+    /// Texto o imagen.
+    kind: DocKind,
+    /// Imagen cargada (sólo para `DocKind::Image`).
+    image: Option<slint::Image>,
     /// Lenguaje detectado por la extensión (para el resaltado y la barra).
     language: highlight::Language,
+    /// Markdown: mostrar la vista previa en vez del código.
+    preview: bool,
+    /// Texto con estilo ya construido para la vista previa.
+    preview_doc: Option<slint::StyledText>,
     /// Líneas sin el `\n` (el separador se reconstruye al guardar).
     lines: Vec<String>,
     cursor: Cursor,
@@ -1085,10 +1102,29 @@ impl Ide {
             self.lint_active();
             return;
         }
-        let (lines, trailing_newline, read_only) = read_lines(&path);
+        let (lines, trailing_newline, read_only) = if is_image(&path) {
+            (Vec::new(), false, true)
+        } else {
+            read_lines(&path)
+        };
+        let is_img = is_image(&path);
+        let kind = if is_img {
+            DocKind::Image
+        } else {
+            DocKind::Text
+        };
+        let image = if is_img {
+            slint::Image::load_from_path(&path).ok()
+        } else {
+            None
+        };
         self.tabs.push(OpenTab {
             path: path.clone(),
+            kind,
+            image,
             language: highlight::Language::from_path(&path),
+            preview: false,
+            preview_doc: None,
             lines,
             cursor: Cursor { line: 0, col: 0 },
             anchor: None,
@@ -1119,6 +1155,21 @@ impl Ide {
     fn find_after_tab_change(&mut self) {
         if self.find.open {
             self.find_recompute();
+        }
+    }
+
+    /// Alterna la vista previa (sólo para Markdown).
+    fn toggle_preview(&mut self) {
+        if let Some(tab) = self.tabs.get_mut(self.active_tab) {
+            if tab.language == highlight::Language::Markdown {
+                tab.preview = !tab.preview;
+                if tab.preview {
+                    let source = tab.lines.join("\n");
+                    tab.preview_doc = Some(markdown_preview(&source));
+                } else {
+                    tab.preview_doc = None;
+                }
+            }
         }
     }
 
@@ -1166,6 +1217,10 @@ impl Ide {
         if self.tabs.is_empty() {
             return;
         }
+        // Una imagen no se edita.
+        if self.tabs[self.active_tab].kind == DocKind::Image {
+            return;
+        }
         // Atajos globales del IDE, aun con la búsqueda abierta.
         if text == "\u{F708}" {
             self.run(None);
@@ -1174,6 +1229,11 @@ impl Ide {
         if text == "\u{F709}" {
             // F6: analiza el archivo activo con el parser de SpASM.
             self.lint_active();
+            return;
+        }
+        if control && shift && text.eq_ignore_ascii_case("m") {
+            // Ctrl+Shift+M: vista previa de Markdown.
+            self.toggle_preview();
             return;
         }
         if control {
@@ -2329,13 +2389,27 @@ impl Ide {
                 .unwrap_or((1, 1));
             w.set_active_line(line);
             w.set_active_column(col);
-            let language = self
-                .tabs
-                .get(self.active_tab)
-                .map(|t| t.language.name())
-                .unwrap_or("SpASM");
+            let active = self.tabs.get(self.active_tab);
+            let language = match active {
+                Some(t) if t.kind == DocKind::Image => "Imagen",
+                Some(t) => t.language.name(),
+                None => "SpASM",
+            };
+            let is_image = active.is_some_and(|t| t.kind == DocKind::Image);
+            let image = active.and_then(|t| t.image.clone()).unwrap_or_default();
+            let preview = active.is_some_and(|t| t.preview);
+            let preview_doc = active
+                .filter(|t| t.preview)
+                .and_then(|t| t.preview_doc.clone())
+                .unwrap_or_default();
+            let is_markdown = active.is_some_and(|t| t.language == highlight::Language::Markdown);
             w.set_language(language.into());
             w.set_diagnostics(self.diagnostics_summary().into());
+            w.set_show_image(is_image);
+            w.set_active_image(image);
+            w.set_show_preview(preview);
+            w.set_preview_styled(preview_doc);
+            w.set_is_markdown(is_markdown);
 
             // Barra de búsqueda del editor.
             w.set_find_open(self.find.open);
@@ -2430,6 +2504,41 @@ impl Ide {
             }
         }
     }
+}
+
+/// ¿La extensión corresponde a una imagen que podemos mostrar?
+fn is_image(path: &Path) -> bool {
+    matches!(
+        path.extension()
+            .and_then(|e| e.to_str())
+            .map(str::to_ascii_lowercase)
+            .as_deref(),
+        Some("png" | "jpg" | "jpeg" | "gif" | "bmp" | "webp" | "ico")
+    )
+}
+
+/// Convierte Markdown a texto con estilo de Slint. Sanea lo que el parser de
+/// Slint no soporta (headings y cercos de código) y cae a texto plano si falla.
+fn markdown_preview(source: &str) -> slint::StyledText {
+    let mut out = String::new();
+    for line in source.lines() {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("```") || trimmed.starts_with("~~~") {
+            continue;
+        }
+        let hashes = trimmed.chars().take_while(|c| *c == '#').count();
+        if (1..=6).contains(&hashes) && trimmed.chars().nth(hashes) == Some(' ') {
+            let text: String = trimmed.chars().skip(hashes + 1).collect();
+            out.push_str("**");
+            out.push_str(text.trim());
+            out.push_str("**");
+        } else {
+            out.push_str(line);
+        }
+        out.push('\n');
+    }
+    slint::StyledText::from_markdown(&out)
+        .unwrap_or_else(|_| slint::StyledText::from_plain_text(source))
 }
 
 /// Lee un archivo a líneas de texto. Devuelve también si terminaba en salto de
@@ -2885,6 +2994,19 @@ pub fn attach(window: &NuIdeWindow, ide: Rc<RefCell<Ide>>) {
             if let Some(w) = weak.upgrade() {
                 let mut e = ide.borrow_mut();
                 e.pick_project();
+                e.sync(&w);
+            }
+        });
+    }
+
+    // Vista previa de Markdown.
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_preview_toggle(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.toggle_preview();
                 e.sync(&w);
             }
         });
@@ -3720,6 +3842,32 @@ mod tests {
         ide.cycle_dock(1); // agente a oculto
         ide.cycle_dock(1); // agente a izquierda
         assert_eq!(ide.docks[1], Dock::Left);
+    }
+
+    #[test]
+    fn detecta_imagenes_y_alterna_la_vista_previa() {
+        assert!(is_image(Path::new("foto.PNG")));
+        assert!(is_image(Path::new("a.jpeg")));
+        assert!(!is_image(Path::new("a.spasm")));
+        assert!(!is_image(Path::new("a.md")));
+
+        let dir = temp_dir("viewer");
+        let md = dir.join("README.md");
+        std::fs::write(&md, "# Hola\n\ntexto").unwrap();
+        let mut ide = Ide::new();
+        ide.open_file(md.clone());
+        assert_eq!(ide.tabs[0].language, highlight::Language::Markdown);
+        assert!(!ide.tabs[0].preview);
+        ide.toggle_preview();
+        assert!(ide.tabs[0].preview);
+
+        // Un `.spasm` no tiene vista previa.
+        let sp = dir.join("a.spasm");
+        std::fs::write(&sp, "end;").unwrap();
+        ide.open_file(sp);
+        ide.toggle_preview();
+        assert!(!ide.tabs[1].preview);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

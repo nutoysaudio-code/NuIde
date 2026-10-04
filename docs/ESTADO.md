@@ -52,7 +52,8 @@ ui/*.slint          la ventana, paneles y tema
   mayúsculas, **palabra completa** y edición del campo con cursor. Resaltados de
   contexto: palabra bajo el cursor y par de llaves. **Diagnóstico real**: corre el
   parser de SpASM y marca el error en el margen y la barra de estado. `F5` ejecutar
-  / `Ctrl+B` compilar / `F6` analizar.
+  / `Ctrl+B` compilar / `F6` analizar. **Visores**: imágenes (se muestran) y
+  **vista previa de Markdown** (`Ctrl+Shift+M`).
 - **Terminal local**: shell persistente en ConPTY, varias sesiones, resize,
   scrollback de 2000 líneas, selección y copia con el mouse.
 - **Panel del agente**: `opencode` corriendo en un PTY (su TUI real), con los
@@ -176,6 +177,16 @@ ui/*.slint          la ventana, paneles y tema
 - Los tokenizadores genéricos se parametrizan con un `Spec` (comentarios, comillas,
   keywords, `@macro`, `$var`, `#color`, `[sección]`, clave antes de `:`/`=`).
 
+### 3.9 Visores: imágenes y vista previa de Markdown
+
+- Las imágenes (`.png`, `.jpg`, `.webp`, `.gif`, `.bmp`, `.ico`) se abren como
+  pestañas `DocKind::Image`: se cargan con `slint::Image::load_from_path` y se
+  muestran con un `Image` (`image-fit: contain`), sin edición.
+- Los `.md` tienen vista previa. Un botón **Vista / Código** (o `Ctrl+Shift+M`)
+  alterna. `markdown_preview` convierte a `slint::StyledText` (negrita, itálica,
+  código, links, listas); como `StyledText` no soporta headings ni cercos, se
+  convierten/omiten y, si igual falla el parseo, cae a texto plano.
+
 ---
 
 ## 4. Limitaciones conocidas
@@ -273,7 +284,7 @@ script de instalación.
 ## 6. Verificación
 
 - `cargo build` / `cargo check` sin warnings.
-- `cargo test`: **55 pruebas OK** (unitarias; las de PTY y el linter lanzan
+- `cargo test`: **56 pruebas OK** (unitarias; las de PTY y el linter lanzan
   `cmd`/`opencode`/Python reales y se saltean si no están).
 - `cargo fmt --check` limpio.
 - `slint-viewer --check ui/nuide_ui.slint` OK.

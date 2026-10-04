@@ -199,6 +199,12 @@ export component IdeEditor inherits FocusScope {
     in property <string> find-query-after: "";
     in property <string> find-replace-before: "";
     in property <string> find-replace-after: "";
+    // Visores.
+    in property <bool> show-image: false;
+    in property <image> active-image;
+    in property <bool> show-preview: false;
+    in property <styled-text> preview-styled;
+    in property <bool> is-markdown: false;
     callback tab-selected(int);
     callback tab-closed(int);
     // Tecla cruda: (texto, ¿control?, ¿shift?), igual que en la terminal.
@@ -217,6 +223,8 @@ export component IdeEditor inherits FocusScope {
     callback find-focus(bool);
     callback replace-one();
     callback replace-all();
+    // Alterna la vista previa de Markdown.
+    callback preview-toggle();
 
     focus-on-click: true;
 
@@ -279,6 +287,29 @@ export component IdeEditor inherits FocusScope {
                     active: i == root.active-tab;
                     activated => { root.tab-selected(i); }
                     closed => { root.tab-closed(i); }
+                }
+
+                Rectangle { horizontal-stretch: 1; background: transparent; }
+
+                if root.is-markdown: Rectangle {
+                    width: md-text.width + 16px;
+                    border-radius: IdeTheme.radius-sm;
+                    background: md-ta.has-hover ? IdeTheme.control-hi : transparent;
+
+                    md-text := Text {
+                        x: 8px;
+                        y: (parent.height - self.height) / 2;
+                        text: root.show-preview ? "Código" : "Vista";
+                        color: IdeTheme.mint;
+                        font-family: IdeTheme.sans;
+                        font-size: 11px;
+                        vertical-alignment: center;
+                    }
+
+                    md-ta := TouchArea {
+                        mouse-cursor: MouseCursor.pointer;
+                        clicked => { root.preview-toggle(); }
+                    }
                 }
             }
 
@@ -507,6 +538,7 @@ export component IdeEditor inherits FocusScope {
             y: root.canvas-y;
             width: parent.width;
             height: parent.height - root.canvas-y;
+            visible: !root.show-image && !root.show-preview;
             content-width: self.width;
             content-height: code.preferred-height + 16px;
 
@@ -534,6 +566,7 @@ export component IdeEditor inherits FocusScope {
             y: root.canvas-y;
             width: parent.width;
             height: parent.height - root.canvas-y;
+            visible: !root.show-image && !root.show-preview;
             mouse-cursor: MouseCursor.text;
 
             pointer-event(event) => {
@@ -549,6 +582,46 @@ export component IdeEditor inherits FocusScope {
                 if (root.selecting) {
                     root.extend-to(self.mouse-y, self.mouse-x, code-scroll.content-y);
                 }
+            }
+        }
+
+        // --- visor de imagen ---
+        if root.show-image: Rectangle {
+            x: 0;
+            y: root.canvas-y;
+            width: parent.width;
+            height: parent.height - root.canvas-y;
+            background: IdeTheme.bg;
+            clip: true;
+
+            Image {
+                source: root.active-image;
+                x: 0;
+                y: 0;
+                width: parent.width;
+                height: parent.height;
+                image-fit: contain;
+            }
+        }
+
+        // --- vista previa de Markdown ---
+        if root.show-preview: Flickable {
+            x: 0;
+            y: root.canvas-y;
+            width: parent.width;
+            height: parent.height - root.canvas-y;
+            content-width: self.width;
+            content-height: preview.preferred-height + 24px;
+
+            preview := StyledText {
+                x: 16px;
+                y: 12px;
+                width: parent.width - 32px;
+                text: root.preview-styled;
+                default-color: IdeTheme.text;
+                default-font-family: IdeTheme.sans;
+                default-font-size: 13px;
+                link-color: IdeTheme.mint;
             }
         }
     }

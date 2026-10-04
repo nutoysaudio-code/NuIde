@@ -57,6 +57,12 @@ export component NuIdeWindow inherits Window {
     in-out property <int> active-column: 1;
     // Lenguaje del archivo activo (barra de estado).
     in-out property <string> language: "SpASM";
+    // Visores: imagen y vista previa de Markdown.
+    in-out property <bool> show-image: false;
+    in-out property <image> active-image;
+    in-out property <bool> show-preview: false;
+    in-out property <styled-text> preview-styled;
+    in-out property <bool> is-markdown: false;
     // Diagnóstico de SpASM (vacío si no hay errores).
     in-out property <string> diagnostics: "";
 
@@ -121,6 +127,8 @@ export component NuIdeWindow inherits Window {
     callback find-focus(bool);
     callback replace-one();
     callback replace-all();
+    // Vista previa de Markdown.
+    callback preview-toggle();
     // Panel del agente.
     callback agent-key(string, bool, bool, bool);
     callback agent-resize(length, length);
@@ -357,6 +365,11 @@ export component NuIdeWindow inherits Window {
             find-query-after: root.find-query-after;
             find-replace-before: root.find-replace-before;
             find-replace-after: root.find-replace-after;
+            show-image: root.show-image;
+            active-image: root.active-image;
+            show-preview: root.show-preview;
+            preview-styled: root.preview-styled;
+            is-markdown: root.is-markdown;
             tab-selected(i) => { root.tab-activated(i); }
             tab-closed(i) => { root.tab-closed(i); }
             key-input(text, ctrl, shift) => { root.editor-key(text, ctrl, shift); }
@@ -371,6 +384,7 @@ export component NuIdeWindow inherits Window {
             find-focus(replace) => { root.find-focus(replace); }
             replace-one => { root.replace-one(); }
             replace-all => { root.replace-all(); }
+            preview-toggle => { root.preview-toggle(); }
         }
 
         // --- panel: terminal local (dock configurable) ---

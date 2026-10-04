@@ -44,6 +44,7 @@ hasta abrir el primer archivo).
 | 13 | diagnóstico real: parser de SpASM en el editor | ✅ |
 | 14 | terminales: grilla exacta (ancho de celda medido) | ✅ |
 | 15 | editor: resaltado por lenguaje (SpASM, Slint, JSON, …) | ✅ |
+| 16 | visores: imágenes + vista previa de Markdown | ✅ |
 
 > El parte de estado detallado —qué se cambió en cada iteración, limitaciones y
 > pendientes con su enfoque— está en [`docs/ESTADO.md`](docs/ESTADO.md).
@@ -112,6 +113,13 @@ hilo aparte y muestra el primer error: la línea se marca en rojo en el margen
 (barra y número) y el mensaje aparece en la **barra de estado**. Requiere Python
 y el frontend del compilador (se descubre junto a `spasmc.py`, en
 `F:\SpAMS-Oficial`, o con `NUIDE_SPASM_FRONTEND`).
+
+**Visores de documentos.** Las imágenes (`.png`, `.jpg`, `.webp`, …) se abren en
+una pestaña y se muestran (no se editan). Los `.md` tienen un botón **Vista /
+Código** (o `Ctrl+Shift+M`) que alterna entre el código y una **vista previa**
+con negrita, itálica, código, links y listas (headings no soportados por el
+`StyledText` de Slint: se convierten a negrita). El lenguaje del archivo se
+muestra en la barra de estado.
 
 **Buscar y reemplazar.** Con la barra abierta, el teclado edita la búsqueda:
 `Enter` / `Shift+Enter` saltan a la coincidencia siguiente / anterior, `Tab`
@@ -312,9 +320,9 @@ la hoja de ruta acordada. El enfoque de cada uno está en
 
 ### Estado al 2026-10-04
 
-Compilado y publicado: `gitlab.com/nutoys-group/nuide` (`main`). 55 tests OK;
+Compilado y publicado: `gitlab.com/nutoys-group/nuide` (`main`). 56 tests OK;
 clon limpio genera `nuide.exe`. Las dos terminales son PTY reales (shell local y
 TUI de `opencode`), el proyecto se elige con diálogo nativo y se recuerda, el
-editor tiene buscar/reemplazar, resaltados de contexto y **diagnóstico con el
-parser de SpASM**, y los paneles se acoplan/apilan por lado. Falta local: los
-ítems de arriba.
+editor tiene buscar/reemplazar, resaltados, **resaltado por lenguaje y visores**
+(imagen y vista previa de Markdown), **diagnóstico con el parser de SpASM**, y
+los paneles se acoplan/apilan por lado. Falta local: los ítems de arriba.
