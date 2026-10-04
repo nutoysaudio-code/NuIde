@@ -1,0 +1,360 @@
+import { IdeTheme } from "ide_theme.slint";
+import { IdeTreeNode, IdeTab, IdeCodeLine, IdeTermLine } from "ide_types.slint";
+import { IdeTopBar } from "ide_topbar.slint";
+import { IdeStatusBar } from "ide_statusbar.slint";
+import { IdeExplorer } from "ide_explorer.slint";
+import { IdeEditor } from "ide_editor.slint";
+import { IdeTerminal } from "ide_terminal.slint";
+import { IdeOpenCode } from "ide_opencode.slint";
+
+// ---------------------------------------------------------------------------
+// NuIde — SpASM Studio (walking skeleton)
+//
+// Monta el layout de la especificación: barra superior, tres columnas
+// (explorador / editor + terminal / OpenCode CLI) con divisores arrastrables, y
+// barra inferior de estado. Los datos de archivos, código y terminales son
+// ilustrativos (ver docs/NUIDE_IDEA.md): sirven para iterar la UI sin motor.
+//
+// Los divisores se arrastran con un único `TouchArea` estacionario detrás de
+// los paneles: al no moverse, `mouse-x`/`mouse-y` son coordenadas estables del
+// área de contenido. Los huecos de 6 px entre paneles son la zona sensible.
+// ---------------------------------------------------------------------------
+
+export component NuIdeWindow inherits Window {
+    title: "NuIde — SpASM Studio";
+    preferred-width: 1280px;
+    preferred-height: 800px;
+    min-width: 1000px;
+    min-height: 640px;
+    background: IdeTheme.bg;
+
+    // Reparto de espacio (fracciones) y modo de arrastre activo.
+    in-out property <float> left-frac: 0.18;
+    in-out property <float> right-frac: 0.28;
+    in-out property <float> bottom-frac: 0.25;
+    in-out property <int> drag-mode: 0;
+
+    // Selección de la UI (índices, no modelos reconstruidos).
+    in-out property <int> explorer-selected: 2;
+    in-out property <int> active-tab: 0;
+    in-out property <int> active-session: 0;
+
+    // Terminal: lo que se está escribiendo y el prompt de la sesión activa.
+    in-out property <string> term-input: "";
+    in-out property <string> term-prompt: "spasm> ";
+
+    // Proyecto y editor reales.
+    in-out property <string> project-name: "coquito";
+    in-out property <int> active-line: 1;
+    in-out property <int> active-column: 1;
+
+    // Panel del agente (OpenCode CLI).
+    in-out property <string> agent-input: "";
+    in-out property <string> agent-prompt: "opencode> ";
+    in-out property <bool> agent-connected: false;
+    in-out property <string> agent-version: "OpenCode CLI";
+    in-out property <string> agent-model: "por defecto";
+
+    callback menu-activated(string);
+    callback close-requested();
+    callback terminal-key(string, bool);
+    callback session-selected(int);
+    callback new-session();
+    callback close-session();
+    callback split-terminal();
+    // Explorador y editor.
+    callback node-activated(int);
+    callback tab-activated(int);
+    callback tab-closed(int);
+    callback editor-key(string, bool, bool);
+    callback editor-cursor(length, length, length);
+    callback editor-extend(length, length, length);
+    // Panel del agente.
+    callback agent-key(string, bool);
+
+    // La terminal recibe el teclado apenas se abre la ventana: sólo hay un
+    // elemento focusable y éste es el dueño natural del foco.
+    forward-focus: terminal;
+
+    // --- geometría derivada (todo relativo al área de contenido) ---
+    private property <length> content-w: self.width;
+    private property <length> content-h: max(0px, self.height - IdeTheme.topbar-h - IdeTheme.statusbar-h);
+    private property <length> left-w: root.content-w * root.left-frac;
+    private property <length> right-w: root.content-w * root.right-frac;
+    private property <length> center-x: root.left-w + IdeTheme.splitter;
+    private property <length> center-w: max(0px, root.content-w - root.left-w - root.right-w - 2 * IdeTheme.splitter);
+    private property <length> editor-h: root.content-h * (1 - root.bottom-frac);
+    private property <length> term-h: max(0px, root.content-h - root.editor-h - IdeTheme.splitter);
+
+    // Qué divisor está bajo el cursor: 0 nada, 1 izquierda, 2 derecha, 3 horizontal.
+    function hit-test(px: length, py: length) -> int {
+        if (px >= root.left-w - 3px && px <= root.left-w + IdeTheme.splitter + 3px) {
+            return 1;
+        }
+        if (px >= root.content-w - root.right-w - IdeTheme.splitter - 3px && px <= root.content-w - root.right-w + 3px) {
+            return 2;
+        }
+        if (py >= root.editor-h - 3px && py <= root.editor-h + IdeTheme.splitter + 3px
+            && px >= root.center-x && px <= root.center-x + root.center-w) {
+            return 3;
+        }
+        return 0;
+    }
+
+    function apply-drag(px: length, py: length) {
+        if (root.drag-mode == 1) {
+            root.left-frac = min(max(px / root.content-w, 0.10), 0.40);
+        } else if (root.drag-mode == 2) {
+            root.right-frac = min(max((root.content-w - px) / root.content-w, 0.15), 0.45);
+        } else if (root.drag-mode == 3) {
+            root.bottom-frac = min(max(1 - py / root.content-h, 0.12), 0.50);
+        }
+    }
+
+    // --- barra superior ---
+    IdeTopBar {
+        x: 0;
+        y: 0;
+        width: parent.width;
+        project: root.project-name;
+        menu-activated(label) => { root.menu-activated(label); }
+        close-requested => { root.close-requested(); }
+    }
+
+    // --- barra inferior ---
+    IdeStatusBar {
+        x: 0;
+        y: parent.height - IdeTheme.statusbar-h;
+        width: parent.width;
+        branch: "main";
+        language: "SpASM";
+        encoding: "UTF-8";
+        line: root.active-line;
+        column: root.active-column;
+    }
+
+    // --- área de contenido ---
+    Rectangle {
+        x: 0;
+        y: IdeTheme.topbar-h;
+        width: parent.width;
+        height: root.content-h;
+        background: IdeTheme.bg;
+
+        // Zona sensible de los divisores (detrás de los paneles).
+        drag := TouchArea {
+            x: 0;
+            y: 0;
+            width: parent.width;
+            height: parent.height;
+
+            pointer-event(event) => {
+                if (event.kind == PointerEventKind.down) {
+                    root.drag-mode = root.hit-test(self.mouse-x, self.mouse-y);
+                    root.apply-drag(self.mouse-x, self.mouse-y);
+                } else if (event.kind == PointerEventKind.up || event.kind == PointerEventKind.cancel) {
+                    root.drag-mode = 0;
+                }
+            }
+
+            moved => { root.apply-drag(self.mouse-x, self.mouse-y); }
+
+            mouse-cursor: root.hit-test(self.mouse-x, self.mouse-y) == 3 ? MouseCursor.ns-resize
+                : root.hit-test(self.mouse-x, self.mouse-y) != 0 ? MouseCursor.ew-resize
+                : MouseCursor.default;
+
+            // Guías visuales de los divisores (viven en los huecos entre paneles).
+            Rectangle {
+                x: root.left-w + IdeTheme.splitter / 2 - 1px;
+                y: 0;
+                width: 2px;
+                height: root.content-h;
+                background: root.drag-mode == 1 ? IdeTheme.mint : IdeTheme.border-soft;
+            }
+            Rectangle {
+                x: root.content-w - root.right-w - IdeTheme.splitter / 2 - 1px;
+                y: 0;
+                width: 2px;
+                height: root.content-h;
+                background: root.drag-mode == 2 ? IdeTheme.mint : IdeTheme.border-soft;
+            }
+            Rectangle {
+                x: root.center-x;
+                y: root.editor-h + IdeTheme.splitter / 2 - 1px;
+                width: root.center-w;
+                height: 2px;
+                background: root.drag-mode == 3 ? IdeTheme.mint : IdeTheme.border-soft;
+            }
+        }
+
+        // --- columna izquierda: explorador ---
+        IdeExplorer {
+            x: 0;
+            y: 0;
+            width: root.left-w;
+            height: parent.height;
+            nodes: root.tree-nodes;
+            selected-index: root.explorer-selected;
+            node-clicked(i) => { root.explorer-selected = i; root.node-activated(i); }
+        }
+
+        // --- columna central: editor ---
+        IdeEditor {
+            x: root.center-x;
+            y: 0;
+            width: root.center-w;
+            height: root.editor-h;
+            tabs: root.editor-tabs;
+            active-tab: root.active-tab;
+            breadcrumb: root.breadcrumb;
+            lines: root.code-lines;
+            active-line: root.active-line;
+            tab-selected(i) => { root.tab-activated(i); }
+            tab-closed(i) => { root.tab-closed(i); }
+            key-input(text, ctrl, shift) => { root.editor-key(text, ctrl, shift); }
+            cursor-to(y, x, scroll) => { root.editor-cursor(y, x, scroll); }
+            extend-to(y, x, scroll) => { root.editor-extend(y, x, scroll); }
+        }
+
+        // --- columna central: terminal local ---
+        terminal := IdeTerminal {
+            x: root.center-x;
+            y: root.editor-h + IdeTheme.splitter;
+            width: root.center-w;
+            height: root.term-h;
+            sessions: root.term-sessions;
+            active-session: root.active-session;
+            lines: root.term-lines;
+            prompt: root.term-prompt;
+            input: root.term-input;
+            session-selected(i) => { root.session-selected(i); }
+            key-input(text, ctrl) => { root.terminal-key(text, ctrl); }
+            new-session => { root.new-session(); }
+            close => { root.close-session(); }
+            split => { root.split-terminal(); }
+        }
+
+        // --- columna derecha: OpenCode CLI ---
+        IdeOpenCode {
+            x: root.content-w - root.right-w;
+            y: 0;
+            width: root.right-w;
+            height: parent.height;
+            connected: root.agent-connected;
+            version: root.agent-version;
+            model: root.agent-model;
+            project: root.project-name;
+            lines: root.agent-lines;
+            prompt: root.agent-prompt;
+            input: root.agent-input;
+            key-input(text, ctrl) => { root.agent-key(text, ctrl); }
+        }
+    }
+
+    // =======================================================================
+    // Datos ilustrativos
+    // =======================================================================
+
+    in property <[IdeTreeNode]> tree-nodes: [
+        { depth: 0, label: "coquito", kind: 2 },
+        { depth: 1, label: "src", kind: 2 },
+        { depth: 2, label: "main.spasm", kind: 0 },
+        { depth: 2, label: "memory.spasm", kind: 0 },
+        { depth: 1, label: "runtime", kind: 2 },
+        { depth: 2, label: "memory.spasm", kind: 0 },
+        { depth: 2, label: "io.spasm", kind: 0 },
+        { depth: 1, label: "ui", kind: 2 },
+        { depth: 2, label: "app.slint", kind: 0 },
+        { depth: 1, label: "examples", kind: 1 },
+        { depth: 2, label: "hello.spasm", kind: 0 },
+        { depth: 2, label: "demo.spasm", kind: 0 },
+        { depth: 1, label: "config.toml", kind: 3 },
+    ];
+
+    in property <[IdeTab]> editor-tabs: [
+        { title: "main.spasm", dirty: true },
+        { title: "app.slint", dirty: false },
+    ];
+
+    in property <[string]> breadcrumb: ["src", "main.spasm"];
+
+    in property <[IdeCodeLine]> code-lines: [
+        { indent: 0px, tokens: [{ text: "; coquito - programa principal", kind: 1 }] },
+        { indent: 0px, tokens: [{ text: "; SpASM ejemplo simple", kind: 1 }] },
+        { indent: 0px, tokens: [] },
+        { indent: 0px, tokens: [{ text: ".include", kind: 2 }, { text: " ", kind: 0 }, { text: "\"memory.spasm\"", kind: 3 }] },
+        { indent: 0px, tokens: [] },
+        { indent: 0px, tokens: [{ text: ".org", kind: 2 }, { text: " ", kind: 0 }, { text: "0x0000", kind: 4 }] },
+        { indent: 0px, tokens: [] },
+        { indent: 0px, tokens: [{ text: "start:", kind: 5 }] },
+        { indent: 26px, tokens: [{ text: "lda", kind: 2 }, { text: " ", kind: 0 }, { text: "#message", kind: 4 }, { text: "      ", kind: 0 }, { text: "; cargar direccion del mensaje", kind: 1 }] },
+        { indent: 26px, tokens: [{ text: "sta", kind: 2 }, { text: " ", kind: 0 }, { text: "$4000", kind: 4 }, { text: "         ", kind: 0 }, { text: "; escribir en puerto de salida", kind: 1 }] },
+        { indent: 26px, tokens: [{ text: "jsr", kind: 2 }, { text: " ", kind: 0 }, { text: "print_string", kind: 0 }] },
+        { indent: 26px, tokens: [{ text: "jmp", kind: 2 }, { text: " ", kind: 0 }, { text: "loop", kind: 0 }] },
+        { indent: 0px, tokens: [] },
+        { indent: 0px, tokens: [{ text: "loop:", kind: 5 }] },
+        { indent: 26px, tokens: [{ text: "jmp", kind: 2 }, { text: " ", kind: 0 }, { text: "loop", kind: 0 }, { text: "          ", kind: 0 }, { text: "; bucle infinito", kind: 1 }] },
+        { indent: 0px, tokens: [] },
+        { indent: 0px, tokens: [{ text: "; --- rutina de impresion ---", kind: 1 }] },
+        { indent: 0px, tokens: [{ text: "print_string:", kind: 5 }] },
+        { indent: 26px, tokens: [{ text: "ldy", kind: 2 }, { text: " ", kind: 0 }, { text: "#0", kind: 4 }] },
+        { indent: 0px, tokens: [{ text: ".next_char:", kind: 5 }] },
+        { indent: 26px, tokens: [{ text: "lda", kind: 2 }, { text: " ", kind: 0 }, { text: "(message),y", kind: 0 }, { text: "   ", kind: 0 }, { text: "; leer caracter", kind: 1 }] },
+        { indent: 26px, tokens: [{ text: "beq", kind: 2 }, { text: " ", kind: 0 }, { text: ".done", kind: 5 }, { text: "         ", kind: 0 }, { text: "; fin de cadena (0)", kind: 1 }] },
+        { indent: 26px, tokens: [{ text: "sta", kind: 2 }, { text: " ", kind: 0 }, { text: "$4000", kind: 4 }, { text: "         ", kind: 0 }, { text: "; escribir caracter", kind: 1 }] },
+        { indent: 26px, tokens: [{ text: "iny", kind: 2 }] },
+        { indent: 26px, tokens: [{ text: "jmp", kind: 2 }, { text: " ", kind: 0 }, { text: ".next_char", kind: 5 }] },
+        { indent: 0px, tokens: [{ text: ".done:", kind: 5 }] },
+        { indent: 26px, tokens: [{ text: "rts", kind: 2 }] },
+        { indent: 0px, tokens: [] },
+        { indent: 0px, tokens: [{ text: "; --- datos ---", kind: 1 }] },
+        { indent: 0px, tokens: [{ text: "message:", kind: 5 }] },
+        { indent: 26px, tokens: [{ text: ".byte", kind: 2 }, { text: " ", kind: 0 }, { text: "\"Hola desde SpASM!\\n\"", kind: 3 }, { text: ", ", kind: 0 }, { text: "0", kind: 4 }] },
+    ];
+
+    in property <[string]> term-sessions: ["bash", "build"];
+
+    in property <[IdeTermLine]> term-lines: [
+        { text: "coquito$ spasm src/main.spasm -o build/coquito.bin", kind: 4 },
+        { text: "SPASM 0.3.1 - Compilador de ensamblador para sistema educativo", kind: 1 },
+        { text: "Compilando src/main.spasm ...", kind: 0 },
+        { text: "Enlazando ...", kind: 0 },
+        { text: "Tamaño:  48 bytes (código: 42, datos: 6)", kind: 0 },
+        { text: "build/coquito.bin generado correctamente.", kind: 2 },
+    ];
+
+    in property <[IdeTermLine]> agent-lines: [
+        { text: "> Revisar memory.spasm", kind: 4 },
+        { text: " ", kind: 0 },
+        { text: "Leyendo archivos...", kind: 1 },
+        { text: "✓ src/memory.spasm (124 lineas)", kind: 0 },
+        { text: "✓ src/main.spasm (28 lineas)", kind: 0 },
+        { text: "✓ runtime/memory.spasm (96 lineas)", kind: 0 },
+        { text: " ", kind: 0 },
+        { text: "Analizando ...", kind: 1 },
+        { text: "Revisando manejo de memoria, direcciones y limites ...", kind: 0 },
+        { text: "Generando propuesta ...", kind: 0 },
+        { text: " ", kind: 0 },
+        { text: "✓ Propuesta lista", kind: 2 },
+        { text: " ", kind: 0 },
+        { text: "Archivo: src/memory.spasm", kind: 5 },
+        { text: "@@ -10,7 +10,9 @@ init_memory:", kind: 1 },
+        { text: "    lda #0", kind: 1 },
+        { text: "    tay", kind: 1 },
+        { text: ".clear_loop:", kind: 1 },
+        { text: "-   sta (MEM_PTR),y", kind: 3 },
+        { text: "+   sta (MEM_PTR),y    ; escribir 0 en memoria", kind: 2 },
+        { text: "+   iny                ; avanzar al siguiente byte", kind: 2 },
+        { text: "+   cpy #$00           ; ¿llegamos al final?", kind: 2 },
+        { text: "    bne .clear_loop", kind: 1 },
+        { text: "    rts", kind: 1 },
+        { text: " ", kind: 0 },
+        { text: "Notas:", kind: 5 },
+        { text: "- Se añade verificación de límite para evitar", kind: 0 },
+        { text: "  desbordamiento de página.", kind: 0 },
+        { text: "- Se documenta la intención de cada instrucción.", kind: 0 },
+        { text: "- El cambio no altera el comportamiento principal.", kind: 0 },
+        { text: "- Considera extraer esta rutina a un módulo común", kind: 0 },
+        { text: "  si se usa en más de un archivo.", kind: 0 },
+    ];
+}

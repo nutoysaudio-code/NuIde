@@ -1,0 +1,40 @@
+// Modelos de datos compartidos por los paneles de NuIde.
+//
+// Son deliberadamente planos: la UI recibe listas de structs y las dibuja; no
+// conoce rutas ni procesos. Rust (o más adelante el motor real) es quien llena
+// estas listas.
+
+// Nodo del explorador de archivos.
+// kind: 0 archivo, 1 carpeta cerrada, 2 carpeta abierta, 3 configuración.
+export struct IdeTreeNode {
+    depth: int,
+    label: string,
+    kind: int,
+}
+
+// Pestaña del editor.
+export struct IdeTab {
+    title: string,
+    dirty: bool,
+}
+
+// Fragmento de código con su color.
+// kind: 0 texto, 1 comentario, 2 keyword, 3 string, 4 número, 5 etiqueta.
+export struct IdeToken {
+    text: string,
+    kind: int,
+}
+
+// Línea de código: indentación en píxeles + tokens (los espacios entre tokens
+// van como tokens de solo-espacios para conservar el alineado monoespaciado).
+export struct IdeCodeLine {
+    indent: length,
+    tokens: [IdeToken],
+}
+
+// Línea de terminal (sirve para la terminal local y para OpenCode CLI).
+// kind: 0 normal, 1 apagado, 2 añadido, 3 eliminado, 4 menta, 5 ámbar.
+export struct IdeTermLine {
+    text: string,
+    kind: int,
+}

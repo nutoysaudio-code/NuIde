@@ -1,0 +1,88 @@
+import { IdeTheme } from "ide_theme.slint";
+
+// Icono de rama Git dibujado con rectángulos (no depende de glifos raros).
+component IdeBranchIcon inherits Rectangle {
+    width: 13px;
+    height: 13px;
+    background: transparent;
+
+    Rectangle { x: 3px; y: 2px; width: 2px; height: 9px; background: IdeTheme.text-soft; }
+    Rectangle { x: 7px; y: 4px; width: 4px; height: 2px; background: IdeTheme.text-soft; }
+    Rectangle { x: 2px; y: 0px; width: 4px; height: 4px; border-radius: 2px; background: IdeTheme.mint; }
+    Rectangle { x: 7px; y: 3px; width: 4px; height: 4px; border-radius: 2px; background: IdeTheme.text-soft; }
+    Rectangle { x: 7px; y: 8px; width: 4px; height: 4px; border-radius: 2px; background: IdeTheme.text-soft; }
+}
+
+// Separador vertical fino entre metadatos del pie.
+component IdeStatusDivider inherits Rectangle {
+    width: 1px;
+    height: 12px;
+    background: IdeTheme.border-soft;
+}
+
+// Barra inferior: rama Git, lenguaje, codificación y posición del cursor.
+export component IdeStatusBar inherits Rectangle {
+    in property <string> branch: "main";
+    in property <string> language: "SpASM";
+    in property <string> encoding: "UTF-8";
+    in property <int> line: 24;
+    in property <int> column: 8;
+
+    height: IdeTheme.statusbar-h;
+    background: IdeTheme.panel;
+
+    HorizontalLayout {
+        x: 0;
+        y: 0;
+        width: parent.width;
+        height: parent.height;
+        padding-left: 12px;
+        padding-right: 12px;
+        spacing: 8px;
+        alignment: start;
+        cross-axis-alignment: center;
+
+        IdeBranchIcon { }
+        Text {
+            text: root.branch;
+            color: IdeTheme.text-soft;
+            font-family: IdeTheme.sans;
+            font-size: 11px;
+            vertical-alignment: center;
+        }
+
+        Rectangle { horizontal-stretch: 1; background: transparent; }
+
+        Text {
+            text: root.language;
+            color: IdeTheme.mint;
+            font-family: IdeTheme.sans;
+            font-size: 11px;
+            vertical-alignment: center;
+        }
+        IdeStatusDivider { }
+        Text {
+            text: root.encoding;
+            color: IdeTheme.text-soft;
+            font-family: IdeTheme.sans;
+            font-size: 11px;
+            vertical-alignment: center;
+        }
+        IdeStatusDivider { }
+        Text {
+            text: "Ln " + root.line + ", Col " + root.column;
+            color: IdeTheme.text-soft;
+            font-family: IdeTheme.sans;
+            font-size: 11px;
+            vertical-alignment: center;
+        }
+    }
+
+    // Línea superior de 1 px.
+    Rectangle {
+        y: 0;
+        width: parent.width;
+        height: IdeTheme.hairline;
+        background: IdeTheme.border-soft;
+    }
+}

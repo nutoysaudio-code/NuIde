@@ -1,0 +1,180 @@
+import { IdeTheme } from "ide_theme.slint";
+import { IdeTreeNode } from "ide_types.slint";
+
+// Triángulo de despliegue de carpeta.
+component IdeDisclosure inherits Path {
+    in property <bool> open: false;
+
+    width: 7px;
+    height: 7px;
+    fill: IdeTheme.text-dim;
+    commands: root.open ? "M 0 0 L 7 0 L 3.5 6 Z" : "M 0 0 L 6 3.5 L 0 7 Z";
+}
+
+// Icono pequeño según el tipo de nodo.
+component IdeTreeIcon inherits Rectangle {
+    // 0 archivo, 1 carpeta cerrada, 2 carpeta abierta, 3 configuración.
+    in property <int> kind: 0;
+
+    width: 14px;
+    height: 14px;
+    background: transparent;
+
+    if root.kind == 0: Rectangle {
+        x: 3px;
+        y: 2px;
+        width: 9px;
+        height: 11px;
+        border-radius: 2px;
+        background: IdeTheme.text-soft;
+    }
+
+    if root.kind == 1 || root.kind == 2: Rectangle {
+        x: 1px;
+        y: 4px;
+        width: 13px;
+        height: 9px;
+        border-radius: 2px;
+        background: root.kind == 2 ? IdeTheme.mint : IdeTheme.amber;
+    }
+
+    if root.kind == 1 || root.kind == 2: Rectangle {
+        x: 2px;
+        y: 2px;
+        width: 6px;
+        height: 4px;
+        border-radius: 1px;
+        background: root.kind == 2 ? IdeTheme.mint : IdeTheme.amber;
+    }
+
+    if root.kind == 3: Text {
+        width: parent.width;
+        height: parent.height;
+        text: "⚙";
+        color: IdeTheme.amber;
+        font-family: IdeTheme.sans;
+        font-size: 11px;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+}
+
+// Fila del árbol de archivos.
+component IdeTreeRow inherits Rectangle {
+    in property <int> depth: 0;
+    in property <string> label: "";
+    in property <int> kind: 0;
+    in property <bool> selected: false;
+    callback clicked();
+
+    height: 24px;
+    border-radius: IdeTheme.radius-sm;
+    background: root.selected ? IdeTheme.selection : (ta.has-hover ? IdeTheme.control : transparent);
+
+    private property <length> indent: root.depth * 14px;
+
+    IdeDisclosure {
+        x: root.indent + 6px;
+        y: (parent.height - self.height) / 2;
+        open: root.kind == 2;
+        visible: root.kind == 1 || root.kind == 2;
+    }
+
+    IdeTreeIcon {
+        x: root.indent + 18px;
+        y: (parent.height - self.height) / 2;
+        kind: root.kind;
+    }
+
+    Text {
+        x: root.indent + 36px;
+        y: (parent.height - self.height) / 2;
+        text: root.label;
+        color: root.selected ? IdeTheme.text : IdeTheme.text-soft;
+        font-family: IdeTheme.sans;
+        font-size: 12px;
+        vertical-alignment: center;
+    }
+
+    ta := TouchArea {
+        mouse-cursor: MouseCursor.pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+// Encabezado + árbol con scroll propio.
+export component IdeExplorer inherits Rectangle {
+    in property <[IdeTreeNode]> nodes: [];
+    in property <int> selected-index: -1;
+    callback node-clicked(int);
+
+    background: IdeTheme.panel;
+    border-width: IdeTheme.hairline;
+    border-color: IdeTheme.border-faint;
+    border-radius: IdeTheme.radius;
+    clip: true;
+
+    // Encabezado.
+    Rectangle {
+        x: 0;
+        y: 0;
+        width: parent.width;
+        height: 32px;
+        background: transparent;
+
+        Text {
+            x: 14px;
+            y: (parent.height - self.height) / 2;
+            text: "EXPLORADOR";
+            color: IdeTheme.text-dim;
+            font-family: IdeTheme.sans;
+            font-size: 10px;
+            font-weight: 600;
+            letter-spacing: 1.6px;
+            vertical-alignment: center;
+        }
+
+        Text {
+            x: parent.width - 24px;
+            y: (parent.height - self.height) / 2;
+            text: "⇔";
+            color: IdeTheme.text-dim;
+            font-family: IdeTheme.sans;
+            font-size: 12px;
+            vertical-alignment: center;
+        }
+
+        Rectangle {
+            y: parent.height - IdeTheme.hairline;
+            width: parent.width;
+            height: IdeTheme.hairline;
+            background: IdeTheme.border-faint;
+        }
+    }
+
+    // Árbol.
+    Flickable {
+        x: 0;
+        y: 32px;
+        width: parent.width;
+        height: parent.height - 32px;
+        content-width: self.width;
+        content-height: tree.preferred-height + 8px;
+
+        tree := VerticalLayout {
+            x: 0;
+            y: 4px;
+            width: parent.width - 12px;
+            padding-left: 6px;
+            spacing: 1px;
+
+            for node[i] in root.nodes: IdeTreeRow {
+                depth: node.depth;
+                label: node.label;
+                kind: node.kind;
+                selected: i == root.selected-index;
+                clicked => { root.node-clicked(i); }
+            }
+        }
+    }
+}

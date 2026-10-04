@@ -1,0 +1,149 @@
+import { IdeTheme } from "ide_theme.slint";
+import { IdeTermLine } from "ide_types.slint";
+import { TerminalBody } from "ide_terminal.slint";
+
+// Panel derecho: terminal interactiva de OpenCode CLI (sin burbujas de chat).
+//
+// Hereda de `FocusScope` para recibir el teclado cuando se lo clickea. Como
+// `FocusScope` no tiene superficie propia, lo visual vive en el `Rectangle`
+// interno.
+export component IdeOpenCode inherits FocusScope {
+    in property <bool> connected: true;
+    in property <string> version: "OpenCode CLI";
+    in property <string> model: "por defecto";
+    in property <string> project: "";
+    in property <[IdeTermLine]> lines: [];
+    in property <string> prompt: "";
+    in property <string> input: "";
+    callback key-input(string, bool);
+
+    focus-on-click: true;
+
+    key-pressed(event) => {
+        root.key-input(event.text, event.modifiers.control);
+        accept
+    }
+
+    // --- superficie visual ---
+    Rectangle {
+        x: 0;
+        y: 0;
+        width: parent.width;
+        height: parent.height;
+        background: IdeTheme.panel;
+        border-width: IdeTheme.hairline;
+        border-color: IdeTheme.border-faint;
+        border-radius: IdeTheme.radius;
+        clip: true;
+
+        // --- encabezado con estado de conexión ---
+        Rectangle {
+            x: 0;
+            y: 0;
+            width: parent.width;
+            height: 34px;
+            background: IdeTheme.bg;
+
+            HorizontalLayout {
+                x: 0;
+                y: 0;
+                width: parent.width;
+                height: parent.height;
+                padding-left: 14px;
+                padding-right: 12px;
+                spacing: 8px;
+                alignment: start;
+                cross-axis-alignment: center;
+
+                Text {
+                    text: "OPENCODE CLI";
+                    color: IdeTheme.text-dim;
+                    font-family: IdeTheme.sans;
+                    font-size: 10px;
+                    font-weight: 600;
+                    letter-spacing: 1.6px;
+                    vertical-alignment: center;
+                }
+
+                Rectangle { horizontal-stretch: 1; background: transparent; }
+
+                Rectangle {
+                    width: 7px;
+                    height: 7px;
+                    border-radius: 4px;
+                    background: root.connected ? IdeTheme.online : IdeTheme.del;
+                }
+
+                Text {
+                    text: root.connected ? "Conectado" : "Desconectado";
+                    color: root.connected ? IdeTheme.online : IdeTheme.del;
+                    font-family: IdeTheme.sans;
+                    font-size: 11px;
+                    vertical-alignment: center;
+                }
+            }
+
+            Rectangle {
+                y: parent.height - IdeTheme.hairline;
+                width: parent.width;
+                height: IdeTheme.hairline;
+                background: IdeTheme.border-faint;
+            }
+        }
+
+        // --- ficha de sesión ---
+        Rectangle {
+            x: 0;
+            y: 34px;
+            width: parent.width;
+            height: 58px;
+            background: IdeTheme.panel;
+
+            VerticalLayout {
+                x: 14px;
+                y: 10px;
+                width: parent.width - 28px;
+                spacing: 2px;
+                alignment: start;
+
+                Text {
+                    text: root.version;
+                    color: IdeTheme.text;
+                    font-family: IdeTheme.mono;
+                    font-size: 11px;
+                }
+                Text {
+                    text: "Modelo:  " + root.model;
+                    color: IdeTheme.text-soft;
+                    font-family: IdeTheme.mono;
+                    font-size: 11px;
+                }
+                Text {
+                    text: "Proyecto: " + root.project;
+                    color: IdeTheme.text-soft;
+                    font-family: IdeTheme.mono;
+                    font-size: 11px;
+                }
+            }
+
+            Rectangle {
+                y: parent.height - IdeTheme.hairline;
+                width: parent.width;
+                height: IdeTheme.hairline;
+                background: IdeTheme.border-soft;
+            }
+        }
+
+        // --- salida / entrada de la terminal ---
+        TerminalBody {
+            x: 0;
+            y: 92px;
+            width: parent.width;
+            height: parent.height - 92px;
+            lines: root.lines;
+            prompt: root.prompt;
+            editable: true;
+            input: root.input;
+        }
+    }
+}

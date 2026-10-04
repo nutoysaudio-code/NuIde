@@ -1,0 +1,326 @@
+import { IdeTheme } from "ide_theme.slint";
+import { IdeTab, IdeCodeLine } from "ide_types.slint";
+
+// Pestaña del editor con punto de "sin guardar" y botón de cierre.
+component IdeTabButton inherits Rectangle {
+    in property <string> title: "main.spasm";
+    in property <bool> active: false;
+    in property <bool> dirty: false;
+    callback activated();
+    callback closed();
+
+    height: 34px;
+    width: tab-text.width + 52px;
+    background: root.active ? IdeTheme.control : (ta.has-hover ? IdeTheme.control-hi : transparent);
+
+    // Subrayado menta de la pestaña activa.
+    Rectangle {
+        y: parent.height - 2px;
+        width: parent.width;
+        height: 2px;
+        background: root.active ? IdeTheme.mint : transparent;
+    }
+
+    tab-text := Text {
+        x: 12px;
+        y: (parent.height - self.height) / 2;
+        text: root.title;
+        color: root.active ? IdeTheme.text : IdeTheme.text-soft;
+        font-family: IdeTheme.sans;
+        font-size: 12px;
+        vertical-alignment: center;
+    }
+
+    // Punto ámbar si hay cambios sin guardar.
+    Rectangle {
+        x: tab-text.x + tab-text.width + 9px;
+        y: (parent.height - 6px) / 2;
+        width: 6px;
+        height: 6px;
+        border-radius: 3px;
+        background: IdeTheme.amber;
+        visible: root.dirty;
+    }
+
+    // Cierre.
+    Text {
+        x: parent.width - 22px;
+        y: (parent.height - self.height) / 2;
+        width: 14px;
+        text: "×";
+        color: close-ta.has-hover ? IdeTheme.del : IdeTheme.text-dim;
+        font-family: IdeTheme.sans;
+        font-size: 10px;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+
+    ta := TouchArea {
+        mouse-cursor: MouseCursor.pointer;
+        clicked => { root.activated(); }
+    }
+
+    close-ta := TouchArea {
+        x: parent.width - 24px;
+        y: 0;
+        width: 24px;
+        height: parent.height;
+        mouse-cursor: MouseCursor.pointer;
+        clicked => { root.closed(); }
+    }
+}
+
+// Fila de código: número de línea + tokens monoespaciados.
+component IdeCodeRow inherits Rectangle {
+    in property <int> num: 1;
+    in property <IdeCodeLine> line;
+    in property <bool> active: false;
+
+    height: 20px;
+    background: root.active ? IdeTheme.active-line : transparent;
+
+    // Barra menta de la línea activa.
+    Rectangle {
+        y: 0;
+        width: 2px;
+        height: parent.height;
+        background: root.active ? IdeTheme.mint : transparent;
+    }
+
+    Text {
+        x: 0;
+        y: 0;
+        width: 46px;
+        height: parent.height;
+        text: root.num;
+        color: root.active ? IdeTheme.text-soft : IdeTheme.text-dim;
+        font-family: IdeTheme.mono;
+        font-size: 12px;
+        horizontal-alignment: right;
+        vertical-alignment: center;
+    }
+
+    HorizontalLayout {
+        x: 58px + root.line.indent;
+        y: 0;
+        height: parent.height;
+        spacing: 0;
+        alignment: start;
+        cross-axis-alignment: center;
+
+        for tok in root.line.tokens: Rectangle {
+            // Cada token se envuelve para poder pintar el fondo de selección
+            // (kind 7). El ancho lo da el propio texto.
+            width: tok-text.width;
+            height: parent.height;
+            background: tok.kind == 7 ? IdeTheme.selection : transparent;
+
+            tok-text := Text {
+                text: tok.text;
+                color: tok.kind == 1 ? IdeTheme.code-comment
+                    : tok.kind == 2 ? IdeTheme.code-keyword
+                    : tok.kind == 3 ? IdeTheme.code-string
+                    : tok.kind == 4 ? IdeTheme.code-number
+                    : tok.kind == 5 ? IdeTheme.mint
+                    : tok.kind == 6 ? IdeTheme.mint
+                    : IdeTheme.code-text;
+                font-family: IdeTheme.mono;
+                font-size: 12px;
+                height: parent.height;
+                vertical-alignment: center;
+            }
+        }
+    }
+}
+
+// Editor central: pestañas, ruta de navegación y área de código con scroll.
+//
+// Hereda de `FocusScope` para recibir el teclado cuando se lo clickea. Como
+// `FocusScope` no tiene superficie propia, lo visual vive en el `Rectangle`
+// interno.
+export component IdeEditor inherits FocusScope {
+    in property <[IdeTab]> tabs: [];
+    in property <int> active-tab: 0;
+    in property <[string]> breadcrumb: [];
+    in property <[IdeCodeLine]> lines: [];
+    in property <int> active-line: 1;
+    callback tab-selected(int);
+    callback tab-closed(int);
+    // Tecla cruda: (texto, ¿control?, ¿shift?), igual que en la terminal.
+    callback key-input(string, bool, bool);
+    // Mouse: (y, x, scroll-y) en coordenadas de la vista. Rust calcula línea y
+    // columna. Un clic coloca el cursor; un arrastre extiende la selección.
+    callback cursor-to(length, length, length);
+    callback extend-to(length, length, length);
+
+    focus-on-click: true;
+
+    key-pressed(event) => {
+        root.key-input(event.text, event.modifiers.control, event.modifiers.shift);
+        accept
+    }
+
+    // Geometría del área de código (debe coincidir con `IdeCodeRow`).
+    private property <length> row-h: 20px;
+    private property <length> canvas-y: 60px;
+    private property <length> cursor-y: 8px + (root.active-line - 1) * root.row-h;
+    in-out property <bool> selecting: false;
+
+    // Auto-scroll: deja visible la línea activa cuando el cursor se mueve.
+    function ensure-cursor-visible() {
+        if (root.cursor-y < -code-scroll.content-y) {
+            code-scroll.content-y = max(code-scroll.height - code-scroll.content-height, min(0px, -root.cursor-y));
+        } else if (root.cursor-y + root.row-h > -code-scroll.content-y + code-scroll.height) {
+            code-scroll.content-y = max(code-scroll.height - code-scroll.content-height, min(0px, -(root.cursor-y + root.row-h - code-scroll.height)));
+        }
+    }
+
+    changed active-line => { root.ensure-cursor-visible(); }
+
+    // --- superficie visual ---
+    Rectangle {
+        x: 0;
+        y: 0;
+        width: parent.width;
+        height: parent.height;
+        background: IdeTheme.panel;
+        border-width: IdeTheme.hairline;
+        border-color: IdeTheme.border-faint;
+        border-radius: IdeTheme.radius;
+        clip: true;
+
+        // --- barra de pestañas ---
+        Rectangle {
+            x: 0;
+            y: 0;
+            width: parent.width;
+            height: 34px;
+            background: IdeTheme.bg;
+
+            HorizontalLayout {
+                x: 0;
+                y: 0;
+                height: parent.height;
+                padding-left: 6px;
+                spacing: 2px;
+                alignment: start;
+                cross-axis-alignment: stretch;
+
+                for tab[i] in root.tabs: IdeTabButton {
+                    title: tab.title;
+                    dirty: tab.dirty;
+                    active: i == root.active-tab;
+                    activated => { root.tab-selected(i); }
+                    closed => { root.tab-closed(i); }
+                }
+            }
+
+            Rectangle {
+                y: parent.height - IdeTheme.hairline;
+                width: parent.width;
+                height: IdeTheme.hairline;
+                background: IdeTheme.border-faint;
+            }
+        }
+
+        // --- ruta de navegación ---
+        Rectangle {
+            x: 0;
+            y: 34px;
+            width: parent.width;
+            height: 26px;
+            background: IdeTheme.panel;
+
+            HorizontalLayout {
+                x: 0;
+                y: 0;
+                height: parent.height;
+                padding-left: 16px;
+                spacing: 0;
+                alignment: start;
+                cross-axis-alignment: center;
+
+                for seg[i] in root.breadcrumb: HorizontalLayout {
+                    spacing: 6px;
+                    alignment: start;
+                    cross-axis-alignment: center;
+
+                    Text {
+                        text: seg;
+                        color: i == root.breadcrumb.length - 1 ? IdeTheme.text : IdeTheme.text-soft;
+                        font-family: IdeTheme.mono;
+                        font-size: 11px;
+                        vertical-alignment: center;
+                    }
+
+                    Text {
+                        text: "›";
+                        color: IdeTheme.text-dim;
+                        font-family: IdeTheme.sans;
+                        font-size: 11px;
+                        vertical-alignment: center;
+                        visible: i < root.breadcrumb.length - 1;
+                    }
+                }
+            }
+
+            Rectangle {
+                y: parent.height - IdeTheme.hairline;
+                width: parent.width;
+                height: IdeTheme.hairline;
+                background: IdeTheme.border-faint;
+            }
+        }
+
+        // --- área de código ---
+        code-scroll := Flickable {
+            x: 0;
+            y: root.canvas-y;
+            width: parent.width;
+            height: parent.height - root.canvas-y;
+            content-width: self.width;
+            content-height: code.preferred-height + 16px;
+
+            code := VerticalLayout {
+                x: 0;
+                y: 8px;
+                width: parent.width;
+                spacing: 0;
+
+                for line[i] in root.lines: IdeCodeRow {
+                    num: i + 1;
+                    line: line;
+                    active: (i + 1) == root.active-line;
+                }
+            }
+        }
+
+        // --- input del mouse (encima del scroll) ---
+        //
+        // Un solo TouchArea para todo el lienzo: así un arrastre puede cruzar de
+        // línea sin depender de los bordes de cada fila. Captura el arrastre
+        // para seleccionar; la rueda sigue scrolleando la Flickable de abajo.
+        canvas := TouchArea {
+            x: 0;
+            y: root.canvas-y;
+            width: parent.width;
+            height: parent.height - root.canvas-y;
+            mouse-cursor: MouseCursor.text;
+
+            pointer-event(event) => {
+                if (event.kind == PointerEventKind.down) {
+                    root.selecting = true;
+                    root.cursor-to(self.mouse-y, self.mouse-x, code-scroll.content-y);
+                } else if (event.kind == PointerEventKind.up || event.kind == PointerEventKind.cancel) {
+                    root.selecting = false;
+                }
+            }
+
+            moved => {
+                if (root.selecting) {
+                    root.extend-to(self.mouse-y, self.mouse-x, code-scroll.content-y);
+                }
+            }
+        }
+    }
+}

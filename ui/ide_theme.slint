@@ -1,0 +1,57 @@
+// Tema visual de NuIde: instrumento electrónico retrofuturista sobrio.
+//
+// Paleta oscura dada por la especificación (apps/nuide/docs/NUIDE_IDEA.md),
+// pensada para que el código siga siendo el protagonista. La tipografía sans
+// sale del tema "chalk" compartido; el resto invierte su luminosidad:
+// superficies oscuras, bordes finos con relieve muy leve.
+
+import { ChalkwaveTheme } from "../../../shared/ui/kit/theme.slint";
+
+export global IdeTheme {
+    // --- superficies ---
+    in-out property <color> bg: #101718;
+    in-out property <color> panel: #151d1f;
+    in-out property <color> panel-hi: #1a2325;
+    in-out property <color> control: #202a2c;
+    in-out property <color> control-hi: #263234;
+
+    // --- bordes ---
+    in-out property <color> border: #69716c;
+    in-out property <color> border-soft: #333d3b;
+    in-out property <color> border-faint: #232c2a;
+
+    // --- texto ---
+    in-out property <color> text: #e8e2d0;      // marfil
+    in-out property <color> text-soft: #94a09e;  // secundario
+    in-out property <color> text-dim: #5f6a67;   // terciario / comentarios
+
+    // --- acentos ---
+    in-out property <color> mint: #83d9cb;
+    in-out property <color> amber: #e7ba70;
+    in-out property <color> selection: #294443;
+    in-out property <color> add: #8fc9a1;
+    in-out property <color> del: #d98c8c;
+    in-out property <color> online: #78d69a;
+
+    // --- semántica del editor ---
+    in-out property <color> code-text: #e8e2d0;
+    in-out property <color> code-comment: #6c7a76;
+    in-out property <color> code-keyword: #83d9cb;
+    in-out property <color> code-string: #e7ba70;
+    in-out property <color> code-number: #d6a5e0;
+    in-out property <color> code-soft: #94a09e;
+    in-out property <color> active-line: #ffffff0c;
+
+    // --- métricas ---
+    in-out property <length> radius: 7px;
+    in-out property <length> radius-sm: 5px;
+    in-out property <length> topbar-h: 42px;
+    in-out property <length> statusbar-h: 28px;
+    in-out property <length> splitter: 6px;
+    in-out property <length> hairline: 1px;
+
+    // --- tipografía ---
+    // La sans sale del kit "chalk"; la mono, de la pila monoespaciada local.
+    in-out property <string> sans: ChalkwaveTheme.font-family;
+    in-out property <string> mono: "JetBrains Mono, Cascadia Mono, Consolas, monospace";
+}

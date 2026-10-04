@@ -1,0 +1,25 @@
+[package]
+name = "nuide"
+version = "0.1.0"
+edition = "2021"
+description = "NuIde — IDE para SpASM con terminales integrados y OpenCode CLI"
+
+[lib]
+name = "nuide"
+path = "src/lib.rs"
+
+[[bin]]
+name = "nuide"
+path = "src/main.rs"
+
+[dependencies]
+# Portapapeles del sistema para copiar/cortar/pegar en el editor. Sólo texto:
+# sin las features de imagen, que arrastran tiff/image de más.
+arboard = { version = "3.6.1", default-features = false }
+# Todo lo genérico (motor DSP SpASM, editor_kit, análisis y el kit de UI Slint
+# "chalk") vive en el crate compartido y se reutiliza *in place*.
+nutoys-kit = { path = "../../shared" }
+slint = "1.0"
+
+[build-dependencies]
+slint-build = "1.0"

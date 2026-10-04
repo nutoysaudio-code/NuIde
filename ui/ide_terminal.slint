@@ -1,0 +1,261 @@
+import { IdeTheme } from "ide_theme.slint";
+import { IdeTermLine } from "ide_types.slint";
+
+// Botón compacto de encabezado (nuevo, cerrar, dividir…).
+export component IdeHeaderButton inherits Rectangle {
+    in property <string> glyph: "+";
+    in property <bool> danger: false;
+    in property <bool> split: false;
+    callback activated();
+
+    width: 22px;
+    height: 22px;
+    border-radius: IdeTheme.radius-sm;
+    background: ta.has-hover ? (root.danger ? #d98c8c33 : IdeTheme.control) : transparent;
+
+    // Icono de "dividir": rectángulo con una línea media (no depende de glifos).
+    if root.split: Rectangle {
+        x: (parent.width - 11px) / 2;
+        y: (parent.height - 11px) / 2;
+        width: 11px;
+        height: 11px;
+        border-width: 1px;
+        border-color: ta.has-hover ? IdeTheme.text : IdeTheme.text-soft;
+        border-radius: 2px;
+        background: transparent;
+
+        Rectangle {
+            y: 4px;
+            width: parent.width;
+            height: 1px;
+            background: ta.has-hover ? IdeTheme.text : IdeTheme.text-soft;
+        }
+    }
+
+    if !root.split: Text {
+        width: parent.width;
+        height: parent.height;
+        text: root.glyph;
+        color: ta.has-hover ? (root.danger ? IdeTheme.del : IdeTheme.text) : IdeTheme.text-soft;
+        font-family: IdeTheme.sans;
+        font-size: 11px;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+
+    ta := TouchArea {
+        mouse-cursor: MouseCursor.pointer;
+        clicked => { root.activated(); }
+    }
+}
+
+// Pestaña de sesión de terminal.
+component IdeTermSession inherits Rectangle {
+    in property <string> label: "bash";
+    in property <bool> active: false;
+    callback activated();
+
+    height: 30px;
+    width: sess-text.width + 26px;
+
+    Rectangle {
+        y: parent.height - 2px;
+        width: parent.width;
+        height: 2px;
+        background: root.active ? IdeTheme.mint : transparent;
+    }
+
+    sess-text := Text {
+        x: 13px;
+        y: (parent.height - self.height) / 2;
+        text: root.label;
+        color: root.active ? IdeTheme.text : IdeTheme.text-soft;
+        font-family: IdeTheme.sans;
+        font-size: 11px;
+        vertical-alignment: center;
+    }
+
+    ta := TouchArea {
+        mouse-cursor: MouseCursor.pointer;
+        clicked => { root.activated(); }
+    }
+}
+
+// Cuerpo de terminal reutilizable: líneas con color por especie + línea de
+// entrada. `editable` lo activa solo en la terminal local; el panel de OpenCode
+// lo usa en modo salida. (`interactive` no se puede usar: lo define `Flickable`.)
+export component TerminalBody inherits Flickable {
+    in property <[IdeTermLine]> lines: [];
+    in property <string> prompt: "";
+    in property <bool> editable: false;
+    // Texto que el usuario está escribiendo (sin el prompt).
+    in property <string> input: "";
+
+    content-width: self.width;
+    content-height: body.preferred-height + 20px;
+    // Pegado al fondo: la salida nueva queda a la vista. `content-y` es el
+    // desplazamiento del contenido y suele ser negativo; el fondo del scroll es
+    // `height - content-height`, acotado a 0 si el contenido es más corto.
+    content-y: min(0px, self.height - self.content-height);
+
+    body := VerticalLayout {
+        x: 0;
+        y: 10px;
+        width: parent.width;
+        padding-left: 12px;
+        padding-right: 12px;
+        spacing: 2px;
+
+        for line in root.lines: Text {
+            text: line.text;
+            color: line.kind == 1 ? IdeTheme.text-dim
+                : line.kind == 2 ? IdeTheme.add
+                : line.kind == 3 ? IdeTheme.del
+                : line.kind == 4 ? IdeTheme.mint
+                : line.kind == 5 ? IdeTheme.amber
+                : IdeTheme.text;
+            font-family: IdeTheme.mono;
+            font-size: 12px;
+        }
+
+        // Línea de entrada: prompt + lo escrito + cursor.
+        if root.editable: HorizontalLayout {
+            spacing: 0;
+            alignment: start;
+            cross-axis-alignment: center;
+
+            Text {
+                text: root.prompt;
+                color: IdeTheme.mint;
+                font-family: IdeTheme.mono;
+                font-size: 12px;
+            }
+
+            Text {
+                text: root.input;
+                color: IdeTheme.text;
+                font-family: IdeTheme.mono;
+                font-size: 12px;
+            }
+
+            Rectangle {
+                width: 2px;
+                height: 13px;
+                background: IdeTheme.mint;
+            }
+        }
+
+        // Prompt de solo lectura (panel de OpenCode).
+        if !root.editable && root.prompt != "": Text {
+            text: root.prompt;
+            color: IdeTheme.mint;
+            font-family: IdeTheme.mono;
+            font-size: 12px;
+        }
+    }
+}
+
+// Terminal local: encabezado con sesiones + cuerpo con scroll.
+//
+// Hereda de `FocusScope` para poder recibir el teclado (la ventana apunta acá
+// con `forward-focus`). Como `FocusScope` es un elemento de bajo nivel sin
+// superficie propia, la parte visual vive en el `Rectangle` interno.
+export component IdeTerminal inherits FocusScope {
+    in property <[string]> sessions: [];
+    in property <int> active-session: 0;
+    in property <[IdeTermLine]> lines: [];
+    in property <string> prompt: "";
+    in property <string> input: "";
+    callback session-selected(int);
+    callback new-session();
+    callback close();
+    callback split();
+    // Tecla cruda: (texto, ¿control?). Los caracteres de control (Backspace,
+    // Enter) llegan como su representación unicode y se interpretan en Rust.
+    callback key-input(string, bool);
+
+    // Un clic en cualquier parte de la terminal le devuelve el foco.
+    focus-on-click: true;
+
+    key-pressed(event) => {
+        root.key-input(event.text, event.modifiers.control);
+        accept
+    }
+
+    // --- superficie visual ---
+    Rectangle {
+        x: 0;
+        y: 0;
+        width: parent.width;
+        height: parent.height;
+        background: IdeTheme.panel;
+        border-width: IdeTheme.hairline;
+        border-color: IdeTheme.border-faint;
+        border-radius: IdeTheme.radius;
+        clip: true;
+
+        // --- encabezado ---
+        Rectangle {
+            x: 0;
+            y: 0;
+            width: parent.width;
+            height: 30px;
+            background: IdeTheme.bg;
+
+            HorizontalLayout {
+                x: 0;
+                y: 0;
+                width: parent.width;
+                height: parent.height;
+                padding-left: 14px;
+                padding-right: 8px;
+                spacing: 4px;
+                alignment: start;
+                cross-axis-alignment: center;
+
+                Text {
+                    text: "TERMINAL";
+                    color: IdeTheme.text-dim;
+                    font-family: IdeTheme.sans;
+                    font-size: 10px;
+                    font-weight: 600;
+                    letter-spacing: 1.6px;
+                    vertical-alignment: center;
+                }
+
+                Rectangle { width: 8px; background: transparent; }
+
+                for sess[i] in root.sessions: IdeTermSession {
+                    label: sess;
+                    active: i == root.active-session;
+                    activated => { root.session-selected(i); }
+                }
+
+                IdeHeaderButton { glyph: "+"; activated => { root.new-session(); } }
+
+                Rectangle { horizontal-stretch: 1; background: transparent; }
+
+                IdeHeaderButton { glyph: "⬒"; split: true; activated => { root.split(); } }
+                IdeHeaderButton { glyph: "×"; danger: true; activated => { root.close(); } }
+            }
+
+            Rectangle {
+                y: parent.height - IdeTheme.hairline;
+                width: parent.width;
+                height: IdeTheme.hairline;
+                background: IdeTheme.border-faint;
+            }
+        }
+
+        TerminalBody {
+            x: 0;
+            y: 30px;
+            width: parent.width;
+            height: parent.height - 30px;
+            lines: root.lines;
+            prompt: root.prompt;
+            editable: true;
+            input: root.input;
+        }
+    }
+}

@@ -1,0 +1,150 @@
+import { IdeTheme } from "ide_theme.slint";
+
+// Elemento de menú de la barra superior.
+component IdeMenuItem inherits Rectangle {
+    in property <string> label: "Archivo";
+    callback activated();
+
+    height: 24px;
+    width: menu-text.width + 18px;
+    border-radius: IdeTheme.radius-sm;
+    background: ta.has-hover ? IdeTheme.control : transparent;
+
+    menu-text := Text {
+        x: 9px;
+        y: (parent.height - self.height) / 2;
+        text: root.label;
+        color: ta.has-hover ? IdeTheme.text : IdeTheme.text-soft;
+        font-family: IdeTheme.sans;
+        font-size: 12px;
+        vertical-alignment: center;
+    }
+
+    ta := TouchArea {
+        mouse-cursor: MouseCursor.pointer;
+        clicked => { root.activated(); }
+    }
+}
+
+// Botón compacto de control de ventana.
+component IdeWindowButton inherits Rectangle {
+    in property <string> glyph: "—";
+    in property <bool> danger: false;
+    callback activated();
+
+    width: 30px;
+    height: 24px;
+    border-radius: IdeTheme.radius-sm;
+    background: ta.has-hover ? (root.danger ? #d98c8c33 : IdeTheme.control) : transparent;
+
+    Text {
+        width: parent.width;
+        height: parent.height;
+        text: root.glyph;
+        color: ta.has-hover ? (root.danger ? IdeTheme.del : IdeTheme.text) : IdeTheme.text-soft;
+        font-family: IdeTheme.sans;
+        font-size: 12px;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+
+    ta := TouchArea {
+        mouse-cursor: MouseCursor.pointer;
+        clicked => { root.activated(); }
+    }
+}
+
+// Barra superior: icono + marca, menú, proyecto centrado y controles.
+export component IdeTopBar inherits Rectangle {
+    in property <string> project: "coquito";
+    callback menu-activated(string);
+    callback close-requested();
+
+    height: IdeTheme.topbar-h;
+    background: IdeTheme.panel;
+
+    // Grupo izquierdo: logo, marca y menú.
+    HorizontalLayout {
+        x: 0;
+        y: 0;
+        width: parent.width;
+        height: parent.height;
+        padding-left: 14px;
+        spacing: 8px;
+        alignment: start;
+        cross-axis-alignment: center;
+
+        Rectangle {
+            width: 24px;
+            height: 24px;
+            border-radius: 6px;
+            background: @linear-gradient(180deg, #24393a 0%, #172728 100%);
+            border-width: 1px;
+            border-color: IdeTheme.mint;
+
+            Text {
+                width: parent.width;
+                height: parent.height;
+                text: "N";
+                color: IdeTheme.mint;
+                font-family: IdeTheme.sans;
+                font-size: 13px;
+                font-weight: 700;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+        }
+
+        Text {
+            text: "NuIde";
+            color: IdeTheme.text;
+            font-family: IdeTheme.sans;
+            font-size: 13px;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+            vertical-alignment: center;
+        }
+
+        Rectangle { width: 8px; background: transparent; }
+
+        IdeMenuItem { label: "Archivo"; activated => { root.menu-activated(self.label); } }
+        IdeMenuItem { label: "Editar";  activated => { root.menu-activated(self.label); } }
+        IdeMenuItem { label: "Ver";     activated => { root.menu-activated(self.label); } }
+        IdeMenuItem { label: "Ejecutar"; activated => { root.menu-activated(self.label); } }
+        IdeMenuItem { label: "Compilar"; activated => { root.menu-activated(self.label); } }
+    }
+
+    // Proyecto, centrado en la barra.
+    project-text := Text {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        text: root.project;
+        color: IdeTheme.text-soft;
+        font-family: IdeTheme.sans;
+        font-size: 12px;
+        letter-spacing: 0.4px;
+        vertical-alignment: center;
+    }
+
+    Rectangle {
+        x: project-text.x - 12px;
+        y: (parent.height - 6px) / 2;
+        width: 6px;
+        height: 6px;
+        border-radius: 3px;
+        background: IdeTheme.mint;
+    }
+
+    // Controles de ventana (decorativos en este esqueleto; cerrar sí cierra).
+    IdeWindowButton { x: parent.width - 96px; y: 5px; glyph: "—"; activated => { root.menu-activated("Minimizar"); } }
+    IdeWindowButton { x: parent.width - 66px; y: 5px; glyph: "▢"; activated => { root.menu-activated("Maximizar"); } }
+    IdeWindowButton { x: parent.width - 36px; y: 5px; glyph: "×"; danger: true; activated => { root.close-requested(); } }
+
+    // Línea inferior de 1 px.
+    Rectangle {
+        y: parent.height - IdeTheme.hairline;
+        width: parent.width;
+        height: IdeTheme.hairline;
+        background: IdeTheme.border-soft;
+    }
+}

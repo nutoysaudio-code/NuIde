@@ -1,0 +1,8 @@
+# Artefactos de build (Rust).
+/target/
+/build/
+
+# Basura de Windows / editores.
+Thumbs.db
+Desktop.ini
+*.pdb
