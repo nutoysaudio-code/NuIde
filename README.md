@@ -45,6 +45,7 @@ hasta abrir el primer archivo).
 | 14 | terminales: grilla exacta (ancho de celda medido) | ✅ |
 | 15 | editor: resaltado por lenguaje (SpASM, Slint, Python, C, …) | ✅ |
 | 16 | visores: imágenes + vista previa de Markdown | ✅ |
+| 17 | build/run desde la IDE con errores navegables (`F8`) | ✅ |
 
 > El parte de estado detallado —qué se cambió en cada iteración, limitaciones y
 > pendientes con su enfoque— está en [`docs/ESTADO.md`](docs/ESTADO.md).
@@ -105,6 +106,7 @@ entero al abrir, cambiar de pestaña o cambiar el número de líneas.
 | `F5` | Ejecuta el archivo activo con el intérprete de SpASM. |
 | `Ctrl+B` | Compila el archivo activo. |
 | `F6` | Analiza el archivo activo con el parser de SpASM (diagnóstico). |
+| `F8` / `Shift+F8` | Salta al diagnóstico siguiente / anterior. |
 | Clic en una fila | Ubica el cursor en la columna más cercana a la x. |
 | Arrastrar | Selecciona con el mouse, cruzando líneas. |
 
@@ -178,8 +180,11 @@ invirtiendo la celda (sin calcular píxeles).
   de `opencode`) quedan alineadas.
 
 Los menús **Ejecutar** y **Compilar** de la barra superior actúan sobre el
-archivo activo y **escriben la orden en la shell activa**, así la salida aparece
-en la propia terminal. En PowerShell usan el operador `&`; en `cmd`, no.
+archivo activo: corren el intérprete (`spasm.exe`) o el compilador (`spasmc.py`)
+**capturando la salida** en una sesión de terminal dedicada (pestaña `build`). Los
+errores y warnings que reporta el toolchain se parsean con su línea y se marcan
+en rojo en el editor; **`F8` / `Shift+F8`** saltan al diagnóstico siguiente /
+anterior y el mensaje va a la barra de estado.
 
 > **Dialectos.** SpASM tiene dos: el intérprete `spasm.exe` corre el *dialecto de
 > intérprete* (`print ...; end;`) y el compilador AOT el *dialecto compilado*
@@ -240,6 +245,7 @@ nuide/
     pty.rs                 terminal real: ConPTY + hilos de lectura/escritura
     vt.rs                  emulador VT: pantalla → tramos con color
     lint.rs                diagnóstico de SpASM (corre el parser real)
+    build.rs               ejecuta el toolchain y parsea la salida (build/run)
     terminal.rs            consola lineal heredada (sólo pruebas de integración)
     explorer.rs            árbol de archivos plano con profundidad
     highlight.rs           tokenizador/resaltado de SpASM
@@ -322,7 +328,7 @@ la hoja de ruta acordada. El enfoque de cada uno está en
 
 ### Estado al 2026-10-04
 
-Compilado y publicado: `gitlab.com/nutoys-group/nuide` (`main`). 58 tests OK;
+Compilado y publicado: `gitlab.com/nutoys-group/nuide` (`main`). 62 tests OK;
 clon limpio genera `nuide.exe`. Las dos terminales son PTY reales (shell local y
 TUI de `opencode`), el proyecto se elige con diálogo nativo y se recuerda, el
 editor tiene buscar/reemplazar, resaltados, **resaltado por lenguaje y visores**

@@ -52,8 +52,10 @@ ui/*.slint          la ventana, paneles y tema
   mayúsculas, **palabra completa** y edición del campo con cursor. Resaltados de
   contexto: palabra bajo el cursor y par de llaves. **Diagnóstico real**: corre el
   parser de SpASM y marca el error en el margen y la barra de estado. `F5` ejecutar
-  / `Ctrl+B` compilar / `F6` analizar. **Visores**: imágenes (se muestran) y
-  **vista previa de Markdown** (`Ctrl+Shift+M`).
+  / `Ctrl+B` compilar / `F6` analizar / `F8` navegar diagnósticos. **Build/Run**
+  captura la salida del toolchain en una pestaña `build` y marca los errores con
+  su línea. **Visores**: imágenes (zoom/paneo) y **vista previa de Markdown**
+  (`Ctrl+Shift+M`).
 - **Terminal local**: shell persistente en ConPTY, varias sesiones, resize,
   scrollback de 2000 líneas, selección y copia con el mouse.
 - **Panel del agente**: `opencode` corriendo en un PTY (su TUI real), con los
@@ -191,6 +193,18 @@ ui/*.slint          la ventana, paneles y tema
   código, links, listas); como `StyledText` no soporta headings ni cercos, se
   convierten/omiten y, si igual falla el parseo, cae a texto plano.
 
+### 3.10 Build/Run desde la IDE con errores navegables
+
+- `src/build.rs` corre el toolchain (`spasmc`/`spasm`) con `Command`, **captura**
+  stdout+stderr y **parsea** los diagnósticos: formato SpASM (`linea N: …`) y
+  gcc/clang (`archivo:N:col: error: …`).
+- La salida cruda va a una sesión de terminal dedicada **`build`** (un
+  `LocalSession` sin PTY, alimentado por `Screen::process`), a la que la IDE salta
+  al compilar.
+- Los diagnósticos se muestran con la línea en rojo y `F8`/`Shift+F8` navegan
+  entre ellos.
+- Los menús Ejecutar/Compilar ya no escriben en la shell: ejecutan y capturan.
+
 ---
 
 ## 4. Limitaciones conocidas
@@ -288,8 +302,8 @@ script de instalación.
 ## 6. Verificación
 
 - `cargo build` / `cargo check` sin warnings.
-- `cargo test`: **58 pruebas OK** (unitarias; las de PTY y el linter lanzan
-  `cmd`/`opencode`/Python reales y se saltean si no están).
+- `cargo test`: **62 pruebas OK** (unitarias; las de PTY, el linter y el build
+  lanzan `cmd`/`opencode`/Python/spasmc reales y se saltean si no están).
 - `cargo fmt --check` limpio.
 - `slint-viewer --check ui/nuide_ui.slint` OK.
 - Arranque real del `.exe` sin panics.

@@ -27,6 +27,7 @@ use std::time::Duration;
 
 use slint::{ComponentHandle, Model, ModelRc, Timer, TimerMode, VecModel};
 
+use crate::build;
 use crate::config::Config;
 use crate::explorer::{Action, Explorer};
 use crate::highlight;
@@ -230,8 +231,6 @@ struct LocalSession {
     name: String,
     pty: Option<Pty>,
     screen: Screen,
-    /// `true` si la shell es PowerShell (cambia cómo se cotizan los comandos).
-    powershell: bool,
     /// El proceso sigue vivo.
     alive: bool,
     /// Selección de texto en coordenadas de la vista, si la hay.
@@ -416,6 +415,11 @@ pub struct Ide {
     /// Canal del linter (corre en un hilo).
     lint_tx: Sender<lint::LintResult>,
     lint_rx: Receiver<lint::LintResult>,
+    /// Build/Run desde la IDE: salida capturada en un hilo.
+    build_tx: Sender<build::BuildResult>,
+    build_rx: Receiver<build::BuildResult>,
+    /// Id de la sesión de terminal dedicada a la salida de build.
+    build_session: Option<u64>,
     /// Panel del agente: `opencode` en un PTY con su propia pantalla. Canal
     /// aparte para no mezclar la salida con la terminal local.
     agent: Option<LocalSession>,
@@ -450,6 +454,7 @@ impl Ide {
         let (local_tx, local_rx) = mpsc::channel();
         let (agent_tx, agent_rx) = mpsc::channel();
         let (lint_tx, lint_rx) = mpsc::channel();
+        let (build_tx, build_rx) = mpsc::channel();
 
         let mut ide = Self {
             toolchain: Toolchain::discover(),
@@ -483,6 +488,9 @@ impl Ide {
             diagnostics_path: None,
             lint_tx,
             lint_rx,
+            build_tx,
+            build_rx,
+            build_session: None,
             agent: None,
             agent_tx,
             agent_rx,
@@ -594,7 +602,6 @@ impl Ide {
                 name: "opencode".to_string(),
                 pty: None,
                 screen,
-                powershell: false,
                 alive: false,
                 sel: None,
             });
@@ -624,7 +631,6 @@ impl Ide {
             name: "opencode".to_string(),
             pty,
             screen,
-            powershell: false,
             alive,
             sel: None,
         });
@@ -699,7 +705,6 @@ impl Ide {
             name,
             pty,
             screen,
-            powershell,
             alive: true,
             sel: None,
         });
@@ -901,19 +906,55 @@ impl Ide {
         self.scroll_session(target, lines);
     }
 
-    /// Escribe una línea de comando en la shell local (menú Ejecutar/Compilar).
-    fn run_in_local(&mut self, program: &Path, args: &[String]) {
-        let Some(session) = self.local.get(self.local_active) else {
-            return;
-        };
-        let line = shell_line(session.powershell, program, args);
-        let mut bytes = line.into_bytes();
-        bytes.push(b'\r');
-        self.write_to(Target::Local, &bytes);
+    /// Corre el toolchain en segundo plano (build/run) y muestra la salida en la
+    /// sesión "build" de la terminal.
+    fn spawn_build(&mut self, program: PathBuf, args: Vec<String>) {
+        let cwd = self.explorer.root().to_path_buf();
+        let index = self.ensure_build_session();
+        // La salida queda a la vista.
+        self.local_active = index;
+        self.resize_local();
+        build::spawn(program, args, cwd, self.build_tx.clone());
     }
 
-    /// Ejecuta el archivo activo con el intérprete de SpASM: escribe la orden en
-    /// la shell activa, así la salida queda en la terminal real.
+    /// Crea (o reutiliza) la sesión "build" de la terminal. Devuelve su índice.
+    fn ensure_build_session(&mut self) -> usize {
+        if let Some(id) = self.build_session {
+            if let Some(index) = self.local.iter().position(|s| s.id == id) {
+                return index;
+            }
+        }
+        let id = self.next_local_id;
+        self.next_local_id += 1;
+        let screen = Screen::new(self.local_rows, self.local_cols);
+        self.local.push(LocalSession {
+            id,
+            name: "build".to_string(),
+            pty: None,
+            screen,
+            alive: true,
+            sel: None,
+        });
+        self.build_session = Some(id);
+        self.local.len() - 1
+    }
+
+    /// Escribe en la pantalla de la sesión "build" (limpiándola antes).
+    fn write_build_output(&mut self, text: &str) {
+        let Some(id) = self.build_session else {
+            return;
+        };
+        let Some(session) = self.local.iter_mut().find(|s| s.id == id) else {
+            return;
+        };
+        session.screen.process(b"\x1b[2J\x1b[H");
+        // El proceso usa '\n'; la terminal espera '\r\n'.
+        let normalized = text.replace("\r\n", "\n").replace('\n', "\r\n");
+        session.screen.process(normalized.as_bytes());
+    }
+
+    /// Ejecuta el archivo activo con el intérprete de SpASM (capturando la
+    /// salida en la sesión "build").
     fn run(&mut self, _arg: Option<&str>) {
         let Some(file) = self.active_file.clone() else {
             return;
@@ -922,11 +963,11 @@ impl Ide {
             return;
         };
         self.open_file(file.clone());
-        self.run_in_local(&exe, &[file.display().to_string()]);
+        self.spawn_build(exe, vec![file.display().to_string()]);
     }
 
     /// Transpila el archivo activo a C con `spasmc.py` (y lo construye si hay
-    /// compilador de C), escribiendo la orden en la shell activa.
+    /// compilador de C), capturando la salida y los diagnósticos.
     fn build(&mut self, _arg: &str) {
         let Some(file) = self.active_file.clone() else {
             return;
@@ -940,8 +981,39 @@ impl Ide {
         let _ = std::fs::create_dir_all(&out_dir);
         let out_c = out_dir.join(format!("{stem}.c"));
         if let Ok((program, args, _build)) = self.toolchain.compile_command(&file, &out_c) {
-            self.run_in_local(&program, &args);
+            self.spawn_build(program, args);
         }
+    }
+
+    /// Salta al diagnóstico siguiente o anterior (F8 / Shift+F8), circular.
+    fn diagnostic_step(&mut self, forward: bool) {
+        let lines: Vec<usize> = self
+            .diagnostics
+            .iter()
+            .map(|d| d.line)
+            .filter(|l| *l > 0)
+            .collect();
+        if lines.is_empty() {
+            return;
+        }
+        let cursor = self.tabs[self.active_tab].cursor.line + 1; // 1-based
+        let target = if forward {
+            lines
+                .iter()
+                .find(|l| **l > cursor)
+                .copied()
+                .unwrap_or(lines[0])
+        } else {
+            lines
+                .iter()
+                .rev()
+                .find(|l| **l < cursor)
+                .copied()
+                .unwrap_or_else(|| *lines.last().unwrap())
+        };
+        let old = self.tabs[self.active_tab].cursor.line;
+        let new = (target - 1).min(self.tabs[self.active_tab].lines.len().saturating_sub(1));
+        self.set_cursor(Cursor { line: new, col: 0 }, old, false);
     }
 
     /// Acciones del menú superior.
@@ -1250,6 +1322,11 @@ impl Ide {
         if text == "\u{F709}" {
             // F6: analiza el archivo activo con el parser de SpASM.
             self.lint_active();
+            return;
+        }
+        if text == "\u{F70b}" {
+            // F8 / Shift+F8: siguiente / anterior diagnóstico.
+            self.diagnostic_step(!shift);
             return;
         }
         if control && shift && text.eq_ignore_ascii_case("m") {
@@ -2487,6 +2564,15 @@ impl Ide {
             }
             got = true;
         }
+        while let Ok(result) = self.build_rx.try_recv() {
+            let mut text = result.output;
+            text.push_str(&format!("\n[build: código {}]\n", result.code));
+            self.write_build_output(&text);
+            self.diagnostics = result.diagnostics;
+            self.diagnostics_path = self.active_file.clone();
+            self.editor_full = true;
+            got = true;
+        }
         if got {
             self.sync(w);
         }
@@ -2929,25 +3015,6 @@ fn encode_key(text: &str, control: bool, shift: bool, alt: bool) -> Option<Vec<u
         }
     }
     (!out.is_empty()).then_some(out)
-}
-
-/// Arma la línea de comando para la shell, cotizando programa y argumentos.
-/// PowerShell necesita el operador `&` para ejecutar un path; cmd no.
-fn shell_line(powershell: bool, program: &Path, args: &[String]) -> String {
-    let mut parts = vec![quote(program)];
-    for a in args {
-        parts.push(quote(Path::new(a)));
-    }
-    if powershell {
-        format!("& {}", parts.join(" "))
-    } else {
-        parts.join(" ")
-    }
-}
-
-/// Cotiza un argumento para la shell (comillas dobles).
-fn quote(p: &Path) -> String {
-    format!("\"{}\"", p.display())
 }
 
 // ---------------------------------------------------------------------------
@@ -3502,16 +3569,6 @@ mod tests {
         assert_eq!(encode_key("\u{F708}", false, false, false), None);
     }
 
-    #[test]
-    fn shell_line_cotiza_y_usa_el_call_operator_en_powershell() {
-        let args = vec!["--target".to_string(), "c".to_string()];
-        let cmd = shell_line(false, Path::new("C:\\x\\spasmc.py"), &args);
-        assert_eq!(cmd, "\"C:\\x\\spasmc.py\" \"--target\" \"c\"");
-
-        let ps = shell_line(true, Path::new("C:\\x\\spasmc.py"), &args);
-        assert_eq!(ps, "& \"C:\\x\\spasmc.py\" \"--target\" \"c\"");
-    }
-
     fn temp_dir(name: &str) -> PathBuf {
         let d = std::env::temp_dir().join(format!("nuide-editor-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&d);
@@ -3947,6 +4004,36 @@ mod tests {
         assert_eq!(ide.tabs[0].image_zoom, 0.1); // tope inferior
         ide.image_zoom_reset();
         assert_eq!(ide.tabs[0].image_zoom, 1.0);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn f8_salta_entre_diagnosticos() {
+        let dir = temp_dir("diag-nav");
+        let f = dir.join("a.spasm");
+        std::fs::write(&f, "l1\nl2\nl3\nl4\nl5\n").unwrap();
+        let mut ide = Ide::new();
+        ide.open_file(f.clone());
+        ide.diagnostics = vec![
+            lint::Diagnostic {
+                line: 2,
+                message: "a".into(),
+            },
+            lint::Diagnostic {
+                line: 5,
+                message: "b".into(),
+            },
+        ];
+        // Desde la línea 0, F8 va a la 2 (índice 1); otra vez, a la 5; otra, circular.
+        ide.diagnostic_step(true);
+        assert_eq!(ide.tabs[0].cursor.line, 1);
+        ide.diagnostic_step(true);
+        assert_eq!(ide.tabs[0].cursor.line, 4);
+        ide.diagnostic_step(true);
+        assert_eq!(ide.tabs[0].cursor.line, 1);
+        // Hacia atrás desde la 2: a la 5.
+        ide.diagnostic_step(false);
+        assert_eq!(ide.tabs[0].cursor.line, 4);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

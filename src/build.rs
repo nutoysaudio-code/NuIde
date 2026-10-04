@@ -1,0 +1,178 @@
+//! Ejecución del toolchain de SpASM desde la IDE.
+//!
+//! A diferencia de escribir la orden en la shell, acá se corre el proceso, se
+//! captura su salida (stdout + stderr) y se **parsean los diagnósticos** (con su
+//! número de línea) para marcarlos en el editor. La salida cruda se muestra en
+//! una sesión de terminal dedicada ("build").
+
+use std::path::PathBuf;
+use std::process::Command;
+use std::sync::mpsc::Sender;
+use std::thread;
+
+use crate::lint::Diagnostic;
+
+/// Resultado de una corrida del toolchain.
+pub struct BuildResult {
+    /// Diagnósticos parseados (línea + mensaje).
+    pub diagnostics: Vec<Diagnostic>,
+    /// Salida cruda (stdout + stderr) para mostrar en la terminal.
+    pub output: String,
+    /// Código de salida del proceso.
+    pub code: i32,
+}
+
+/// Corre `program args` en `cwd` en un hilo, captura la salida y manda el
+/// resultado por `tx`.
+pub fn spawn(program: PathBuf, args: Vec<String>, cwd: PathBuf, tx: Sender<BuildResult>) {
+    thread::spawn(move || {
+        let mut cmd = Command::new(&program);
+        cmd.args(&args).current_dir(&cwd);
+
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+            cmd.creation_flags(CREATE_NO_WINDOW);
+        }
+
+        let result = match cmd.output() {
+            Ok(out) => {
+                let mut text = String::from_utf8_lossy(&out.stdout).into_owned();
+                let err = String::from_utf8_lossy(&out.stderr);
+                if !err.is_empty() {
+                    if !text.is_empty() && !text.ends_with('\n') {
+                        text.push('\n');
+                    }
+                    text.push_str(&err);
+                }
+                BuildResult {
+                    diagnostics: parse_diagnostics(&text),
+                    output: text,
+                    code: out.status.code().unwrap_or(-1),
+                }
+            }
+            Err(e) => BuildResult {
+                diagnostics: Vec::new(),
+                output: format!("no se pudo ejecutar {}: {e}\n", program.display()),
+                code: -1,
+            },
+        };
+        let _ = tx.send(result);
+    });
+}
+
+/// Extrae diagnósticos (línea + mensaje) de la salida del compilador. Soporta el
+/// formato de SpASM (`linea N: …`) y el de gcc/clang (`archivo:N:col: error: …`).
+pub fn parse_diagnostics(text: &str) -> Vec<Diagnostic> {
+    let mut out = Vec::new();
+    for line in text.lines() {
+        if let Some(diag) = diagnostic_of(line) {
+            out.push(diag);
+        }
+    }
+    out
+}
+
+fn diagnostic_of(line: &str) -> Option<Diagnostic> {
+    // SpASM: "linea 12: funcion no declarada: x"
+    if let Some(pos) = line.find("linea ") {
+        let rest = &line[pos + 6..];
+        if let Some(colon) = rest.find(':') {
+            if let Ok(n) = rest[..colon].trim().parse::<usize>() {
+                return Some(Diagnostic {
+                    line: n,
+                    message: rest[colon + 1..].trim().to_string(),
+                });
+            }
+        }
+    }
+    // gcc/clang: "build/x.c:12:5: error: ..."
+    let parts: Vec<&str> = line.split(':').collect();
+    for (i, part) in parts.iter().enumerate() {
+        if let Ok(n) = part.trim().parse::<usize>() {
+            let rest = parts[i + 1..].join(":");
+            let lower = rest.to_ascii_lowercase();
+            if lower.contains("error") || lower.contains("warning") {
+                return Some(Diagnostic {
+                    line: n,
+                    message: rest.trim().to_string(),
+                });
+            }
+        }
+    }
+    None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parsea_el_formato_de_spasm() {
+        let text = "Compilando...\nerror: linea 5: funcion no declarada: foo\n";
+        let d = parse_diagnostics(text);
+        assert_eq!(d.len(), 1);
+        assert_eq!(d[0].line, 5);
+        assert!(d[0].message.contains("no declarada"));
+    }
+
+    #[test]
+    fn parsea_el_formato_de_gcc() {
+        let text = "build/x.c:12:5: error: expected ';' before '}'\n";
+        let d = parse_diagnostics(text);
+        assert_eq!(d.len(), 1);
+        assert_eq!(d[0].line, 12);
+        assert!(d[0].message.contains("expected"));
+    }
+
+    #[test]
+    fn ignora_la_salida_normal() {
+        assert!(parse_diagnostics("ok: build/x.c\nsiguiente: gcc ...\n").is_empty());
+    }
+
+    /// Punta a punta con el compilador real (se saltea si falta el toolchain).
+    #[test]
+    fn corre_el_compilador_y_parsea_el_error() {
+        let toolchain = crate::spasm::Toolchain::discover();
+        let Some(python) = toolchain.python.clone() else {
+            eprintln!("test salteado: falta Python");
+            return;
+        };
+        // Se usa el compilador del repo del ecosistema (el instalado puede estar
+        // incompleto). Se saltea si no está.
+        let compiler = std::path::PathBuf::from(r"F:\SpAMS-Oficial\src\shared\spasmc.py");
+        if !compiler.is_file() {
+            eprintln!("test salteado: no está el compilador del ecosistema");
+            return;
+        }
+        let dir = std::env::temp_dir().join(format!("nuide-build-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let bad = dir.join("mal.spasm");
+        std::fs::write(
+            &bad,
+            "programa \"x\"\n\nmain {\n    let a = no_existe()\n}\n",
+        )
+        .unwrap();
+        let out_c = dir.join("mal.c");
+        let mut args = vec![compiler.display().to_string()];
+        args.extend(crate::spasm::compile_args(&bad, &out_c, false));
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        spawn(python, args, dir.clone(), tx);
+        let result = rx
+            .recv_timeout(std::time::Duration::from_secs(40))
+            .expect("el build devolvió un resultado");
+        assert_ne!(result.code, 0, "el build no debería haber tenido éxito");
+        assert!(
+            result
+                .diagnostics
+                .iter()
+                .any(|d| d.line == 4 && d.message.contains("no declarada")),
+            "diagnósticos inesperados: {:?}\nsalida: {}",
+            result.diagnostics,
+            result.output
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
