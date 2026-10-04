@@ -1,5 +1,5 @@
 import { IdeTheme } from "ide_theme.slint";
-import { IdeTermLine } from "ide_types.slint";
+import { IdeTermLine, TermLine } from "ide_types.slint";
 
 // Botón compacto de encabezado (nuevo, cerrar, dividir…).
 export component IdeHeaderButton inherits Rectangle {
@@ -155,7 +155,47 @@ export component TerminalBody inherits Flickable {
     }
 }
 
-// Terminal local: encabezado con sesiones + cuerpo con scroll.
+// Pantalla de la terminal real: filas de tramos coloreados en monoespaciada.
+// Cada tramo pinta su fondo; el cursor ya viene invertido desde Rust.
+export component TerminalScreen inherits Rectangle {
+    in property <[TermLine]> lines: [];
+    in property <length> row-height: 16px;
+
+    clip: true;
+    background: transparent;
+
+    VerticalLayout {
+        x: 0;
+        y: 0;
+        width: parent.width;
+        spacing: 0;
+        alignment: start;
+
+        for line in root.lines: HorizontalLayout {
+            height: root.row-height;
+            spacing: 0;
+            alignment: start;
+
+            for run in line.runs: Rectangle {
+                width: run-text.width;
+                height: parent.height;
+                background: run.bg;
+
+                run-text := Text {
+                    text: run.text;
+                    color: run.fg;
+                    font-family: IdeTheme.mono;
+                    font-size: 12px;
+                    font-weight: run.bold ? 700 : 400;
+                    height: parent.height;
+                    vertical-alignment: center;
+                }
+            }
+        }
+    }
+}
+
+// Terminal local: encabezado con sesiones + pantalla de una shell real.
 //
 // Hereda de `FocusScope` para poder recibir el teclado (la ventana apunta acá
 // con `forward-focus`). Como `FocusScope` es un elemento de bajo nivel sin
@@ -163,24 +203,31 @@ export component TerminalBody inherits Flickable {
 export component IdeTerminal inherits FocusScope {
     in property <[string]> sessions: [];
     in property <int> active-session: 0;
-    in property <[IdeTermLine]> lines: [];
-    in property <string> prompt: "";
-    in property <string> input: "";
+    in property <[TermLine]> lines: [];
     callback session-selected(int);
     callback new-session();
     callback close();
     callback split();
-    // Tecla cruda: (texto, ¿control?). Los caracteres de control (Backspace,
-    // Enter) llegan como su representación unicode y se interpretan en Rust.
-    callback key-input(string, bool);
+    // Tecla cruda: (texto, control, shift, alt). Rust la traduce a bytes.
+    callback key-input(string, bool, bool, bool);
+    // Tamaño del área de pantalla en píxeles, para dimensionar el PTY.
+    callback resized(length, length);
 
-    // Un clic en cualquier parte de la terminal le devuelve el foco.
     focus-on-click: true;
 
     key-pressed(event) => {
-        root.key-input(event.text, event.modifiers.control);
+        root.key-input(event.text, event.modifiers.control, event.modifiers.shift, event.modifiers.alt);
         accept
     }
+
+    private property <length> header-h: 30px;
+
+    function report-size() {
+        root.resized(self.width, max(0px, self.height - root.header-h));
+    }
+
+    changed width => { root.report-size(); }
+    changed height => { root.report-size(); }
 
     // --- superficie visual ---
     Rectangle {
@@ -199,7 +246,7 @@ export component IdeTerminal inherits FocusScope {
             x: 0;
             y: 0;
             width: parent.width;
-            height: 30px;
+            height: root.header-h;
             background: IdeTheme.bg;
 
             HorizontalLayout {
@@ -247,15 +294,13 @@ export component IdeTerminal inherits FocusScope {
             }
         }
 
-        TerminalBody {
+        // --- pantalla ---
+        TerminalScreen {
             x: 0;
-            y: 30px;
+            y: root.header-h;
             width: parent.width;
-            height: parent.height - 30px;
+            height: parent.height - root.header-h;
             lines: root.lines;
-            prompt: root.prompt;
-            editable: true;
-            input: root.input;
         }
     }
 }

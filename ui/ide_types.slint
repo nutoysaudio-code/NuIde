@@ -38,3 +38,17 @@ export struct IdeTermLine {
     text: string,
     kind: int,
 }
+
+// Tramo de texto de la **terminal real**: celdas contiguas con el mismo frente,
+// fondo y negrita. Agruparlos evita un `Text` por carácter.
+export struct TermRun {
+    text: string,
+    fg: color,
+    bg: color,
+    bold: bool,
+}
+
+// Fila de la terminal real.
+export struct TermLine {
+    runs: [TermRun],
+}

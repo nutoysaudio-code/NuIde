@@ -1,25 +1,23 @@
 //! Estado de NuIde: el puente entre la ventana Slint y la lógica real.
 //!
-//! Este módulo mantiene el toolchain de SpASM, la consola local, el árbol de
-//! archivos, las pestañas del editor y el archivo activo, y cablea los callbacks
+//! Mantiene el toolchain de SpASM, el árbol de archivos, las pestañas del
+//! editor, la terminal real (PTY) y el panel del agente, y cablea los callbacks
 //! de la ventana.
 //!
-//! ### Modelo de ejecución
+//! ### Terminales
 //!
-//! La terminal es *lineal* (ver `terminal`). El usuario escribe en la línea de
-//! entrada; al apretar Enter, `Ide::submit` refleja el comando, lo despacha y, si
-//! no es una orden propia de la IDE, lo pasa al shell del sistema.
+//! La terminal local es un **PTY** (ConPTY en Windows) con una shell
+//! persistente; los bytes crudos los interpreta el emulador de `vt`. Escribir es
+//! mandarle teclas a la shell. Los menús Ejecutar/Compilar escriben la orden en
+//! esa misma shell, así la salida aparece en la terminal.
 //!
-//! Los procesos corren en hilos y avisan por un canal. Como los callbacks de
-//! Slint viven en el hilo de la UI, un `Timer` de 60 ms drena el canal y vuelca
-//! el estado con `sync`. Ese timer se guarda en `Ide` para que no se caiga al
-//! salir de `attach`; su closure usa un `Weak` para no crear un ciclo.
+//! El panel del agente sigue siendo una consola *lineal* (`terminal`), porque
+//! `opencode run` es un proceso por prompt.
 //!
-//! ### Comandos propios
-//!
-//! `help`, `cd`, `clear`, `open`, `run`/`spasm` y `build`/`spasmc`. Cualquier
-//! otra línea va al shell (`cmd /C` en Windows, `sh -c` en el resto). Así la IDE
-//! puede lanzar `spasm.exe` y `spasmc.py` sin depender de que estén en el `PATH`.
+//! Los procesos corren en hilos y avisan por canales. Como los callbacks de
+//! Slint viven en el hilo de la UI, un `Timer` de 60 ms drena los canales y
+//! vuelca el estado con `sync`. Ese timer se guarda en `Ide` para que no se caiga
+//! al salir de `attach`; su closure usa un `Weak` para no crear un ciclo.
 
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
@@ -31,9 +29,13 @@ use slint::{ComponentHandle, Model, ModelRc, Timer, TimerMode, VecModel};
 
 use crate::explorer::{Action, Explorer};
 use crate::highlight;
+use crate::pty::{self, Pty, PtyEvent};
 use crate::spasm::Toolchain;
 use crate::terminal::{self, Line, Msg, Terminal};
-use crate::ui::{IdeCodeLine, IdeTab, IdeTermLine, IdeToken, IdeTreeNode, NuIdeWindow};
+use crate::ui::{
+    IdeCodeLine, IdeTab, IdeTermLine, IdeToken, IdeTreeNode, NuIdeWindow, TermLine, TermRun,
+};
+use crate::vt::Screen;
 
 /// Tope de líneas que se abren de un archivo. Un archivo enorme no puede
 /// congelar la UI; lo que sobra no se muestra.
@@ -58,6 +60,16 @@ const CODE_X0: f32 = 58.0;
 /// el `VerticalLayout` de `IdeEditor`).
 const ROW_H: f32 = 20.0;
 const CODE_TOP: f32 = 8.0;
+
+/// Tamaño inicial de la terminal real (columnas × filas) hasta que la UI avise
+/// el tamaño del panel.
+const TERM_COLS: u16 = 100;
+const TERM_ROWS: u16 = 24;
+/// Métricas de celda de la terminal real. Coinciden con `TerminalScreen`
+/// (mono 12 px). El ancho es aproximado: sólo decide cuántas columnas pedirle al
+/// PTY, no la posición del cursor (que se dibuja invirtiendo la celda).
+const TERM_CELL_W: f32 = 7.2;
+const TERM_CELL_H: f32 = 16.0;
 
 /// Posición del cursor dentro de un buffer: línea y columna **en caracteres**.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -179,11 +191,31 @@ impl OpenTab {
     }
 }
 
+/// Una sesión de terminal real: una shell en un PTY con su pantalla.
+struct LocalSession {
+    id: u64,
+    name: String,
+    pty: Option<Pty>,
+    screen: Screen,
+    /// `true` si la shell es PowerShell (cambia cómo se cotizan los comandos).
+    powershell: bool,
+    /// El proceso sigue vivo.
+    alive: bool,
+}
+
 /// Estado completo de la IDE.
 pub struct Ide {
     toolchain: Toolchain,
-    terminal: Terminal,
-    /// Árbol de archivos, con raíz en la carpeta de la sesión activa.
+    /// Terminal real: una shell por sesión.
+    local: Vec<LocalSession>,
+    local_active: usize,
+    next_local_id: u64,
+    /// Tamaño actual del panel de terminal (columnas × filas).
+    local_cols: u16,
+    local_rows: u16,
+    local_tx: Sender<PtyEvent>,
+    local_rx: Receiver<PtyEvent>,
+    /// Árbol de archivos.
     explorer: Explorer,
     /// Índice seleccionado en el explorador (-1 = nada).
     explorer_selected: i32,
@@ -204,7 +236,7 @@ pub struct Ide {
     /// Pila de rehacer. Se vacía con cada edición nueva.
     redo: Vec<(Vec<String>, Cursor)>,
     /// Consola dedicada al agente (OpenCode CLI). Canal propio para no mezclar
-    /// sesiones con la terminal local.
+    /// sesiones con la terminal real.
     agent: Terminal,
     agent_input: String,
     agent_tx: Sender<Msg>,
@@ -212,12 +244,6 @@ pub struct Ide {
     /// Encabezado del panel de agente.
     agent_version: String,
     agent_model: String,
-    /// Extremo emisor que se clona a cada proceso lanzado.
-    tx: Sender<Msg>,
-    /// Extremo receptor que el timer drena.
-    rx: Receiver<Msg>,
-    /// Texto que el usuario está escribiendo en la línea de entrada.
-    input: String,
     /// `.spasm` sobre el que actúan los menús Ejecutar/Compilar.
     active_file: Option<PathBuf>,
     /// Timer del bucle de drenado.
@@ -227,13 +253,20 @@ pub struct Ide {
 impl Ide {
     pub fn new() -> Self {
         let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-        let (tx, rx) = mpsc::channel();
         let (agent_tx, agent_rx) = mpsc::channel();
         let mut agent = Terminal::new(cwd.clone());
         agent.sessions[0].name = "opencode".to_string();
-        Self {
+        let (local_tx, local_rx) = mpsc::channel();
+
+        let mut ide = Self {
             toolchain: Toolchain::discover(),
-            terminal: Terminal::new(cwd.clone()),
+            local: Vec::new(),
+            local_active: 0,
+            next_local_id: 0,
+            local_cols: TERM_COLS,
+            local_rows: TERM_ROWS,
+            local_tx,
+            local_rx,
             explorer: Explorer::new(cwd),
             explorer_selected: -1,
             tabs: Vec::new(),
@@ -251,12 +284,11 @@ impl Ide {
                 .unwrap_or_else(|_| "OpenCode CLI".to_string()),
             agent_model: std::env::var("NUIDE_AGENT_MODEL")
                 .unwrap_or_else(|_| "por defecto".to_string()),
-            tx,
-            rx,
-            input: String::new(),
             active_file: None,
             timer: None,
-        }
+        };
+        ide.new_local_session();
+        ide
     }
 
     /// Estado listo para compartir con los callbacks de Slint, con el banner de
@@ -273,43 +305,9 @@ impl Ide {
 // ---------------------------------------------------------------------------
 
 impl Ide {
-    /// Cuenta qué encontró y qué no. No es decorativo: si el intérprete no está,
-    /// el usuario tiene que enterarse antes de tocar «Ejecutar».
+    /// Banner del panel del agente. La terminal real no necesita banner: la
+    /// shell imprime el suyo.
     fn banner(&mut self) {
-        self.terminal.push_active(Line {
-            text: "NuIde — SpASM Studio".into(),
-            kind: 4,
-        });
-        self.terminal.push_active(Line {
-            text: format!("carpeta: {}", self.terminal.active().cwd.display()),
-            kind: 1,
-        });
-        match &self.toolchain.interpreter {
-            Some(p) => self.terminal.push_active(Line {
-                text: format!("intérprete: {}", p.display()),
-                kind: 0,
-            }),
-            None => self.terminal.push_active(Line {
-                text: "intérprete spasm.exe: no encontrado (definí NUIDE_SPASM)".into(),
-                kind: 5,
-            }),
-        }
-        match &self.toolchain.compiler {
-            Some(p) => self.terminal.push_active(Line {
-                text: format!("compilador: {}", p.display()),
-                kind: 0,
-            }),
-            None => self.terminal.push_active(Line {
-                text: "compilador spasmc.py: no encontrado (definí NUIDE_SPASMC)".into(),
-                kind: 5,
-            }),
-        }
-        self.terminal.push_active(Line {
-            text: "escribí 'help' para ver los comandos propios".into(),
-            kind: 1,
-        });
-
-        // Panel del agente: banner y versión real del CLI.
         match &self.toolchain.agent {
             Some(p) => {
                 self.agent.push_active(Line {
@@ -330,6 +328,46 @@ impl Ide {
             }),
         }
     }
+
+    /// Abre una shell nueva en un PTY y la deja activa.
+    fn new_local_session(&mut self) {
+        let id = self.next_local_id;
+        self.next_local_id += 1;
+        let n = self.local.len() + 1;
+        let (shell, args) = pty::default_shell();
+        let powershell = pty::is_powershell(&shell);
+        let name = if powershell {
+            format!("pwsh {n}")
+        } else {
+            format!("shell {n}")
+        };
+        let cwd = self.explorer.root().to_path_buf();
+        let mut screen = Screen::new(self.local_rows, self.local_cols);
+        let pty = match Pty::spawn(
+            id,
+            &shell,
+            &args,
+            &cwd,
+            self.local_cols,
+            self.local_rows,
+            self.local_tx.clone(),
+        ) {
+            Ok(p) => Some(p),
+            Err(e) => {
+                screen.process(format!("no se pudo abrir la shell ({shell}): {e}\r\n").as_bytes());
+                None
+            }
+        };
+        self.local.push(LocalSession {
+            id,
+            name,
+            pty,
+            screen,
+            powershell,
+            alive: true,
+        });
+        self.local_active = self.local.len() - 1;
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -337,33 +375,32 @@ impl Ide {
 // ---------------------------------------------------------------------------
 
 impl Ide {
-    /// Procesa una pulsación de tecla de la terminal.
-    ///
-    /// En Slint los controles llegan como caracteres: Backspace es `\u{8}`, Enter
-    /// es `\n`. Cuando `control` es verdadero se trata como atajo y no como
-    /// texto.
-    fn key(&mut self, text: &str, control: bool) {
-        if control {
-            match text.to_ascii_lowercase().as_str() {
-                "c" => {
-                    if !self.input.is_empty() {
-                        self.input.clear();
-                    }
-                    self.terminal.push_active(Line {
-                        text: "^C".into(),
-                        kind: 1,
-                    });
-                }
-                "l" => self.terminal.clear_active(),
-                "u" => self.input.clear(),
-                _ => {}
-            }
+    /// Teclas de la terminal real: se traducen a bytes y van al PTY activo.
+    fn local_key(&mut self, text: &str, control: bool, shift: bool, alt: bool) {
+        let Some(bytes) = encode_key(text, control, shift, alt) else {
             return;
-        }
+        };
+        self.write_to_local(&bytes);
+    }
 
-        if apply_text_key(&mut self.input, text) {
-            self.submit();
+    /// Escribe bytes en el PTY de la sesión activa.
+    fn write_to_local(&mut self, bytes: &[u8]) {
+        if let Some(session) = self.local.get_mut(self.local_active) {
+            if let Some(pty) = session.pty.as_mut() {
+                let _ = pty.write(bytes);
+            }
         }
+    }
+
+    /// Escribe una línea de comando en la shell activa (menú Ejecutar/Compilar).
+    fn run_in_local(&mut self, program: &Path, args: &[String]) {
+        let Some(session) = self.local.get(self.local_active) else {
+            return;
+        };
+        let line = shell_line(session.powershell, program, args);
+        let mut bytes = line.into_bytes();
+        bytes.push(b'\r');
+        self.write_to_local(&bytes);
     }
 
     /// Tecla cruda del panel del agente.
@@ -424,211 +461,35 @@ impl Ide {
         }
     }
 
-    /// Envía la línea de entrada. Refleja el comando con el prompt y lo despacha.
-    fn submit(&mut self) {
-        let raw = std::mem::take(&mut self.input);
-        let prompt = self.terminal.prompt();
-        self.terminal.push_active(Line {
-            text: format!("{prompt}{raw}"),
-            kind: 4,
-        });
-        let cmd = raw.trim().to_string();
-        if !cmd.is_empty() {
-            self.dispatch(&cmd);
-        }
-    }
-
-    fn dispatch(&mut self, cmd: &str) {
-        let (head, rest) = split_first(cmd);
-        match head {
-            "clear" | "cls" => self.terminal.clear_active(),
-            "help" => self.help(),
-            "cd" => match self.terminal.set_cwd(rest) {
-                Ok(cwd) => {
-                    // El explorador sigue a la carpeta de la sesión.
-                    self.explorer.set_root(cwd.clone());
-                    self.explorer_selected = -1;
-                    self.terminal.push_active(Line {
-                        text: cwd.display().to_string(),
-                        kind: 1,
-                    });
-                }
-                Err(e) => self.terminal.push_active(Line { text: e, kind: 3 }),
-            },
-            "open" => self.open(rest),
-            "run" | "spasm" => {
-                let arg = (!rest.trim().is_empty()).then_some(rest);
-                self.run(arg)
-            }
-            "build" | "spasmc" => self.build(rest),
-            _ => self.run_shell(cmd),
-        }
-    }
-
-    fn help(&mut self) {
-        let rows = [
-            ("help", "esta ayuda"),
-            ("cd <dir>", "cambia la carpeta de la sesión"),
-            ("clear", "limpia la terminal"),
-            ("open <archivo>", "marca el .spasm activo para los menús"),
-            ("run [archivo]", "ejecuta un .spasm con el intérprete"),
-            (
-                "build [archivo]",
-                "transpila un .spasm a C (y lo compila si hay cc)",
-            ),
-            ("<comando>", "se pasa al shell del sistema"),
-        ];
-        for (cmd, desc) in rows {
-            self.terminal.push_active(Line {
-                text: format!("  {cmd:<16} {desc}"),
-                kind: 0,
-            });
-        }
-    }
-
-    fn open(&mut self, arg: &str) {
-        let arg = arg.trim();
-        if arg.is_empty() {
-            self.terminal.push_active(Line {
-                text: "uso: open <archivo.spasm>".into(),
-                kind: 5,
-            });
+    /// Ejecuta el archivo activo con el intérprete de SpASM: escribe la orden en
+    /// la shell activa, así la salida queda en la terminal real.
+    fn run(&mut self, _arg: Option<&str>) {
+        let Some(file) = self.active_file.clone() else {
             return;
-        }
-        let path = self.resolve(arg);
-        if path.is_file() {
-            self.open_file(path);
-        } else {
-            self.terminal.push_active(Line {
-                text: format!("no existe: {}", path.display()),
-                kind: 3,
-            });
-        }
-    }
-
-    /// Ejecuta `arg` (o el archivo activo) con el intérprete de SpASM.
-    fn run(&mut self, arg: Option<&str>) {
-        let Some(file) = self.target(arg) else { return };
-        // El intérprete corre el dialecto de intérprete (top-level). Un archivo
-        // con `programa`/`main` es del dialecto compilado: avisar es mejor que
-        // dejar que reviente con "Error de sintaxis".
-        if uses_compiled_dialect(&file) {
-            self.terminal.push_active(Line {
-                text: "este archivo usa el dialecto compilado ('programa'/'main'); el intérprete \
-                       no lo corre. Usá 'build' o el menú Compilar."
-                    .into(),
-                kind: 5,
-            });
+        };
+        let Ok(exe) = self.toolchain.interpreter_required() else {
             return;
-        }
-        let exe = match self.toolchain.interpreter_required() {
-            Ok(exe) => exe,
-            Err(e) => {
-                self.terminal.push_active(Line { text: e, kind: 5 });
-                return;
-            }
         };
         self.open_file(file.clone());
-        self.spawn(exe, vec![file.display().to_string()]);
+        self.run_in_local(&exe, &[file.display().to_string()]);
     }
 
-    /// Transpila `arg` (o el archivo activo) a C con `spasmc.py` y, si hay un
-    /// compilador de C disponible, construye el binario.
-    fn build(&mut self, arg: &str) {
-        let arg = (!arg.trim().is_empty()).then_some(arg);
-        let Some(file) = self.target(arg) else { return };
+    /// Transpila el archivo activo a C con `spasmc.py` (y lo construye si hay
+    /// compilador de C), escribiendo la orden en la shell activa.
+    fn build(&mut self, _arg: &str) {
+        let Some(file) = self.active_file.clone() else {
+            return;
+        };
         self.open_file(file.clone());
-
-        // El `.c` sale en `build/<stem>.c`. `spasmc` no crea la carpeta: la
-        // creamos acá o falla al escribir.
         let stem = file
             .file_stem()
             .map(|s| s.to_string_lossy().into_owned())
             .unwrap_or_else(|| "out".to_string());
-        let out_dir = self.terminal.active().cwd.join("build");
-        if let Err(e) = std::fs::create_dir_all(&out_dir) {
-            self.terminal.push_active(Line {
-                text: format!("no se pudo crear {}: {e}", out_dir.display()),
-                kind: 3,
-            });
-            return;
-        }
+        let out_dir = self.explorer.root().join("build");
+        let _ = std::fs::create_dir_all(&out_dir);
         let out_c = out_dir.join(format!("{stem}.c"));
-
-        let (program, args, build) = match self.toolchain.compile_command(&file, &out_c) {
-            Ok(cmd) => cmd,
-            Err(e) => {
-                self.terminal.push_active(Line { text: e, kind: 5 });
-                return;
-            }
-        };
-        if !build {
-            self.terminal.push_active(Line {
-                text: "no hay compilador C (CC/gcc/cc) en el PATH: se genera el .c, no el binario"
-                    .into(),
-                kind: 5,
-            });
-        }
-        self.spawn(program, args);
-    }
-
-    /// Resuelve el archivo objetivo: el argumento o, si no hay, el activo.
-    fn target(&mut self, arg: Option<&str>) -> Option<PathBuf> {
-        let file = match arg.map(str::trim).filter(|s| !s.is_empty()) {
-            Some(s) => self.resolve(s),
-            None => match self.active_file.clone() {
-                Some(p) => p,
-                None => {
-                    self.terminal.push_active(Line {
-                        text: "no hay archivo activo; usá 'run <archivo>' o 'open <archivo>'"
-                            .into(),
-                        kind: 5,
-                    });
-                    return None;
-                }
-            },
-        };
-        if !file.is_file() {
-            self.terminal.push_active(Line {
-                text: format!("no existe: {}", file.display()),
-                kind: 3,
-            });
-            return None;
-        }
-        Some(file)
-    }
-
-    fn resolve(&self, arg: &str) -> PathBuf {
-        let p = PathBuf::from(arg);
-        if p.is_absolute() {
-            p
-        } else {
-            self.terminal.active().cwd.join(p)
-        }
-    }
-
-    /// Delega al shell del sistema una línea que no es comando propio.
-    fn run_shell(&mut self, cmd: &str) {
-        let (program, args) = shell_command(cmd);
-        self.spawn(program, args);
-    }
-
-    /// Lanza un proceso en la sesión activa.
-    fn spawn(&mut self, program: PathBuf, args: Vec<String>) {
-        let session = self.terminal.active;
-        let cwd = self.terminal.active().cwd.clone();
-        let display = program.display().to_string();
-        self.terminal.sessions[session].running = true;
-        let tx = self.tx.clone();
-        if let Err(e) = terminal::spawn_streaming(session, &cwd, &display, &args, tx) {
-            self.terminal.push(
-                session,
-                Line {
-                    text: format!("no se pudo ejecutar {display}: {e}"),
-                    kind: 3,
-                },
-            );
-            self.terminal.sessions[session].running = false;
+        if let Ok((program, args, _build)) = self.toolchain.compile_command(&file, &out_c) {
+            self.run_in_local(&program, &args);
         }
     }
 
@@ -637,10 +498,7 @@ impl Ide {
         match label {
             "Ejecutar" => self.run(None),
             "Compilar" => self.build(""),
-            _ => self.terminal.push_active(Line {
-                text: format!("[{label}] todavía no está cableado"),
-                kind: 1,
-            }),
+            _ => {}
         }
     }
 }
@@ -651,37 +509,55 @@ impl Ide {
 
 impl Ide {
     fn select_session(&mut self, i: i32) {
-        if i >= 0 && (i as usize) < self.terminal.sessions.len() {
-            self.terminal.active = i as usize;
-            self.sync_explorer_root();
+        if i >= 0 && (i as usize) < self.local.len() {
+            self.local_active = i as usize;
+            self.resize_local();
         }
     }
 
     fn new_session(&mut self) {
-        let cwd = self.terminal.active().cwd.clone();
-        let n = self.terminal.sessions.len() + 1;
-        let name = format!("{} {n}", terminal::default_shell_name());
-        self.terminal.add_session(name, cwd);
-        self.sync_explorer_root();
+        self.new_local_session();
+        self.resize_local();
     }
 
     fn close_session(&mut self) {
-        self.terminal.close_session(self.terminal.active);
-        self.sync_explorer_root();
+        if self.local.len() <= 1 {
+            return;
+        }
+        self.local.remove(self.local_active);
+        if self.local_active >= self.local.len() {
+            self.local_active = self.local.len() - 1;
+        }
+        self.resize_local();
     }
 
     fn split_terminal(&mut self) {
-        self.terminal.push_active(Line {
-            text: "dividir la terminal todavía no está implementado".into(),
-            kind: 5,
-        });
+        // Dividir la vista no está implementado; abrir otra sesión es lo útil.
+        self.new_local_session();
+        self.resize_local();
     }
 
-    /// El explorador sigue a la carpeta de la sesión activa.
-    fn sync_explorer_root(&mut self) {
-        let cwd = self.terminal.active().cwd.clone();
-        self.explorer.set_root(cwd);
-        self.explorer_selected = -1;
+    /// Avisa a la sesión activa el tamaño actual del panel.
+    fn resize_local(&mut self) {
+        let (cols, rows) = (self.local_cols, self.local_rows);
+        if let Some(session) = self.local.get_mut(self.local_active) {
+            session.screen.resize(rows, cols);
+            if let Some(pty) = session.pty.as_ref() {
+                let _ = pty.resize(cols, rows);
+            }
+        }
+    }
+
+    /// La UI informa el tamaño del área de pantalla de la terminal (en píxeles,
+    /// sin el encabezado).
+    fn local_resize(&mut self, w: f32, h: f32) {
+        let cols = ((w / TERM_CELL_W).floor() as i64).clamp(20, 500) as u16;
+        let rows = ((h / TERM_CELL_H).floor() as i64).clamp(2, 200) as u16;
+        if cols != self.local_cols || rows != self.local_rows {
+            self.local_cols = cols;
+            self.local_rows = rows;
+            self.resize_local();
+        }
     }
 }
 
@@ -706,10 +582,6 @@ impl Ide {
     /// como el archivo de los menús.
     fn open_file(&mut self, path: PathBuf) {
         if !path.is_file() {
-            self.terminal.push_active(Line {
-                text: format!("no se puede abrir: {}", path.display()),
-                kind: 3,
-            });
             return;
         }
         self.active_file = Some(path.clone());
@@ -732,10 +604,6 @@ impl Ide {
         self.active_tab = self.tabs.len() - 1;
         self.editor_full = true;
         self.undo.clear();
-        self.terminal.push_active(Line {
-            text: format!("abierto: {}", path.display()),
-            kind: 4,
-        });
     }
 
     fn tab_activated(&mut self, i: i32) {
@@ -859,24 +727,10 @@ impl Ide {
             (t.path.clone(), data, t.read_only)
         };
         if read_only {
-            self.terminal.push_active(Line {
-                text: "este archivo no es texto editable; no se guarda".into(),
-                kind: 5,
-            });
             return;
         }
-        match std::fs::write(&path, data) {
-            Ok(()) => {
-                self.tabs[self.active_tab].dirty = false;
-                self.terminal.push_active(Line {
-                    text: format!("guardado: {}", path.display()),
-                    kind: 4,
-                });
-            }
-            Err(e) => self.terminal.push_active(Line {
-                text: format!("no se pudo guardar {}: {e}", path.display()),
-                kind: 3,
-            }),
+        if std::fs::write(&path, data).is_ok() {
+            self.tabs[self.active_tab].dirty = false;
         }
     }
 
@@ -887,10 +741,7 @@ impl Ide {
                 self.redo.push(current);
                 self.apply_snapshot(lines, cursor);
             }
-            None => self.terminal.push_active(Line {
-                text: "nada que deshacer".into(),
-                kind: 1,
-            }),
+            None => {}
         }
     }
 
@@ -901,10 +752,7 @@ impl Ide {
                 self.undo.push(current);
                 self.apply_snapshot(lines, cursor);
             }
-            None => self.terminal.push_active(Line {
-                text: "nada que rehacer".into(),
-                kind: 1,
-            }),
+            None => {}
         }
     }
 
@@ -1035,18 +883,9 @@ impl Ide {
         self.editor_full = true;
     }
 
-    /// Escribe el portapapeles del sistema. Avisa en la terminal si falla.
+    /// Escribe el portapapeles del sistema.
     fn write_clipboard(&mut self, text: &str) -> bool {
-        match clipboard_write(text) {
-            Ok(()) => true,
-            Err(e) => {
-                self.terminal.push_active(Line {
-                    text: format!("portapapeles: {e}"),
-                    kind: 3,
-                });
-                false
-            }
-        }
+        clipboard_write(text).is_ok()
     }
 
     /// Inserta un carácter en la posición del cursor.
@@ -1375,29 +1214,33 @@ impl Ide {
 impl Ide {
     /// Vuelca el estado a la ventana. Idempotente.
     fn sync(&mut self, w: &NuIdeWindow) {
-        // --- terminal ---
-        let sessions: Vec<slint::SharedString> = self
-            .terminal
-            .sessions
-            .iter()
-            .map(|s| s.name.clone().into())
-            .collect();
+        // --- terminal real ---
+        let sessions: Vec<slint::SharedString> =
+            self.local.iter().map(|s| s.name.clone().into()).collect();
         w.set_term_sessions(ModelRc::from(Rc::new(VecModel::from(sessions))));
-        w.set_active_session(self.terminal.active as i32);
+        w.set_active_session(self.local_active as i32);
 
-        let lines: Vec<IdeTermLine> = self
-            .terminal
-            .active()
-            .lines
-            .iter()
-            .map(|l| IdeTermLine {
-                text: l.text.clone().into(),
-                kind: l.kind,
-            })
-            .collect();
-        w.set_term_lines(ModelRc::from(Rc::new(VecModel::from(lines))));
-        w.set_term_input(self.input.clone().into());
-        w.set_term_prompt(self.terminal.prompt().into());
+        let term_lines: Vec<TermLine> = match self.local.get(self.local_active) {
+            Some(session) => {
+                let (rows, _cursor) = session.screen.snapshot();
+                rows.into_iter()
+                    .map(|runs| TermLine {
+                        runs: ModelRc::from(Rc::new(VecModel::from(
+                            runs.into_iter()
+                                .map(|run| TermRun {
+                                    text: run.text.into(),
+                                    fg: to_color(run.fg),
+                                    bg: to_color(run.bg),
+                                    bold: run.bold,
+                                })
+                                .collect::<Vec<_>>(),
+                        ))),
+                    })
+                    .collect()
+            }
+            None => Vec::new(),
+        };
+        w.set_term_lines(ModelRc::from(Rc::new(VecModel::from(term_lines))));
 
         // --- panel del agente ---
         let agent_lines: Vec<IdeTermLine> = self
@@ -1482,8 +1325,8 @@ impl Ide {
     /// Drena los mensajes pendientes de los hilos. Se llama desde el timer.
     fn drain(&mut self, w: &NuIdeWindow) {
         let mut got = false;
-        while let Ok(msg) = self.rx.try_recv() {
-            self.terminal.apply(msg);
+        while let Ok(event) = self.local_rx.try_recv() {
+            self.apply_pty_event(event);
             got = true;
         }
         while let Ok(msg) = self.agent_rx.try_recv() {
@@ -1492,6 +1335,34 @@ impl Ide {
         }
         if got {
             self.sync(w);
+        }
+    }
+
+    /// Procesa un evento del PTY: alimenta el emulador y contesta el pedido de
+    /// posición del cursor (ConPTY lo necesita para poder renderizar).
+    fn apply_pty_event(&mut self, event: PtyEvent) {
+        match event {
+            PtyEvent::Output { session, bytes } => {
+                let Some(s) = self.local.iter_mut().find(|s| s.id == session) else {
+                    return;
+                };
+                if bytes.windows(4).any(|w| w == b"\x1b[6n") {
+                    let (row, col) = s.screen.cursor().unwrap_or((0, 0));
+                    let reply = format!("\x1b[{};{}R", row + 1, col + 1);
+                    if let Some(pty) = s.pty.as_mut() {
+                        let _ = pty.write(reply.as_bytes());
+                    }
+                }
+                s.screen.process(&bytes);
+            }
+            PtyEvent::Exit { session, code } => {
+                if let Some(s) = self.local.iter_mut().find(|s| s.id == session) {
+                    s.alive = false;
+                    s.pty = None;
+                    s.screen
+                        .process(format!("\r\n[proceso terminado: {code}]\r\n").as_bytes());
+                }
+            }
         }
     }
 }
@@ -1654,30 +1525,65 @@ fn shell_command(cmd: &str) -> (PathBuf, Vec<String>) {
     }
 }
 
-/// Parte la primera palabra de un comando y devuelve `(palabra, resto)`.
-fn split_first(cmd: &str) -> (&str, &str) {
-    let cmd = cmd.trim();
-    match cmd.find(char::is_whitespace) {
-        Some(i) => (&cmd[..i], cmd[i..].trim_start()),
-        None => (cmd, ""),
+/// Convierte un RGB del emulador a color de Slint.
+fn to_color((r, g, b): crate::vt::Rgb) -> slint::Color {
+    slint::Color::from_rgb_u8(r, g, b)
+}
+
+/// Traduce una tecla de Slint a los bytes que espera el PTY.
+///
+/// En Slint los controles llegan como caracteres de control o de uso privado:
+/// Backspace es `\u{8}`, Delete `\u{7f}` y las flechas `\u{F700}`–`\u{F703}`.
+fn encode_key(text: &str, control: bool, shift: bool, alt: bool) -> Option<Vec<u8>> {
+    let mut out = Vec::new();
+    if alt {
+        out.push(0x1b);
+    }
+    for ch in text.chars() {
+        match ch {
+            '\n' | '\r' => out.push(b'\r'),
+            '\u{8}' => out.push(0x7f),
+            '\u{7f}' => out.extend_from_slice(b"\x1b[3~"),
+            '\t' => out.push(b'\t'),
+            '\u{1b}' => out.push(0x1b),
+            '\u{F700}' => out.extend_from_slice(if shift { b"\x1b[1;2A" } else { b"\x1b[A" }),
+            '\u{F701}' => out.extend_from_slice(if shift { b"\x1b[1;2B" } else { b"\x1b[B" }),
+            '\u{F703}' => out.extend_from_slice(if shift { b"\x1b[1;2C" } else { b"\x1b[C" }),
+            '\u{F702}' => out.extend_from_slice(if shift { b"\x1b[1;2D" } else { b"\x1b[D" }),
+            '\u{F729}' => out.extend_from_slice(b"\x1b[H"),
+            '\u{F72b}' => out.extend_from_slice(b"\x1b[F"),
+            '\u{F72c}' => out.extend_from_slice(b"\x1b[5~"),
+            '\u{F72d}' => out.extend_from_slice(b"\x1b[6~"),
+            c if control && c.is_ascii_alphabetic() => {
+                out.push((c as u8).to_ascii_uppercase() & 0x1f);
+            }
+            c if c >= ' ' && c < '\u{E000}' => {
+                let mut buf = [0u8; 4];
+                out.extend_from_slice(c.encode_utf8(&mut buf).as_bytes());
+            }
+            _ => {}
+        }
+    }
+    (!out.is_empty()).then_some(out)
+}
+
+/// Arma la línea de comando para la shell, cotizando programa y argumentos.
+/// PowerShell necesita el operador `&` para ejecutar un path; cmd no.
+fn shell_line(powershell: bool, program: &Path, args: &[String]) -> String {
+    let mut parts = vec![quote(program)];
+    for a in args {
+        parts.push(quote(Path::new(a)));
+    }
+    if powershell {
+        format!("& {}", parts.join(" "))
+    } else {
+        parts.join(" ")
     }
 }
 
-/// ¿El archivo declara el dialecto compilado (`programa "..."`)?
-///
-/// Es una heurística de la primera palabra útil de una línea: alcanza para no
-/// mandarle al intérprete un archivo que no va a entender.
-fn uses_compiled_dialect(file: &std::path::Path) -> bool {
-    std::fs::read_to_string(file)
-        .map(|s| hay_dialecto_compilado(&s))
-        .unwrap_or(false)
-}
-
-/// La parte pura de `uses_compiled_dialect`, para poder testearla sin disco.
-fn hay_dialecto_compilado(source: &str) -> bool {
-    source.lines().map(str::trim_start).any(|l| {
-        l.starts_with("programa") && (l.len() == 8 || !l.as_bytes()[8].is_ascii_alphanumeric())
-    })
+/// Cotiza un argumento para la shell (comillas dobles).
+fn quote(p: &Path) -> String {
+    format!("\"{}\"", p.display())
 }
 
 // ---------------------------------------------------------------------------
@@ -1710,10 +1616,21 @@ pub fn attach(window: &NuIdeWindow, ide: Rc<RefCell<Ide>>) {
     {
         let ide = Rc::clone(&ide);
         let weak = window.as_weak();
-        window.on_terminal_key(move |text, control| {
+        window.on_terminal_key(move |text, control, shift, alt| {
             if let Some(w) = weak.upgrade() {
                 let mut e = ide.borrow_mut();
-                e.key(&text, control);
+                e.local_key(&text, control, shift, alt);
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_terminal_resize(move |w_px, h_px| {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.local_resize(w_px, h_px);
                 e.sync(&w);
             }
         });
@@ -1864,40 +1781,28 @@ mod tests {
     use super::*;
 
     #[test]
-    fn split_first_parte_por_el_primer_espacio() {
-        assert_eq!(split_first("run a.spasm"), ("run", "a.spasm"));
-        assert_eq!(split_first("  help  "), ("help", ""));
-        assert_eq!(split_first(""), ("", ""));
+    fn encode_key_traduce_teclas_a_bytes_del_pty() {
+        assert_eq!(encode_key("a", false, false, false), Some(b"a".to_vec()));
+        assert_eq!(encode_key("\n", false, false, false), Some(b"\r".to_vec()));
+        assert_eq!(encode_key("\u{8}", false, false, false), Some(vec![0x7f]));
+        assert_eq!(
+            encode_key("\u{F700}", false, false, false),
+            Some(b"\x1b[A".to_vec())
+        );
+        // Ctrl+C es 0x03.
+        assert_eq!(encode_key("c", true, false, false), Some(vec![0x03]));
+        // Una tecla sin sentido no produce nada.
+        assert_eq!(encode_key("\u{F708}", false, false, false), None);
     }
 
     #[test]
-    fn escribir_y_borrar_en_la_linea_de_entrada() {
-        let mut ide = Ide::new();
-        ide.key("hola", false);
-        assert_eq!(ide.input, "hola");
-        ide.key("\u{8}", false); // backspace
-        assert_eq!(ide.input, "hol");
-        ide.key("a", false);
-        assert_eq!(ide.input, "hola");
-    }
+    fn shell_line_cotiza_y_usa_el_call_operator_en_powershell() {
+        let args = vec!["--target".to_string(), "c".to_string()];
+        let cmd = shell_line(false, Path::new("C:\\x\\spasmc.py"), &args);
+        assert_eq!(cmd, "\"C:\\x\\spasmc.py\" \"--target\" \"c\"");
 
-    #[test]
-    fn ctrl_u_limpia_la_entrada() {
-        let mut ide = Ide::new();
-        ide.key("xyz", false);
-        ide.key("u", true);
-        assert!(ide.input.is_empty());
-    }
-
-    #[test]
-    fn detecta_el_dialecto_compilado() {
-        assert!(hay_dialecto_compilado("programa \"demo\"\n\nmain {\n}\n"));
-        assert!(hay_dialecto_compilado("  programa \"x\""));
-        // Dialecto de intérprete: no.
-        assert!(!hay_dialecto_compilado("print \"hola\";\nend;\n"));
-        // Palabras que sólo empiezan igual no cuentan.
-        assert!(!hay_dialecto_compilado("programacion = 1\n"));
-        assert!(!hay_dialecto_compilado("; programa \"x\"\nend;\n"));
+        let ps = shell_line(true, Path::new("C:\\x\\spasmc.py"), &args);
+        assert_eq!(ps, "& \"C:\\x\\spasmc.py\" \"--target\" \"c\"");
     }
 
     fn temp_dir(name: &str) -> PathBuf {

@@ -1,5 +1,5 @@
 import { IdeTheme } from "ide_theme.slint";
-import { IdeTreeNode, IdeTab, IdeCodeLine, IdeTermLine } from "ide_types.slint";
+import { IdeTreeNode, IdeTab, IdeCodeLine, IdeTermLine, TermLine } from "ide_types.slint";
 import { IdeTopBar } from "ide_topbar.slint";
 import { IdeStatusBar } from "ide_statusbar.slint";
 import { IdeExplorer } from "ide_explorer.slint";
@@ -39,10 +39,6 @@ export component NuIdeWindow inherits Window {
     in-out property <int> active-tab: 0;
     in-out property <int> active-session: 0;
 
-    // Terminal: lo que se está escribiendo y el prompt de la sesión activa.
-    in-out property <string> term-input: "";
-    in-out property <string> term-prompt: "spasm> ";
-
     // Proyecto y editor reales.
     in-out property <string> project-name: "coquito";
     in-out property <int> active-line: 1;
@@ -57,7 +53,8 @@ export component NuIdeWindow inherits Window {
 
     callback menu-activated(string);
     callback close-requested();
-    callback terminal-key(string, bool);
+    callback terminal-key(string, bool, bool, bool);
+    callback terminal-resize(length, length);
     callback session-selected(int);
     callback new-session();
     callback close-session();
@@ -225,10 +222,9 @@ export component NuIdeWindow inherits Window {
             sessions: root.term-sessions;
             active-session: root.active-session;
             lines: root.term-lines;
-            prompt: root.term-prompt;
-            input: root.term-input;
             session-selected(i) => { root.session-selected(i); }
-            key-input(text, ctrl) => { root.terminal-key(text, ctrl); }
+            key-input(text, ctrl, shift, alt) => { root.terminal-key(text, ctrl, shift, alt); }
+            resized(w, h) => { root.terminal-resize(w, h); }
             new-session => { root.new-session(); }
             close => { root.close-session(); }
             split => { root.split-terminal(); }
@@ -314,14 +310,8 @@ export component NuIdeWindow inherits Window {
 
     in property <[string]> term-sessions: ["bash", "build"];
 
-    in property <[IdeTermLine]> term-lines: [
-        { text: "coquito$ spasm src/main.spasm -o build/coquito.bin", kind: 4 },
-        { text: "SPASM 0.3.1 - Compilador de ensamblador para sistema educativo", kind: 1 },
-        { text: "Compilando src/main.spasm ...", kind: 0 },
-        { text: "Enlazando ...", kind: 0 },
-        { text: "Tamaño:  48 bytes (código: 42, datos: 6)", kind: 0 },
-        { text: "build/coquito.bin generado correctamente.", kind: 2 },
-    ];
+    // La pantalla real la llena Rust; arranca vacía.
+    in property <[TermLine]> term-lines: [];
 
     in property <[IdeTermLine]> agent-lines: [
         { text: "> Revisar memory.spasm", kind: 4 },

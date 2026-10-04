@@ -32,7 +32,7 @@ hasta abrir el primer archivo).
 | 2 | divisores arrastrables + scroll por área | ✅ |
 | 3 | explorador: abrir/cerrar carpetas y abrir archivos reales | ✅ |
 | 4 | editor: edición, guardado y resaltado real de SpASM | ✅ |
-| 5 | terminal local + panel de OpenCode CLI (procesos reales) | ✅ |
+| 5 | terminal real (PTY/ConPTY) + panel de OpenCode CLI | ✅ |
 | 6 | integración con el toolchain `spasm`/`spasmc` (build/run) | ✅ |
 
 ### El explorador (real)
@@ -93,34 +93,29 @@ a ser real.
 
 ### La terminal local (real)
 
-`src/terminal.rs` implementa una **consola lineal**, no un emulador VT100: cada
-proceso que se lanza escribe líneas en stdout/stderr y esas líneas se apilan en
-el historial de su sesión. La salida se limpia de secuencias ANSI y se etiqueta
-por color (normal / error / comando / aviso).
+`src/pty.rs` + `src/vt.rs` implementan una **terminal de verdad**: una shell
+persistente en un pseudo-terminal (**ConPTY** en Windows vía `portable-pty`),
+cuyos bytes crudos interpreta el emulador VT de `vt100`. `vt.rs` convierte la
+pantalla a tramos de texto con frente/fondo/negrita, y el cursor se dibuja
+invirtiendo la celda (sin calcular píxeles).
 
-Escribí en el panel `TERMINAL` y apretá Enter. Comandos propios:
-
-| Comando | Qué hace |
-|---|---|
-| `help` | Lista los comandos propios. |
-| `cd <dir>` | Cambia la carpeta de la sesión y re-enraiza el explorador (`cd` solo va al home). |
-| `clear` | Limpia el scrollback de la sesión. |
-| `open <archivo>` | Abre el archivo en una pestaña del editor y lo marca como activo. |
-| `run [archivo]` | Ejecuta un `.spasm` con el intérprete `spasm.exe`. |
-| `build [archivo]` | Transpila a C con `spasmc.py --target c --out build/<x>.c`. Si hay `cc`/`gcc` en el `PATH`, además construye el binario (`--build`). |
-| *(otra línea)* | Se delega al shell del sistema (`cmd /C` en Windows). |
-
-Cualquier archivo con extensión distinta se pasa al shell tal cual: `dir`,
-`git status`, etc. funcionan.
+- La shell por defecto es PowerShell (`pwsh`/`powershell`); se puede forzar con
+  `NUIDE_SHELL`. Si no hay ninguna, cae a `cmd.exe`.
+- El panel **se redimensiona con la ventana**: la UI le avisa a Rust el tamaño y
+  Rust ajusta el PTY (SIGWINCH) y el emulador.
+- Varias sesiones (pestañas) con `+`, cerrar con `×`. Cada una es una shell
+  propia. «Dividir» abre otra sesión.
+- El teclado se traduce a los bytes del terminal (flechas, Backspace, Delete,
+  Home/End, PageUp/Down, Ctrl+letra, Shift+flechas).
 
 Los menús **Ejecutar** y **Compilar** de la barra superior actúan sobre el
-archivo activo (el que marcó `open`, o el último que se ejecutó).
+archivo activo y **escriben la orden en la shell activa**, así la salida aparece
+en la propia terminal. En PowerShell usan el operador `&`; en `cmd`, no.
 
-> **Dialectos.** SpASM tiene dos. El intérprete `spasm.exe` corre el *dialecto de
-> intérprete* (top-level, `print ...; end;`). El compilador AOT trabaja con el
-> *dialecto compilado* (`programa "..."` + `main { ... }`). «Ejecutar» usa el
-> intérprete, así que detecta el encabezado `programa` y avisa en vez de fallar
-> con un error de sintaxis; esos archivos van por «Compilar».
+> **Dialectos.** SpASM tiene dos: el intérprete `spasm.exe` corre el *dialecto de
+> intérprete* (`print ...; end;`) y el compilador AOT el *dialecto compilado*
+> (`programa "..."` + `main { ... }`). «Ejecutar» lanza el intérprete y «Compilar»
+> lanza `spasmc.py` (con `--build` sólo si hay un compilador de C en el `PATH`).
 
 #### Dónde busca el toolchain
 
@@ -132,18 +127,15 @@ archivo activo (el que marcó `open`, o el último que se ejecutó).
    `F:\SpAMS-Oficial\src\shared\spasmc.py`.
 3. El `PATH`.
 
-Si falta alguna, la terminal lo avisa en el banner y lo propio de SpASM queda
-deshabilitado; el resto de la consola sigue funcionando.
-
 #### Nota sobre el Skill PTY
 
 El Skill `pty` de SpASM (`F:\SpAMS-Oficial\skills\pty`) es todavía un esqueleto:
 declara `pty_open`/`pty_spawn`/`pty_read`/… pero el intérprete `spasm.exe`
-instalado no los implementa —`shell_hello.spasm` termina en
-`Runtime error: internal runtime failure`—. Por eso la terminal **no** depende de
-ese Skill: la consola es nativa. Cuando el runtime de SpASM exponga las
-primitivas PTY, el camino es reemplazar el modelo lineal por un PTY con parser
-ANSI.
+instalado no los implementa. Por eso la terminal de NuIde **no** depende de ese
+Skill: implementa su propio PTY nativo (ConPTY) en Rust.
+
+La consola *lineal* de `src/terminal.rs` sigue viva, pero sólo para el panel del
+agente (`opencode run` es un proceso por prompt).
 
 ### El panel del agente (OpenCode CLI, real)
 
@@ -171,10 +163,12 @@ nuide/
   Cargo.lock               lock del proyecto (app independiente)
   build.rs                 slint_build::compile("ui/nuide_ui.slint")
   src/
-    lib.rs                 pub mod editor + explorer + highlight + spasm + terminal + ui
+    lib.rs                 pub mod editor + explorer + highlight + pty + spasm + terminal + ui + vt
     ui.rs                  slint::include_modules!()
     spasm.rs               descubrimiento del toolchain (spasm/spasmc/cc/opencode)
-    terminal.rs            consola lineal: sesiones, procesos, ANSI, tokenizado
+    pty.rs                 terminal real: ConPTY + hilos de lectura/escritura
+    vt.rs                  emulador VT: pantalla → tramos con color
+    terminal.rs            consola lineal (sólo para el panel del agente)
     explorer.rs            árbol de archivos plano con profundidad
     highlight.rs           tokenizador/resaltado de SpASM
     editor.rs              estado de la IDE (explorador, editor, terminales) + wiring

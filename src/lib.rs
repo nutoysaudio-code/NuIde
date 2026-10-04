@@ -9,6 +9,8 @@
 pub mod editor;
 pub mod explorer;
 pub mod highlight;
+pub mod pty;
 pub mod spasm;
 pub mod terminal;
 pub mod ui;
+pub mod vt;
