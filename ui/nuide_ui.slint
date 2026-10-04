@@ -44,6 +44,15 @@ export component NuIdeWindow inherits Window {
     in-out property <int> active-line: 1;
     in-out property <int> active-column: 1;
 
+    // Búsqueda del editor.
+    in-out property <bool> find-open: false;
+    in-out property <bool> find-replace-open: false;
+    in-out property <string> find-query: "";
+    in-out property <string> find-replace: "";
+    in-out property <string> find-info: "";
+    in-out property <bool> find-focus-replace: false;
+    in-out property <bool> find-case: false;
+
     // Panel del agente (OpenCode CLI): estado y scrollback.
     in-out property <bool> agent-connected: false;
     in-out property <string> agent-version: "OpenCode CLI";
@@ -77,6 +86,15 @@ export component NuIdeWindow inherits Window {
     callback editor-key(string, bool, bool);
     callback editor-cursor(length, length, length);
     callback editor-extend(length, length, length);
+    // Búsqueda del editor.
+    callback find-next();
+    callback find-prev();
+    callback find-close();
+    callback find-toggle-replace();
+    callback find-toggle-case();
+    callback find-focus(bool);
+    callback replace-one();
+    callback replace-all();
     // Panel del agente.
     callback agent-key(string, bool, bool, bool);
     callback agent-resize(length, length);
@@ -223,11 +241,26 @@ export component NuIdeWindow inherits Window {
             breadcrumb: root.breadcrumb;
             lines: root.code-lines;
             active-line: root.active-line;
+            find-open: root.find-open;
+            find-replace-open: root.find-replace-open;
+            find-query: root.find-query;
+            find-replace: root.find-replace;
+            find-info: root.find-info;
+            find-focus-replace: root.find-focus-replace;
+            find-case: root.find-case;
             tab-selected(i) => { root.tab-activated(i); }
             tab-closed(i) => { root.tab-closed(i); }
             key-input(text, ctrl, shift) => { root.editor-key(text, ctrl, shift); }
             cursor-to(y, x, scroll) => { root.editor-cursor(y, x, scroll); }
             extend-to(y, x, scroll) => { root.editor-extend(y, x, scroll); }
+            find-next => { root.find-next(); }
+            find-prev => { root.find-prev(); }
+            find-close => { root.find-close(); }
+            find-toggle-replace => { root.find-toggle-replace(); }
+            find-toggle-case => { root.find-toggle-case(); }
+            find-focus(replace) => { root.find-focus(replace); }
+            replace-one => { root.replace-one(); }
+            replace-all => { root.replace-all(); }
         }
 
         // --- columna central: terminal local ---

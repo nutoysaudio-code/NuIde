@@ -19,6 +19,7 @@
 //! al salir de `attach`; su closure usa un `Weak` para no crear un ciclo.
 
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::mpsc::{self, Receiver, Sender};
@@ -238,6 +239,44 @@ enum Target {
     Agent,
 }
 
+/// Estado de la búsqueda del editor.
+#[derive(Default)]
+struct Find {
+    /// La barra está abierta.
+    open: bool,
+    /// Se ve el segundo campo (reemplazo).
+    replace_open: bool,
+    query: String,
+    replace: String,
+    case_sensitive: bool,
+    /// El foco está en el campo de reemplazo (si no, en el de búsqueda).
+    focus_replace: bool,
+    /// Coincidencias de la pestaña activa: `(línea, col_inicio, col_fin)`, con el
+    /// fin **exclusivo** y columnas en caracteres.
+    matches: Vec<(usize, usize, usize)>,
+    /// Las mismas coincidencias agrupadas por línea, para el render.
+    by_line: HashMap<usize, Vec<(usize, usize)>>,
+    /// Índice de la coincidencia actual dentro de `matches`.
+    current: Option<usize>,
+}
+
+impl Find {
+    /// Rango `(línea, inicio, fin)` de la coincidencia actual.
+    fn current_range(&self) -> Option<(usize, usize, usize)> {
+        self.current.and_then(|i| self.matches.get(i).copied())
+    }
+}
+
+/// Decoraciones de resaltado que dependen del cursor y del documento, además de
+/// la selección y la búsqueda. Se recalculan una vez por pasada de render.
+#[derive(Default)]
+struct Decorations {
+    /// Ocurrencias de la palabra bajo el cursor, por línea.
+    words: HashMap<usize, Vec<(usize, usize)>>,
+    /// Las dos llaves correspondientes: `(línea, columna)`.
+    brackets: Vec<(usize, usize)>,
+}
+
 /// Estado completo de la IDE.
 pub struct Ide {
     toolchain: Toolchain,
@@ -270,6 +309,8 @@ pub struct Ide {
     undo: Vec<(Vec<String>, Cursor)>,
     /// Pila de rehacer. Se vacía con cada edición nueva.
     redo: Vec<(Vec<String>, Cursor)>,
+    /// Estado de la búsqueda del editor (barra, coincidencias).
+    find: Find,
     /// Panel del agente: `opencode` en un PTY con su propia pantalla. Canal
     /// aparte para no mezclar la salida con la terminal local.
     agent: Option<LocalSession>,
@@ -313,6 +354,7 @@ impl Ide {
             editor_full: false,
             undo: Vec::new(),
             redo: Vec::new(),
+            find: Find::default(),
             agent: None,
             agent_tx,
             agent_rx,
@@ -826,6 +868,7 @@ impl Ide {
             self.active_tab = i;
             self.editor_full = true;
             self.undo.clear();
+            self.find_after_tab_change();
             return;
         }
         let (lines, trailing_newline, read_only) = read_lines(&path);
@@ -841,6 +884,7 @@ impl Ide {
         self.active_tab = self.tabs.len() - 1;
         self.editor_full = true;
         self.undo.clear();
+        self.find_after_tab_change();
     }
 
     fn tab_activated(&mut self, i: i32) {
@@ -849,6 +893,15 @@ impl Ide {
             self.active_file = Some(self.tabs[self.active_tab].path.clone());
             self.editor_full = true;
             self.undo.clear();
+            self.find_after_tab_change();
+        }
+    }
+
+    /// Con la búsqueda abierta, recalcula las coincidencias al cambiar de
+    /// pestaña (las de la anterior ya no valen).
+    fn find_after_tab_change(&mut self) {
+        if self.find.open {
+            self.find_recompute();
         }
     }
 
@@ -898,7 +951,29 @@ impl Ide {
         }
         if control {
             match text.to_ascii_lowercase().as_str() {
-                "s" => self.save_active(),
+                "s" => {
+                    self.save_active();
+                    return;
+                }
+                "f" => {
+                    let show_replace = self.find.replace_open;
+                    self.find_open(show_replace);
+                    return;
+                }
+                "h" => {
+                    self.find_open(true);
+                    return;
+                }
+                _ => {}
+            }
+        }
+        // Con la barra de búsqueda abierta, el teclado edita la búsqueda.
+        if self.find.open {
+            self.find_key(text, control, shift);
+            return;
+        }
+        if control {
+            match text.to_ascii_lowercase().as_str() {
                 "z" if shift => self.redo_active(),
                 "z" => self.undo_active(),
                 "y" => self.redo_active(),
@@ -1012,6 +1087,221 @@ impl Ide {
             self.undo.remove(0);
         }
         self.redo.clear();
+    }
+
+    /// Abre la barra de búsqueda. Con `show_replace` se muestra también el campo
+    /// de reemplazo.
+    fn find_open(&mut self, show_replace: bool) {
+        self.find.open = true;
+        if show_replace {
+            self.find.replace_open = true;
+        }
+        self.find.focus_replace = false;
+        self.find_recompute();
+        self.editor_full = true;
+    }
+
+    /// Cierra la barra y limpia las coincidencias resaltadas.
+    fn find_close(&mut self) {
+        self.find.open = false;
+        self.find.matches.clear();
+        self.find.by_line.clear();
+        self.find.current = None;
+        self.editor_full = true;
+    }
+
+    /// Muestra u oculta el campo de reemplazo.
+    fn find_toggle_replace(&mut self) {
+        self.find.replace_open = !self.find.replace_open;
+        if !self.find.replace_open {
+            self.find.focus_replace = false;
+        }
+        self.editor_full = true;
+    }
+
+    /// Alterna distinguir mayúsculas/minúsculas.
+    fn find_toggle_case(&mut self) {
+        self.find.case_sensitive = !self.find.case_sensitive;
+        self.find_recompute();
+        self.editor_full = true;
+    }
+
+    /// Pone el foco en uno de los dos campos.
+    fn find_focus(&mut self, replace: bool) {
+        if replace && !self.find.replace_open {
+            self.find.replace_open = true;
+        }
+        self.find.focus_replace = replace;
+    }
+
+    /// Recalcula las coincidencias de la pestaña activa y lleva el cursor a la
+    /// primera.
+    fn find_recompute(&mut self) {
+        self.find.matches.clear();
+        self.find.by_line.clear();
+        self.find.current = None;
+        let query = self.find.query.clone();
+        if query.is_empty() {
+            return;
+        }
+        let case = self.find.case_sensitive;
+        let Some(tab) = self.tabs.get(self.active_tab) else {
+            return;
+        };
+        for (line, text) in tab.lines.iter().enumerate() {
+            let hits = find_in_line(text, &query, case);
+            if !hits.is_empty() {
+                self.find
+                    .matches
+                    .extend(hits.iter().map(|&(a, b)| (line, a, b)));
+                self.find.by_line.insert(line, hits);
+            }
+        }
+        self.find.current = (!self.find.matches.is_empty()).then_some(0);
+        if let Some((line, start, _)) = self.find.matches.first().copied() {
+            let old = self.tabs[self.active_tab].cursor.line;
+            self.set_cursor(Cursor { line, col: start }, old, false);
+        }
+    }
+
+    /// Salta a la coincidencia siguiente o anterior (circular).
+    fn find_step(&mut self, forward: bool) {
+        let n = self.find.matches.len();
+        if n == 0 {
+            return;
+        }
+        let previous = self.find.current_range();
+        let current = self.find.current.unwrap_or(0);
+        let next = if forward {
+            (current + 1) % n
+        } else {
+            (current + n - 1) % n
+        };
+        self.find.current = Some(next);
+        let (line, start, _) = self.find.matches[next];
+        let old = self.tabs[self.active_tab].cursor.line;
+        self.set_cursor(Cursor { line, col: start }, old, false);
+        // Redibuja la fila que dejó de ser la actual (las del cursor ya se
+        // actualizaron en `set_cursor`).
+        if let Some((label, _, _)) = previous {
+            self.update_row(label);
+        }
+    }
+
+    /// El campo de búsqueda o el de reemplazo, según el foco.
+    fn find_field(&mut self) -> &mut String {
+        if self.find.focus_replace {
+            &mut self.find.replace
+        } else {
+            &mut self.find.query
+        }
+    }
+
+    /// Teclado mientras la barra de búsqueda está abierta: edita el campo con
+    /// foco, navega y cierra.
+    fn find_key(&mut self, text: &str, control: bool, shift: bool) {
+        if control {
+            match text.to_ascii_lowercase().as_str() {
+                "z" => {
+                    self.undo_active();
+                    self.find_recompute();
+                }
+                "y" => {
+                    self.redo_active();
+                    self.find_recompute();
+                }
+                _ => {}
+            }
+            return;
+        }
+        let mut edited = false;
+        for ch in text.chars() {
+            match ch {
+                '\u{1b}' => {
+                    self.find_close();
+                    return;
+                }
+                '\n' | '\r' => {
+                    self.find_step(!shift);
+                    return;
+                }
+                '\t' => {
+                    if self.find.replace_open {
+                        self.find.focus_replace = !self.find.focus_replace;
+                    }
+                    return;
+                }
+                '\u{8}' | '\u{7f}' => {
+                    self.find_field().pop();
+                    edited = true;
+                }
+                c if c >= ' ' && c < '\u{E000}' => {
+                    self.find_field().push(c);
+                    edited = true;
+                }
+                _ => {}
+            }
+        }
+        if edited {
+            self.find_recompute();
+            self.editor_full = true;
+        }
+    }
+
+    /// Reemplaza la coincidencia actual por el texto de reemplazo.
+    fn replace_current(&mut self) {
+        let Some(index) = self.find.current else {
+            return;
+        };
+        let Some(&(line, start, end)) = self.find.matches.get(index) else {
+            return;
+        };
+        let replacement = self.find.replace.clone();
+        self.push_undo();
+        {
+            let t = &mut self.tabs[self.active_tab];
+            let Some(text) = t.lines.get_mut(line) else {
+                return;
+            };
+            let chars: Vec<char> = text.chars().collect();
+            let start = start.min(chars.len());
+            let end = end.min(chars.len());
+            let head: String = chars[..start].iter().collect();
+            let tail: String = chars[end..].iter().collect();
+            *text = format!("{head}{replacement}{tail}");
+            t.dirty = true;
+        }
+        self.find_recompute();
+        self.editor_full = true;
+    }
+
+    /// Reemplaza todas las coincidencias de la pestaña activa.
+    fn replace_all(&mut self) {
+        let query = self.find.query.clone();
+        if query.is_empty() {
+            return;
+        }
+        let replacement = self.find.replace.clone();
+        let case = self.find.case_sensitive;
+        let mut changed = false;
+        self.push_undo();
+        {
+            let t = &mut self.tabs[self.active_tab];
+            for line in t.lines.iter_mut() {
+                let (updated, count) = replace_in_line(line, &query, &replacement, case);
+                if count > 0 {
+                    *line = updated;
+                    changed = true;
+                }
+            }
+            if changed {
+                t.dirty = true;
+            }
+        }
+        if changed {
+            self.find_recompute();
+            self.editor_full = true;
+        }
     }
 
     /// Selecciona todo el buffer.
@@ -1422,7 +1712,12 @@ impl Ide {
     /// Reconstruye el modelo entero y lo entrega a la ventana.
     fn render_editor(&mut self, w: &NuIdeWindow) {
         let rows: Vec<IdeCodeLine> = match self.tabs.get(self.active_tab) {
-            Some(t) => (0..t.lines.len()).map(|i| row_of(t, i)).collect(),
+            Some(t) => {
+                let deco = self.decorations();
+                (0..t.lines.len())
+                    .map(|i| self.build_row(i, &deco))
+                    .collect()
+            }
             None => Vec::new(),
         };
         self.code_model.set_vec(rows);
@@ -1439,7 +1734,102 @@ impl Ide {
             return;
         };
         if line < tab.lines.len() && line < self.code_model.row_count() {
-            self.code_model.set_row_data(line, row_of(tab, line));
+            let deco = self.decorations();
+            self.code_model
+                .set_row_data(line, self.build_row(line, &deco));
+        }
+    }
+
+    /// Decoraciones que dependen del cursor y del documento: la palabra bajo el
+    /// cursor y las llaves correspondientes. Se calculan una vez por pasada.
+    fn decorations(&self) -> Decorations {
+        let mut deco = Decorations::default();
+        let Some(tab) = self.tabs.get(self.active_tab) else {
+            return deco;
+        };
+        // Palabra bajo el cursor: se resaltan todas sus apariciones.
+        if let Some((start, end)) = word_at(&tab.lines[tab.cursor.line], tab.cursor.col) {
+            let word: String = tab.lines[tab.cursor.line]
+                .chars()
+                .skip(start)
+                .take(end - start)
+                .collect();
+            if word.chars().count() > 1 {
+                for (line, text) in tab.lines.iter().enumerate() {
+                    let hits = find_word_in_line(text, &word);
+                    if !hits.is_empty() {
+                        deco.words.insert(line, hits);
+                    }
+                }
+            }
+        }
+        // Llave correspondiente.
+        if let Some((a, b)) = self.bracket_pair() {
+            deco.brackets = vec![a, b];
+        }
+        deco
+    }
+
+    /// Si el cursor está sobre (o justo después de) una llave, devuelve las dos
+    /// posiciones `(línea, columna)` de la pareja.
+    fn bracket_pair(&self) -> Option<((usize, usize), (usize, usize))> {
+        let tab = self.tabs.get(self.active_tab)?;
+        let line = tab.cursor.line;
+        let chars: Vec<char> = tab.lines.get(line)?.chars().collect();
+        for col in [tab.cursor.col, tab.cursor.col.wrapping_sub(1)] {
+            let Some(&ch) = chars.get(col) else {
+                continue;
+            };
+            if opener(ch).is_some() {
+                if let Some(other) = match_forward(tab, line, col, ch) {
+                    return Some(((line, col), other));
+                }
+            } else if closer(ch).is_some() {
+                if let Some(other) = match_backward(tab, line, col, ch) {
+                    return Some(((line, col), other));
+                }
+            }
+        }
+        None
+    }
+
+    /// Arma una fila con el resaltado, la selección, la búsqueda, la palabra y
+    /// las llaves que le toquen.
+    fn build_row(&self, line: usize, deco: &Decorations) -> IdeCodeLine {
+        let tab = &self.tabs[self.active_tab];
+        let cursor = (line == tab.cursor.line).then_some(tab.cursor.col);
+        let mut marks: Vec<(usize, usize, i32)> = Vec::new();
+        if let Some(hits) = deco.words.get(&line) {
+            for &(a, b) in hits {
+                marks.push((a, b, 11));
+            }
+        }
+        for &(bracket_line, col) in &deco.brackets {
+            if bracket_line == line {
+                marks.push((col, col + 1, 10));
+            }
+        }
+        if let Some(range) = tab.sel_on_line(line) {
+            marks.push((range.0, range.1, 7));
+        }
+        if let Some(hits) = self.find.by_line.get(&line) {
+            let current = self.find.current_range();
+            for &(a, b) in hits {
+                let is_current = current == Some((line, a, b));
+                marks.push((a, b, if is_current { 9 } else { 8 }));
+            }
+        }
+        let toks = render_tokens(&tab.lines[line], cursor, &marks);
+        IdeCodeLine {
+            indent: 0.0,
+            tokens: ModelRc::from(Rc::new(VecModel::from(
+                toks.into_iter()
+                    .map(|(text, kind)| IdeToken {
+                        text: text.into(),
+                        kind,
+                    })
+                    .collect::<Vec<_>>(),
+            ))),
         }
     }
 }
@@ -1568,6 +1958,23 @@ impl Ide {
             w.set_active_line(line);
             w.set_active_column(col);
 
+            // Barra de búsqueda del editor.
+            w.set_find_open(self.find.open);
+            w.set_find_replace_open(self.find.replace_open);
+            w.set_find_query(self.find.query.clone().into());
+            w.set_find_replace(self.find.replace.clone().into());
+            w.set_find_focus_replace(self.find.focus_replace);
+            w.set_find_case(self.find.case_sensitive);
+            let info = if self.find.query.is_empty() {
+                String::new()
+            } else {
+                match self.find.current {
+                    Some(i) => format!("{}/{}", i + 1, self.find.matches.len()),
+                    None => format!("0/{}", self.find.matches.len()),
+                }
+            };
+            w.set_find_info(info.into());
+
             // Las mutaciones por fila ya llegaron a la UI; sólo hace falta
             // reconstruir cuando cambió la estructura (abrir, cambiar de
             // pestaña, número de líneas).
@@ -1661,33 +2068,16 @@ fn point_to_cursor(tab: &OpenTab, y: f32, x: f32, scroll: f32) -> Cursor {
     }
 }
 
-/// Arma la fila de una línea, con el cursor y la selección que le toquen.
-fn row_of(tab: &OpenTab, line: usize) -> IdeCodeLine {
-    let cursor = (line == tab.cursor.line).then_some(tab.cursor.col);
-    let sel = tab.sel_on_line(line);
-    let toks = render_tokens(&tab.lines[line], sel, cursor);
-    IdeCodeLine {
-        indent: 0.0,
-        tokens: ModelRc::from(Rc::new(VecModel::from(
-            toks.into_iter()
-                .map(|(text, kind)| IdeToken {
-                    text: text.into(),
-                    kind,
-                })
-                .collect::<Vec<_>>(),
-        ))),
-    }
-}
-
-/// Tokeniza una línea y le aplica la selección (kind 7) y el cursor (kind 6).
+/// Tokeniza una línea, aplica las decoraciones y el cursor, y agrupa tramos
+/// consecutivos del mismo kind. Así el caret es un token más.
 ///
-/// Trabaja sobre el texto ya troceado por `highlight`, marca la selección por
-/// carácter, y recién después agrupa tramos consecutivos del mismo kind. Así el
-/// caret es un token más y no hay que calcular píxeles.
+/// `marks` trae rangos **en caracteres de la línea cruda** (con el fin
+/// exclusivo); como el resaltado expande los tabs a cuatro espacios, cada índice
+/// se mapea a su posición en la línea expandida.
 fn render_tokens(
     line: &str,
-    sel: Option<(usize, usize)>,
     cursor: Option<usize>,
+    marks: &[(usize, usize, i32)],
 ) -> Vec<(String, i32)> {
     // Atributo por carácter según el resaltado.
     let mut chars: Vec<(char, i32)> = Vec::new();
@@ -1697,15 +2087,21 @@ fn render_tokens(
         }
     }
 
-    if let Some((a, b)) = sel {
-        let n = chars.len();
-        for item in chars.iter_mut().take(b.min(n)).skip(a) {
-            item.1 = 7;
+    let map = tab_map(line);
+    let len = chars.len();
+    let expand = |raw: usize| map.get(raw).copied().unwrap_or(len);
+
+    for &(start, end, kind) in marks {
+        let start = expand(start).min(len);
+        let end = expand(end).min(len);
+        if start < end {
+            for item in chars[start..end].iter_mut() {
+                item.1 = kind;
+            }
         }
     }
 
-    let len = chars.len();
-    let cursor = cursor.map(|c| c.min(len));
+    let cursor = cursor.map(expand).map(|c| c.min(len));
 
     let mut out: Vec<(String, i32)> = Vec::new();
     let push = |out: &mut Vec<(String, i32)>, text: &str, kind: i32| {
@@ -1731,6 +2127,192 @@ fn render_tokens(
         push(&mut out, CURSOR_GLYPH, 6);
     }
     out
+}
+
+/// Para cada carácter **crudo** de la línea, su índice en la línea con los tabs
+/// expandidos a cuatro espacios (lo que produce `highlight::tokenize_line`).
+fn tab_map(line: &str) -> Vec<usize> {
+    let mut map = Vec::with_capacity(line.chars().count() + 1);
+    let mut expanded = 0;
+    for c in line.chars() {
+        map.push(expanded);
+        expanded += if c == '\t' { 4 } else { 1 };
+    }
+    map
+}
+
+/// `true` si el carácter es parte de un identificador.
+fn is_word_char(c: char) -> bool {
+    c.is_alphanumeric() || c == '_'
+}
+
+/// Rango `(inicio, fin)` en caracteres de la palabra bajo (o justo después de)
+/// la columna `col`, si la hay.
+fn word_at(line: &str, col: usize) -> Option<(usize, usize)> {
+    let chars: Vec<char> = line.chars().collect();
+    if chars.is_empty() {
+        return None;
+    }
+    let index = if col < chars.len() && is_word_char(chars[col]) {
+        col
+    } else if col > 0 && is_word_char(chars[col - 1]) {
+        col - 1
+    } else {
+        return None;
+    };
+    let mut start = index;
+    while start > 0 && is_word_char(chars[start - 1]) {
+        start -= 1;
+    }
+    let mut end = index + 1;
+    while end < chars.len() && is_word_char(chars[end]) {
+        end += 1;
+    }
+    Some((start, end))
+}
+
+/// Todas las apariciones de `word` como palabra completa en `line`, en índices
+/// de carácter.
+fn find_word_in_line(line: &str, word: &str) -> Vec<(usize, usize)> {
+    let hay: Vec<char> = line.chars().collect();
+    let needle: Vec<char> = word.chars().collect();
+    let n = needle.len();
+    let mut out = Vec::new();
+    if n == 0 || n > hay.len() {
+        return out;
+    }
+    let mut i = 0;
+    while i + n <= hay.len() {
+        let boundary = (i == 0 || !is_word_char(hay[i - 1]))
+            && (i + n == hay.len() || !is_word_char(hay[i + n]));
+        if boundary && hay[i..i + n] == needle[..] {
+            out.push((i, i + n));
+            i += n;
+        } else {
+            i += 1;
+        }
+    }
+    out
+}
+
+/// La pareja de una llave que abre: `(`→`)`, etc.
+fn opener(c: char) -> Option<char> {
+    match c {
+        '(' => Some(')'),
+        '[' => Some(']'),
+        '{' => Some('}'),
+        _ => None,
+    }
+}
+
+/// La pareja de una llave que cierra: `)`→`(`, etc.
+fn closer(c: char) -> Option<char> {
+    match c {
+        ')' => Some('('),
+        ']' => Some('['),
+        '}' => Some('{'),
+        _ => None,
+    }
+}
+
+/// Busca la llave que cierra que corresponde a la que abre en `(line, col)`.
+fn match_forward(tab: &OpenTab, line: usize, col: usize, open: char) -> Option<(usize, usize)> {
+    let close = opener(open)?;
+    let mut depth = 0i32;
+    for (li, text) in tab.lines.iter().enumerate().skip(line) {
+        for (ci, ch) in text.chars().enumerate() {
+            if li == line && ci < col {
+                continue;
+            }
+            if ch == open {
+                depth += 1;
+            } else if ch == close {
+                depth -= 1;
+                if depth == 0 {
+                    return Some((li, ci));
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Busca la llave que abre que corresponde a la que cierra en `(line, col)`.
+fn match_backward(tab: &OpenTab, line: usize, col: usize, close: char) -> Option<(usize, usize)> {
+    let open = closer(close)?;
+    let mut depth = 0i32;
+    for li in (0..=line).rev() {
+        let chars: Vec<char> = tab.lines[li].chars().collect();
+        for ci in (0..chars.len()).rev() {
+            if li == line && ci > col {
+                continue;
+            }
+            let ch = chars[ci];
+            if ch == close {
+                depth += 1;
+            } else if ch == open {
+                depth -= 1;
+                if depth == 0 {
+                    return Some((li, ci));
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Compara dos caracteres, con o sin distinguir mayúsculas.
+fn char_eq(a: char, b: char, case_sensitive: bool) -> bool {
+    if case_sensitive {
+        a == b
+    } else {
+        a.eq_ignore_ascii_case(&b)
+    }
+}
+
+/// Apariciones de `query` en `line`, como rangos de caracteres con el fin
+/// exclusivo. No se solapan.
+fn find_in_line(line: &str, query: &str, case_sensitive: bool) -> Vec<(usize, usize)> {
+    let hay: Vec<char> = line.chars().collect();
+    let needle: Vec<char> = query.chars().collect();
+    if needle.is_empty() || needle.len() > hay.len() {
+        return Vec::new();
+    }
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i + needle.len() <= hay.len() {
+        if (0..needle.len()).all(|j| char_eq(hay[i + j], needle[j], case_sensitive)) {
+            out.push((i, i + needle.len()));
+            i += needle.len();
+        } else {
+            i += 1;
+        }
+    }
+    out
+}
+
+/// Reemplaza todas las apariciones de `query` en `line`. Devuelve la línea nueva
+/// y cuántas reemplazó.
+fn replace_in_line(
+    line: &str,
+    query: &str,
+    replacement: &str,
+    case_sensitive: bool,
+) -> (String, usize) {
+    let hits = find_in_line(line, query, case_sensitive);
+    if hits.is_empty() {
+        return (line.to_string(), 0);
+    }
+    let chars: Vec<char> = line.chars().collect();
+    let mut out = String::new();
+    let mut last = 0;
+    for &(start, end) in &hits {
+        out.extend(chars[last..start].iter());
+        out.push_str(replacement);
+        last = end;
+    }
+    out.extend(chars[last..].iter());
+    (out, hits.len())
 }
 
 /// Escribe el portapapeles del sistema.
@@ -2042,6 +2624,94 @@ pub fn attach(window: &NuIdeWindow, ide: Rc<RefCell<Ide>>) {
             }
         });
     }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_find_next(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.find_step(true);
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_find_prev(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.find_step(false);
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_find_close(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.find_close();
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_find_toggle_replace(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.find_toggle_replace();
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_find_toggle_case(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.find_toggle_case();
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_find_focus(move |replace| {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.find_focus(replace);
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_replace_one(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.replace_current();
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_replace_all(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.replace_all();
+                e.sync(&w);
+            }
+        });
+    }
     // Panel del agente (mismos gestos que la terminal local).
     {
         let ide = Rc::clone(&ide);
@@ -2182,7 +2852,7 @@ mod tests {
     #[test]
     fn el_cursor_se_inserta_como_token() {
         let joined = |col| -> String {
-            render_tokens("let x = 1", None, Some(col))
+            render_tokens("let x = 1", Some(col), &[])
                 .into_iter()
                 .map(|(t, _)| t)
                 .collect()
@@ -2191,12 +2861,94 @@ mod tests {
         assert_eq!(joined(0), "|let x = 1");
         assert_eq!(joined(9), "let x = 1|");
 
-        let toks = render_tokens("ab", None, Some(2));
+        let toks = render_tokens("ab", Some(2), &[]);
         assert!(toks.iter().any(|(t, k)| t == "|" && *k == 6));
 
         // La selección se marca como kind 7.
-        let toks = render_tokens("hola", Some((0, 2)), None);
+        let toks = render_tokens("hola", None, &[(0, 2, 7)]);
         assert!(toks.iter().any(|(t, k)| t == "ho" && *k == 7));
+    }
+
+    #[test]
+    fn el_tab_se_expande_para_mapear_el_cursor_y_la_seleccion() {
+        // El cursor tras el tab (columna cruda 1) cae tras los cuatro espacios.
+        let joined: String = render_tokens("\tx", Some(1), &[])
+            .into_iter()
+            .map(|(t, _)| t)
+            .collect();
+        assert_eq!(joined, "    |x");
+
+        // Seleccionar el tab crudo (0..1) pinta los cuatro espacios.
+        let toks = render_tokens("\tx", None, &[(0, 1, 7)]);
+        assert!(toks.iter().any(|(t, k)| t == "    " && *k == 7));
+    }
+
+    #[test]
+    fn encuentra_y_reemplaza_en_una_linea() {
+        assert_eq!(
+            find_in_line("hola hola", "hola", true),
+            vec![(0, 4), (5, 9)]
+        );
+        // Sin distinguir mayúsculas.
+        assert_eq!(find_in_line("HoLa", "hola", false), vec![(0, 4)]);
+        assert_eq!(
+            find_in_line("HoLa", "hola", true),
+            Vec::<(usize, usize)>::new()
+        );
+
+        let (line, count) = replace_in_line("uno dos uno", "uno", "X", true);
+        assert_eq!(line, "X dos X");
+        assert_eq!(count, 2);
+    }
+
+    #[test]
+    fn resalta_la_palabra_bajo_el_cursor_y_las_llaves() {
+        let dir = temp_dir("deco");
+        let f = dir.join("a.spasm");
+        std::fs::write(&f, "foo = bar(foo)\nbar(foo)").unwrap();
+        let mut ide = Ide::new();
+        ide.open_file(f.clone());
+
+        // Cursor dentro del primer "foo" (línea 0, col 1): aparecen las 3 veces.
+        ide.tabs[0].cursor = Cursor { line: 0, col: 1 };
+        let deco = ide.decorations();
+        let total: usize = deco.words.values().map(Vec::len).sum();
+        assert_eq!(total, 3);
+        assert!(deco.words.get(&0).is_some_and(|v| v.contains(&(0, 3))));
+
+        // Cursor sobre el "(" (línea 0, col 9): marca el par con el ")".
+        ide.tabs[0].cursor = Cursor { line: 0, col: 9 };
+        let deco = ide.decorations();
+        assert_eq!(deco.brackets, vec![(0, 9), (0, 13)]);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn la_busqueda_encuentra_cuenta_y_reemplaza() {
+        let dir = temp_dir("find");
+        let f = dir.join("a.spasm");
+        std::fs::write(&f, "uno dos uno\ntres uno").unwrap();
+        let mut ide = Ide::new();
+        ide.open_file(f.clone());
+
+        ide.find.query = "uno".to_string();
+        ide.find.replace = "X".to_string();
+        ide.find_recompute();
+        assert_eq!(ide.find.matches.len(), 3);
+        // El cursor saltó a la primera coincidencia.
+        assert_eq!(ide.tabs[0].cursor, Cursor { line: 0, col: 0 });
+
+        ide.find_step(true);
+        assert_eq!(ide.tabs[0].cursor, Cursor { line: 0, col: 8 });
+
+        ide.replace_all();
+        assert_eq!(ide.tabs[0].lines, vec!["X dos X", "tres X"]);
+        assert!(ide.tabs[0].dirty);
+        // Ya no quedan coincidencias.
+        assert!(ide.find.matches.is_empty());
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

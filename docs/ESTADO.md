@@ -46,8 +46,10 @@ ui/*.slint          la ventana, paneles y tema
 - **Explorador**: árbol real, abrir/cerrar carpetas, abrir archivos en pestañas,
   icono de engranaje para configs, topes (500/carpeta, 4000 nodos).
 - **Editor**: edición, guardado, deshacer/rehacer, selección, copiar/cortar/pegar,
-  auto-indentación y resaltado de SpASM. Menús Ejecutar/Compilar sobre el archivo
-  activo.
+  auto-indentación y resaltado de SpASM. **Buscar y reemplazar** (`Ctrl+F` /
+  `Ctrl+H`) con contador, navegación, mayúsculas y reemplazo total. Resaltados de
+  contexto: palabra bajo el cursor y par de llaves. Menús Ejecutar/Compilar sobre
+  el archivo activo.
 - **Terminal local**: shell persistente en ConPTY, varias sesiones, resize,
   scrollback de 2000 líneas, selección y copia con el mouse.
 - **Panel del agente**: `opencode` corriendo en un PTY (su TUI real), con los
@@ -91,6 +93,20 @@ ui/*.slint          la ventana, paneles y tema
 - Al elegir otra raíz: se reconstruye el explorador, se **relanza el agente** en
   la carpeta nueva y se guarda la elección.
 
+### 3.4 Editor: buscar/reemplazar y resaltados
+
+- Se agregó la **barra de búsqueda** (`Ctrl+F`, `Ctrl+H`): contador
+  `actual/total`, siguiente/anterior, distinguir mayúsculas, reemplazar la actual
+  y reemplazar todo (con deshacer). La barra se maneja con el mismo teclado crudo
+  que el editor: `Enter`/`Shift+Enter`, `Tab` y `Esc`.
+- **Resaltados de contexto**: palabra bajo el cursor (todas sus apariciones) y
+  par de llaves `()[]{}` correspondiente.
+- El render se reordenó: un `build_row` aplica por carácter las decoraciones
+  (selección, palabra, llaves, coincidencias) y el cursor. De paso se corrigió el
+  mapeo de **tabs**: el resaltado expande a 4 espacios y ahora el cursor y las
+  selecciones se mapean a esa coordenada (antes quedaban corridos en líneas con
+  tabs).
+
 ---
 
 ## 4. Limitaciones conocidas
@@ -104,8 +120,10 @@ ui/*.slint          la ventana, paneles y tema
   sesiones nuevas y el agente, que se relanza).
 - **Git decorativo.** La barra inferior muestra `main` fijo; no hay estado real ni
   acciones.
-- **Sin atajos globales ni búsqueda.** No hay `F5`/`Ctrl+B`, paleta de comandos ni
-  buscar/reemplazar.
+- **Sin atajos globales.** No hay `F5`/`Ctrl+B` ni paleta de comandos ni búsqueda
+  de archivos. La búsqueda del editor no soporta expresiones regulares, palabra
+  completa ni acotar a la selección, y el campo sólo edita al final (sin mover el
+  cursor dentro del texto buscado).
 - **`terminal.rs` heredado.** La consola lineal ya no la usa la aplicación; sólo
   la ejercitan pruebas de integración del toolchain. Candidata a eliminar o
   migrar sus pruebas al PTY.
@@ -144,11 +162,14 @@ Un `src/git.rs` con descubrimiento + parseo de `status --porcelain`.
 
 ### 5.3 Atajos y búsqueda
 
-**Objetivo:** `F5` ejecutar / `Ctrl+B` compilar, paleta de comandos, búsqueda de
-archivos y buscar/reemplazar dentro del editor.
+**Objetivo:** `F5` ejecutar / `Ctrl+B` compilar, paleta de comandos y búsqueda de
+archivos. En el editor ya están buscar/reemplazar (`Ctrl+F`/`Ctrl+H`); faltan
+**regex**, palabra completa, acotar a la selección y editar el campo en
+cualquier posición (no sólo al final).
 
 **Enfoque:** callbacks de teclado globales en `NuIdeWindow`; un overlay para la
-paleta y el buscador; en el editor, marcar coincidencias y navegar entre ellas.
+paleta y el buscador de archivos; en la búsqueda, sumar banderas y mover el
+cursor del campo.
 
 **Archivos:** `ui/*.slint`, `src/editor.rs`, `src/highlight.rs`.
 
@@ -177,7 +198,7 @@ script de instalación.
 ## 6. Verificación
 
 - `cargo build` / `cargo check` sin warnings.
-- `cargo test`: **44 pruebas OK** (unitarias; las de PTY lanzan `cmd`/`opencode`
+- `cargo test`: **48 pruebas OK** (unitarias; las de PTY lanzan `cmd`/`opencode`
   reales y se saltean si no están).
 - `cargo fmt --check` limpio.
 - `slint-viewer --check ui/nuide_ui.slint` OK.
