@@ -170,7 +170,11 @@ export component NuIdeWindow inherits Window {
         width: parent.width;
         project: root.project-name;
         view-active: root.view-open;
+        show-left: root.show-left;
+        show-right: root.show-right;
+        show-bottom: root.show-bottom;
         menu-activated(label) => { root.menu-activated(label); }
+        toggle-panel(kind) => { root.toggle-panel(kind); }
         project-clicked => { root.open-project(); }
         close-requested => { root.close-requested(); }
     }

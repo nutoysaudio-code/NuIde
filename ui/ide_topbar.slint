@@ -55,11 +55,84 @@ component IdeWindowButton inherits Rectangle {
     }
 }
 
+// Botón de layout de la barra superior: muestra/oculta un área de la ventana.
+// `area`: 0 explorador (izquierda), 1 terminal (abajo), 2 OpenCode (derecha),
+// 3 menú "Ver" (customizar).
+component IdeLayoutButton inherits Rectangle {
+    in property <int> area: 0;
+    in property <bool> active: false;
+    callback activated();
+
+    width: 26px;
+    height: 24px;
+    border-radius: IdeTheme.radius-sm;
+    background: ta.has-hover ? IdeTheme.control : transparent;
+
+    private property <color> mark: root.active ? IdeTheme.mint : IdeTheme.text-soft;
+
+    // Marco del área.
+    if root.area != 3: Rectangle {
+        x: (parent.width - 16px) / 2;
+        y: (parent.height - 14px) / 2;
+        width: 16px;
+        height: 14px;
+        border-width: 1px;
+        border-color: root.mark;
+        border-radius: 2px;
+        background: transparent;
+
+        // Banda que representa el área: 0 izquierda, 1 derecha, 2 abajo.
+        if root.area == 0: Rectangle {
+            x: 0;
+            y: 0;
+            width: 5px;
+            height: parent.height;
+            background: root.mark;
+        }
+        if root.area == 1: Rectangle {
+            x: parent.width - 5px;
+            y: 0;
+            width: 5px;
+            height: parent.height;
+            background: root.mark;
+        }
+        if root.area == 2: Rectangle {
+            x: 0;
+            y: parent.height - 4px;
+            width: parent.width;
+            height: 4px;
+            background: root.mark;
+        }
+    }
+
+    // Icono del menú "Ver": tres líneas.
+    if root.area == 3: Rectangle {
+        x: (parent.width - 14px) / 2;
+        y: (parent.height - 12px) / 2;
+        width: 14px;
+        height: 12px;
+        background: transparent;
+
+        Rectangle { y: 0;  width: parent.width; height: 2px; background: root.mark; }
+        Rectangle { y: 5px; width: parent.width; height: 2px; background: root.mark; }
+        Rectangle { y: 10px; width: parent.width; height: 2px; background: root.mark; }
+    }
+
+    ta := TouchArea {
+        mouse-cursor: MouseCursor.pointer;
+        clicked => { root.activated(); }
+    }
+}
+
 // Barra superior: icono + marca, menú, proyecto centrado y controles.
 export component IdeTopBar inherits Rectangle {
     in property <string> project: "coquito";
     in property <bool> view-active: false;
+    in property <bool> show-left: true;
+    in property <bool> show-right: true;
+    in property <bool> show-bottom: true;
     callback menu-activated(string);
+    callback toggle-panel(int);
     callback close-requested();
     // Se clickeó el nombre del proyecto: abrir el selector de carpeta.
     callback project-clicked();
@@ -148,6 +221,22 @@ export component IdeTopBar inherits Rectangle {
         height: 24px;
         mouse-cursor: MouseCursor.pointer;
         clicked => { root.project-clicked(); }
+    }
+
+    // Controles de layout: barra izquierda, barra derecha, panel inferior y
+    // el menú "Ver" (customizar). Van a la izquierda de los controles de ventana.
+    HorizontalLayout {
+        x: parent.width - 96px - 112px;
+        y: (parent.height - 24px) / 2;
+        height: 24px;
+        spacing: 2px;
+        alignment: start;
+        cross-axis-alignment: center;
+
+        IdeLayoutButton { area: 0; active: root.show-left;   activated => { root.toggle-panel(0); } }
+        IdeLayoutButton { area: 1; active: root.show-right;  activated => { root.toggle-panel(1); } }
+        IdeLayoutButton { area: 2; active: root.show-bottom; activated => { root.toggle-panel(2); } }
+        IdeLayoutButton { area: 3; active: root.view-active; activated => { root.menu-activated("Ver"); } }
     }
 
     // Controles de ventana (decorativos en este esqueleto; cerrar sí cierra).

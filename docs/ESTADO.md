@@ -57,8 +57,9 @@ ui/*.slint          la ventana, paneles y tema
   mismos gestos que la terminal local.
 - **Proyecto**: se elige con el diálogo nativo (clic en el nombre en la barra
   superior) y se recuerda entre arranques.
-- **Layout modular**: el menú **Ver** muestra u oculta el explorador, el panel de
-  OpenCode y la terminal inferior; el editor ocupa el espacio liberado.
+- **Layout modular**: se muestran/ocultan el explorador, el panel de OpenCode y la
+  terminal inferior desde los **botones de layout** de la barra superior o desde
+  el menú **Ver**; el editor ocupa el espacio liberado.
 - **Barra de estado**: lenguaje, codificación y posición del cursor reales. La
   rama está fija en `main` (ver §4).
 
@@ -123,6 +124,9 @@ ui/*.slint          la ventana, paneles y tema
   su panel. El menú se ancla bajo el ítem `Ver` (la barra publica su x) y se
   cierra al hacer clic afuera.
 - El estado de visibilidad vive en `Ide` y lo vuelca `sync`.
+- La barra superior suma **botones de layout** (marco con la banda del área,
+  en menta cuando está visible) para las tres áreas y uno que abre el menú Ver;
+  reflejan y controlan el mismo estado. La visibilidad se persiste en la config.
 
 ---
 
@@ -217,7 +221,7 @@ script de instalación.
 ## 6. Verificación
 
 - `cargo build` / `cargo check` sin warnings.
-- `cargo test`: **50 pruebas OK** (unitarias; las de PTY lanzan `cmd`/`opencode`
+- `cargo test`: **51 pruebas OK** (unitarias; las de PTY lanzan `cmd`/`opencode`
   reales y se saltean si no están).
 - `cargo fmt --check` limpio.
 - `slint-viewer --check ui/nuide_ui.slint` OK.
