@@ -158,10 +158,11 @@ invirtiendo la celda (sin calcular píxeles).
   propia. «Dividir» abre otra sesión.
 - El teclado se traduce a los bytes del terminal (flechas, Backspace, Delete,
   Home/End, PageUp/Down, Ctrl+letra, Shift+flechas).
-- **Grilla exacta**: la ventana **mide** el ancho real de una celda monoespaciada
-  y cada tramo se ubica por su columna (no por el ancho del texto). Así las TUI
-  con glifos de caja/bloque (la de `opencode`) quedan alineadas aunque la fuente
-  no sea monoespaciada perfecta.
+- **Grilla exacta**: Slint no admite listas de fuentes, así que la IDE elige una
+  familia monoespaciada instalada (JetBrains Mono / Cascadia Mono / Consolas) al
+  arrancar, **mide** el ancho real de una celda y cada tramo se ubica por su
+  columna (no por el ancho del texto). Así las TUI con glifos de caja/bloque (la
+  de `opencode`) quedan alineadas.
 
 Los menús **Ejecutar** y **Compilar** de la barra superior actúan sobre el
 archivo activo y **escriben la orden en la shell activa**, así la salida aparece

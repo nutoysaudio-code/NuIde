@@ -147,16 +147,22 @@ ui/*.slint          la ventana, paneles y tema
   `F:\SpAMS-Oficial` o por `NUIDE_SPASM_FRONTEND`. Test de punta a punta real
   (se saltea si falta Python o el frontend).
 
-### 3.7 Terminales: grilla exacta y ancho de celda medido
+### 3.7 Terminales: grilla exacta, ancho de celda medido y fuente
 
 - La TUI de `opencode` se desalineaba porque el ancho de celda asumido
-  (`7.2 px`) no coincidía con el avance real de la fuente monoespaciada elegida.
-- Ahora la ventana **mide** una celda (32 `M` a 12 px, `Text.preferred-width`)
-  y avisa a Rust (`cell-width`), que recalcula las **columnas del PTY** con esa
-  medida.
+  (`7.2 px`) no coincidía con el avance real de la fuente.
+- **Causa raíz**: Slint **no** soporta listas de fuentes separadas por comas
+  (`font-family` es un único nombre de familia; el resto cae al fallback
+  genérico). El tema declaraba `"JetBrains Mono, Cascadia Mono, Consolas,
+  monospace"`, que no matcheaba ninguna → se usaba una **proporcional** (celda de
+  ~10 px) en el editor y las terminales.
+- **Arreglo**: `editor::attach` elige **una** familia instalada (`pick_font`:
+  JetBrains Mono / Cascadia Mono / Consolas; y Montserrat / Century Gothic /
+  Segoe UI) y la setea en el global `IdeTheme`. La ventana **mide** una celda
+  (32 `M` a 12 px) y Rust recalcula las **columnas del PTY** con esa medida.
 - `TerminalScreen` dibuja cada tramo en su **columna** (`run.col * cell-width`,
-  ancho `run.cols * cell-width`, con clip) en vez de encadenar anchos de texto.
-  Así los glifos de caja/bloque (`▀ █ ┃ ╹`) caen en la grilla y no se superponen.
+  ancho `run.cols * cell-width`, con clip). Así los glifos de caja/bloque
+  (`▀ █ ┃ ╹`) caen en la grilla y no se superponen.
 
 ---
 

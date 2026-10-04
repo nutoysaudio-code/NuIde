@@ -1,4 +1,5 @@
 import { IdeTheme } from "ide_theme.slint";
+export { IdeTheme }
 import { IdeTreeNode, IdeTab, IdeCodeLine, TermLine } from "ide_types.slint";
 import { IdeTopBar } from "ide_topbar.slint";
 import { IdeStatusBar } from "ide_statusbar.slint";
@@ -101,8 +102,6 @@ export component NuIdeWindow inherits Window {
     callback toggle-region(int);
     callback cycle-dock(int);
     callback view-menu-close();
-    // La ventana mide el ancho real de una celda monoespaciada y lo informa.
-    callback cell-width(length);
     // Explorador y editor.
     callback node-activated(int);
     callback tab-activated(int);
@@ -144,8 +143,9 @@ export component NuIdeWindow inherits Window {
         height: self.preferred-height;
         opacity: 0;
     }
-    private property <length> cell-w: measure.width > 1px ? measure.width / 32 : 7.2px;
-    changed cell-w => { root.cell-width(root.cell-w); }
+    // La barra superior publica el ancho real de una celda monoespaciada
+    // (medido en `measure`); Rust lo lee para dimensionar el PTY.
+    out property <length> cell-width: measure.width > 1px ? measure.width / 32 : 7.2px;
 
     // --- geometría derivada (todo relativo al área de contenido) ---
     private property <length> view-menu-x: topbar.view-menu-x;
@@ -384,7 +384,7 @@ export component NuIdeWindow inherits Window {
             scroll-total: root.term-scroll-total;
             scroll-pos: root.term-scroll-pos;
             scroll-thumb: root.term-scroll-thumb;
-            cell-width: root.cell-w;
+            cell-width: root.cell-width;
             session-selected(i) => { root.session-selected(i); }
             key-input(text, ctrl, shift, alt) => { root.terminal-key(text, ctrl, shift, alt); }
             resized(w, h) => { root.terminal-resize(w, h); }
@@ -412,7 +412,7 @@ export component NuIdeWindow inherits Window {
             scroll-total: root.agent-scroll-total;
             scroll-pos: root.agent-scroll-pos;
             scroll-thumb: root.agent-scroll-thumb;
-            cell-width: root.cell-w;
+            cell-width: root.cell-width;
             key-input(text, ctrl, shift, alt) => { root.agent-key(text, ctrl, shift, alt); }
             resized(w, h) => { root.agent-resize(w, h); }
             scrolled(dy) => { root.agent-scroll(dy); }

@@ -55,7 +55,9 @@ export global IdeTheme {
     in-out property <length> hairline: 1px;
 
     // --- tipografía ---
-    // La sans es local; la mono, de la pila monoespaciada del sistema.
-    in-out property <string> sans: "Montserrat, Century Gothic, Segoe UI, sans-serif";
-    in-out property <string> mono: "JetBrains Mono, Cascadia Mono, Consolas, monospace";
+    // Slint NO soporta listas separadas por comas: `font-family` es un único
+    // nombre de familia. Rust elige la mejor instalada al arrancar (ver
+    // `editor::attach`); estos son los valores de respaldo.
+    in-out property <string> sans: "Segoe UI";
+    in-out property <string> mono: "Consolas";
 }

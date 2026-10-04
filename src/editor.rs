@@ -70,6 +70,19 @@ const AGENT_ROWS: u16 = 30;
 const TERM_CELL_W: f32 = 7.2;
 const TERM_CELL_H: f32 = 16.0;
 
+/// Familias preferidas (nombre, archivo de fuente). Slint no soporta listas de
+/// fuentes, así que se elige una sola según lo instalado.
+const SANS_FONTS: &[(&str, &str)] = &[
+    ("Montserrat", "Montserrat-Regular.ttf"),
+    ("Century Gothic", "GOTHIC.TTF"),
+    ("Segoe UI", "segoeui.ttf"),
+];
+const MONO_FONTS: &[(&str, &str)] = &[
+    ("JetBrains Mono", "JetBrainsMono-Regular.ttf"),
+    ("Cascadia Mono", "CascadiaMono.ttf"),
+    ("Consolas", "consola.ttf"),
+];
+
 /// Posición del cursor dentro de un buffer: línea y columna **en caracteres**.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Cursor {
@@ -1024,17 +1037,17 @@ impl Ide {
         }
     }
 
-    /// La UI mide el ancho real de una celda monoespaciada y lo informa. Con eso
-    /// se recalculan las columnas del PTY para que coincidan con la grilla.
-    fn set_cell_width(&mut self, width: f32) {
-        if !(4.0..=24.0).contains(&width) || (width - self.cell_w).abs() < 0.05 {
-            return;
+    /// La UI mide el ancho real de una celda monoespaciada; cuando cambia, se
+    /// recalculan las columnas del PTY para que coincidan con la grilla.
+    fn sync_cell_width(&mut self, window: &NuIdeWindow) {
+        let width = window.get_cell_width();
+        if (4.0..=24.0).contains(&width) && (width - self.cell_w).abs() >= 0.001 {
+            self.cell_w = width;
+            let (lw, lh) = self.local_px;
+            let (aw, ah) = self.agent_px;
+            self.local_resize(lw, lh);
+            self.agent_resize(aw, ah);
         }
-        self.cell_w = width;
-        let (lw, lh) = self.local_px;
-        let (aw, ah) = self.agent_px;
-        self.local_resize(lw, lh);
-        self.agent_resize(aw, ah);
     }
 }
 
@@ -2229,6 +2242,8 @@ impl Ide {
 
     /// Vuelca el estado a la ventana. Idempotente.
     fn sync(&mut self, w: &NuIdeWindow) {
+        self.sync_cell_width(w);
+
         // --- paneles (menú Ver) ---
         w.set_show_left(self.show_left);
         w.set_show_right(self.show_right);
@@ -2798,8 +2813,43 @@ fn quote(p: &Path) -> String {
 // Wiring con Slint
 // ---------------------------------------------------------------------------
 
+/// Devuelve la primera familia cuyo archivo de fuente exista; si ninguna, el
+/// valor por defecto. Slint necesita un **único** nombre de familia.
+fn pick_font(candidates: &[(&str, &str)], default: &str) -> String {
+    #[cfg(windows)]
+    {
+        let dirs: Vec<PathBuf> = [
+            std::env::var_os("WINDIR").map(|w| PathBuf::from(w).join("Fonts")),
+            std::env::var_os("LOCALAPPDATA").map(|l| {
+                PathBuf::from(l)
+                    .join("Microsoft")
+                    .join("Windows")
+                    .join("Fonts")
+            }),
+        ]
+        .into_iter()
+        .flatten()
+        .collect();
+        for (family, file) in candidates {
+            if dirs.iter().any(|d| d.join(file).is_file()) {
+                return (*family).to_string();
+            }
+        }
+    }
+    let _ = candidates;
+    default.to_string()
+}
+
 /// Engancha los callbacks de la ventana y arranca el bucle de drenado.
 pub fn attach(window: &NuIdeWindow, ide: Rc<RefCell<Ide>>) {
+    // Slint no soporta listas de fuentes separadas por comas: `font-family` es un
+    // único nombre. Se elige la mejor familia instalada.
+    {
+        let theme = window.global::<crate::ui::IdeTheme>();
+        theme.set_sans(pick_font(SANS_FONTS, "Segoe UI").into());
+        theme.set_mono(pick_font(MONO_FONTS, "Consolas").into());
+    }
+
     ide.borrow_mut().sync(window);
     // Restaura el tamaño/posición recordados (si los hay).
     ide.borrow().apply_window(window);
@@ -2900,17 +2950,6 @@ pub fn attach(window: &NuIdeWindow, ide: Rc<RefCell<Ide>>) {
             if let Some(w) = weak.upgrade() {
                 let mut e = ide.borrow_mut();
                 e.local_resize(w_px, h_px);
-                e.sync(&w);
-            }
-        });
-    }
-    {
-        let ide = Rc::clone(&ide);
-        let weak = window.as_weak();
-        window.on_cell_width(move |width| {
-            if let Some(w) = weak.upgrade() {
-                let mut e = ide.borrow_mut();
-                e.set_cell_width(width);
                 e.sync(&w);
             }
         });
