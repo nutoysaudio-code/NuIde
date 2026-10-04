@@ -188,6 +188,9 @@ export component IdeTerminal inherits FocusScope {
     in property <float> scroll-pos: 1.0;
     in property <float> scroll-thumb: 1.0;
     in property <length> cell-width: 7.2px;
+    // Vista dividida: el panel 1 (activo) y el panel 2.
+    in property <bool> split-view: false;
+    in property <[TermLine]> lines-2: [];
     callback session-selected(int);
     callback new-session();
     callback close();
@@ -202,6 +205,8 @@ export component IdeTerminal inherits FocusScope {
     callback selection-end();
     // Rueda del mouse (delta vertical en píxeles).
     callback scrolled(length);
+    // Foco en un panel de la vista dividida (0 = izquierda, 1 = derecha).
+    callback focus-pane(int);
 
     focus-on-click: true;
 
@@ -284,8 +289,8 @@ export component IdeTerminal inherits FocusScope {
             }
         }
 
-        // --- pantalla ---
-        TerminalScreen {
+        // --- pantalla (una o dos vistas) ---
+        if !root.split-view: TerminalScreen {
             x: 0;
             y: root.header-h;
             width: parent.width;
@@ -299,6 +304,42 @@ export component IdeTerminal inherits FocusScope {
             selection-update(y, x) => { root.selection-update(y, x); }
             selection-end => { root.selection-end(); }
             scrolled(dy) => { root.scrolled(dy); }
+        }
+
+        if root.split-view: HorizontalLayout {
+            x: 0;
+            y: root.header-h;
+            width: parent.width;
+            height: parent.height - root.header-h;
+            spacing: 0;
+
+            TerminalScreen {
+                width: (parent.width - 6px) / 2;
+                height: parent.height;
+                lines: root.lines;
+                cell-width: root.cell-width;
+                selection-start(y, x) => { root.focus(); root.focus-pane(0); root.selection-start(y, x); }
+                selection-update(y, x) => { root.selection-update(y, x); }
+                selection-end => { root.selection-end(); }
+                scrolled(dy) => { root.scrolled(dy); }
+            }
+
+            Rectangle {
+                width: 6px;
+                height: parent.height;
+                background: IdeTheme.border-faint;
+            }
+
+            TerminalScreen {
+                width: (parent.width - 6px) / 2;
+                height: parent.height;
+                lines: root.lines-2;
+                cell-width: root.cell-width;
+                selection-start(y, x) => { root.focus(); root.focus-pane(1); root.selection-start(y, x); }
+                selection-update(y, x) => { root.selection-update(y, x); }
+                selection-end => { root.selection-end(); }
+                scrolled(dy) => { root.focus-pane(1); root.scrolled(dy); }
+            }
         }
     }
 }

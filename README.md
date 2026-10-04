@@ -47,6 +47,7 @@ hasta abrir el primer archivo).
 | 16 | visores: imágenes + vista previa de Markdown | ✅ |
 | 17 | build/run desde la IDE con errores navegables (`F8`) | ✅ |
 | 18 | esquema (outline) + ir a definición (`F12`) | ✅ |
+| 19 | terminal inferior dividida (dos vistas) | ✅ |
 
 > El parte de estado detallado —qué se cambió en cada iteración, limitaciones y
 > pendientes con su enfoque— está en [`docs/ESTADO.md`](docs/ESTADO.md).
@@ -68,8 +69,9 @@ UI.
 La **raíz** es la carpeta del proyecto: la última elegida o la carpeta de
 lanzamiento. Se cambia con **clic en el nombre del proyecto** en la barra
 superior, que abre el diálogo nativo de carpetas (`rfd`). Al elegir otra, el
-explorador se reconstruye, el agente se relanza en la carpeta nueva y la
-elección se recuerda en `%APPDATA%\NuIde\config` para el próximo arranque.
+explorador se reconstruye, el **agente cambia de carpeta sin reiniciarse** (le
+manda el comando `/cd` a la TUI de `opencode`) y la elección se recuerda en
+`%APPDATA%\NuIde\config` para el próximo arranque.
 
 ### El editor (edición + resaltado)
 
@@ -177,7 +179,8 @@ invirtiendo la celda (sin calcular píxeles).
   `Ctrl+Shift+V` pega (el texto se le manda al PTY). Cualquier tecla normal
   vuelve al final y descarta la selección.
 - Varias sesiones (pestañas) con `+`, cerrar con `×`. Cada una es una shell
-  propia. «Dividir» abre otra sesión.
+  propia. **«Dividir»** parte el panel en **dos vistas** lado a lado (la segunda
+  usa otra sesión); clic en una vista le da el foco y el teclado va a esa shell.
 - El teclado se traduce a los bytes del terminal (flechas, Backspace, Delete,
   Home/End, PageUp/Down, Ctrl+letra, Shift+flechas).
 - **Grilla exacta**: Slint no admite listas de fuentes, así que la IDE elige una
@@ -335,7 +338,7 @@ la hoja de ruta acordada. El enfoque de cada uno está en
 
 ### Estado al 2026-10-04
 
-Compilado y publicado: `gitlab.com/nutoys-group/nuide` (`main`). 63 tests OK;
+Compilado y publicado: `gitlab.com/nutoys-group/nuide` (`main`). 64 tests OK;
 clon limpio genera `nuide.exe`. Las dos terminales son PTY reales (shell local y
 TUI de `opencode`), el proyecto se elige con diálogo nativo y se recuerda, el
 editor tiene buscar/reemplazar, resaltados, **resaltado por lenguaje y visores**

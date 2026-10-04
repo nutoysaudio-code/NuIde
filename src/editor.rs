@@ -363,6 +363,8 @@ pub struct Ide {
     /// Terminal real: una shell por sesión.
     local: Vec<LocalSession>,
     local_active: usize,
+    /// Si hay vista dividida, el índice de la sesión del segundo panel.
+    split: Option<usize>,
     next_local_id: u64,
     /// Tamaño actual del panel de terminal (columnas × filas).
     local_cols: u16,
@@ -464,6 +466,7 @@ impl Ide {
             toolchain: Toolchain::discover(),
             local: Vec::new(),
             local_active: 0,
+            split: None,
             next_local_id: 0,
             local_cols: TERM_COLS,
             local_rows: TERM_ROWS,
@@ -663,17 +666,30 @@ impl Ide {
         self.explorer.set_root(dir.clone());
         self.config.set("project", dir.display());
         self.config.save();
-        // El agente corre en la raíz del proyecto: se relanza ahí.
-        self.restart_agent();
+        // El agente corre en la raíz del proyecto: se le cambia la carpeta sin
+        // reiniciarlo (opencode tiene el comando `/cd`).
+        self.retarget_agent(&dir);
         // Las migas de pan dependen de la raíz; se rehace el editor.
         self.editor_full = true;
     }
 
-    /// Relanza la TUI del agente (al cambiar de proyecto). Al soltar el `Pty`
-    /// anterior se cierra su proceso.
-    fn restart_agent(&mut self) {
-        self.agent = None;
-        self.start_agent();
+    /// Cambia la carpeta del agente sin reiniciar el proceso: le manda `/cd` al
+    /// PTY de `opencode`. Si no está vivo, lo arranca en la raíz nueva.
+    fn retarget_agent(&mut self, dir: &Path) {
+        let live = self
+            .agent
+            .as_ref()
+            .is_some_and(|s| s.alive && s.pty.is_some());
+        if live {
+            let command = format!("/cd {}\r", dir.display());
+            if let Some(session) = self.agent.as_mut() {
+                if let Some(pty) = session.pty.as_mut() {
+                    let _ = pty.write(command.as_bytes());
+                }
+            }
+        } else {
+            self.start_agent();
+        }
     }
 
     /// Abre una shell nueva en un PTY y la deja activa.
@@ -1090,6 +1106,7 @@ impl Ide {
     fn select_session(&mut self, i: i32) {
         if i >= 0 && (i as usize) < self.local.len() {
             self.local_active = i as usize;
+            self.split = None;
             self.resize_local();
         }
     }
@@ -1103,6 +1120,7 @@ impl Ide {
         if self.local.len() <= 1 {
             return;
         }
+        self.split = None;
         self.local.remove(self.local_active);
         if self.local_active >= self.local.len() {
             self.local_active = self.local.len() - 1;
@@ -1111,14 +1129,55 @@ impl Ide {
     }
 
     fn split_terminal(&mut self) {
-        // Dividir la vista no está implementado; abrir otra sesión es lo útil.
-        self.new_local_session();
+        // Divide el panel en dos vistas (o lo vuelve a una): la segunda usa otra
+        // sesión; si no hay, abre una shell nueva.
+        if self.split.is_some() {
+            self.split = None;
+        } else {
+            if self.local.len() < 2 {
+                self.new_local_session();
+            }
+            self.split = Some(if self.local_active == 0 { 1 } else { 0 });
+        }
         self.resize_local();
     }
 
-    /// Avisa a la shell local el tamaño actual del panel.
+    /// Pone el foco en la vista izquierda (0) o derecha (1) de la división.
+    fn focus_pane(&mut self, pane: i32) {
+        if pane == 1 {
+            if let Some(other) = self.split {
+                let active = self.local_active;
+                self.local_active = other;
+                self.split = Some(active);
+                self.resize_local();
+            }
+        }
+    }
+
+    /// Avisa a la shell local el tamaño actual del panel. En vista dividida,
+    /// cada panel ocupa la mitad del ancho.
     fn resize_local(&mut self) {
-        self.resize_target(Target::Local);
+        let split = self.split.is_some();
+        let cols = if split {
+            (self.local_cols / 2).max(20)
+        } else {
+            self.local_cols
+        };
+        let rows = self.local_rows;
+        let mut indices = vec![self.local_active];
+        if let Some(other) = self.split {
+            if other != self.local_active {
+                indices.push(other);
+            }
+        }
+        for index in indices {
+            if let Some(session) = self.local.get_mut(index) {
+                session.screen.resize(rows, cols);
+                if let Some(pty) = session.pty.as_ref() {
+                    let _ = pty.resize(cols, rows);
+                }
+            }
+        }
     }
 
     /// Avisa al panel del agente el tamaño actual.
@@ -2395,9 +2454,14 @@ impl Ide {
     /// pintada) y el estado de la barra de scrollback. Lo comparten la terminal
     /// local y el panel del agente.
     fn term_view(&mut self, target: Target) -> (Vec<TermLine>, i32, f32, f32) {
-        let Some(session) = self.session_mut(target) else {
-            return (Vec::new(), 0, 1.0, 1.0);
-        };
+        match self.session_mut(target) {
+            Some(session) => Self::term_view_of(session),
+            None => (Vec::new(), 0, 1.0, 1.0),
+        }
+    }
+
+    /// Arma el modelo de una sesión de terminal (filas + estado del scrollback).
+    fn term_view_of(session: &mut LocalSession) -> (Vec<TermLine>, i32, f32, f32) {
         let (visible_rows, cols) = session.screen.size();
         let sel = session.sel.and_then(|s| s.region(cols));
         let total = session.screen.scrollback_total();
@@ -2463,6 +2527,17 @@ impl Ide {
         w.set_term_scroll_total(scroll_total);
         w.set_term_scroll_pos(scroll_pos);
         w.set_term_scroll_thumb(scroll_thumb);
+
+        // Segunda vista de la terminal (si está dividida).
+        let split_lines: Vec<TermLine> = match self.split {
+            Some(index) => match self.local.get_mut(index) {
+                Some(session) => Self::term_view_of(session).0,
+                None => Vec::new(),
+            },
+            None => Vec::new(),
+        };
+        w.set_term_split(self.split.is_some());
+        w.set_term_lines_2(ModelRc::from(Rc::new(VecModel::from(split_lines))));
 
         // --- panel del agente ---
         let (agent_lines, agent_total, agent_pos, agent_thumb) = self.term_view(Target::Agent);
@@ -3369,6 +3444,17 @@ pub fn attach(window: &NuIdeWindow, ide: Rc<RefCell<Ide>>) {
             }
         });
     }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_terminal_focus_pane(move |pane| {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.focus_pane(pane);
+                e.sync(&w);
+            }
+        });
+    }
 
     // Explorador y editor.
     {
@@ -4128,6 +4214,27 @@ mod tests {
         ide.go_to_definition();
         assert_eq!(ide.tabs[0].cursor.line, 2); // línea 3 (índice 2)
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn dividir_la_terminal_togglea_y_enfoca() {
+        let mut ide = Ide::new();
+        assert!(ide.split.is_none());
+        ide.split_terminal();
+        assert!(ide.split.is_some());
+        assert!(ide.local.len() >= 2);
+        let primary = ide.local_active;
+        let secondary = ide.split.unwrap();
+        assert_ne!(primary, secondary);
+
+        // Enfocar el panel 1 intercambia activo y dividido.
+        ide.focus_pane(1);
+        assert_eq!(ide.local_active, secondary);
+        assert_eq!(ide.split, Some(primary));
+
+        // Volver a dividir quita la división.
+        ide.split_terminal();
+        assert!(ide.split.is_none());
     }
 
     #[test]

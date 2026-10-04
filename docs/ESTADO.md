@@ -216,6 +216,17 @@ ui/*.slint          la ventana, paneles y tema
 - **`F12`** va a la definición: toma el identificador bajo el cursor (`word_at`) y
   busca el símbolo con ese nombre en el esquema.
 
+### 3.12 Terminal inferior dividida y agente sin reinicio
+
+- **Split**: el panel inferior muestra dos `TerminalScreen` lado a lado
+  (`IdeTerminal.split-view` + `lines-2`); la segunda vista usa otra sesión. El
+  botón «Dividir» alterna; `focus_pane` intercambia activo/dividido (clic en una
+  vista le da el foco). En el split, el PTY de cada panel usa la **mitad** del
+  ancho (`resize_local`).
+- **Cambiar de proyecto no reinicia `opencode`**: `set_project` llama a
+  `retarget_agent`, que le manda `/cd <carpeta>` al PTY del agente (comando del
+  TUI de opencode); si no está vivo, lo arranca en la raíz nueva.
+
 ---
 
 ## 4. Limitaciones conocidas
@@ -318,7 +329,7 @@ script de instalación.
 ## 6. Verificación
 
 - `cargo build` / `cargo check` sin warnings.
-- `cargo test`: **63 pruebas OK** (unitarias; las de PTY, el linter y el build
+- `cargo test`: **64 pruebas OK** (unitarias; las de PTY, el linter y el build
   lanzan `cmd`/`opencode`/Python/spasmc reales y se saltean si no están).
 - `cargo fmt --check` limpio.
 - `slint-viewer --check ui/nuide_ui.slint` OK.

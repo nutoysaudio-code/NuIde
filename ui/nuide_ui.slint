@@ -95,6 +95,9 @@ export component NuIdeWindow inherits Window {
     in-out property <int> term-scroll-total: 0;
     in-out property <float> term-scroll-pos: 1.0;
     in-out property <float> term-scroll-thumb: 1.0;
+    // Vista dividida de la terminal.
+    in-out property <bool> term-split: false;
+    in-out property <[TermLine]> term-lines-2: [];
 
     callback menu-activated(string);
     callback close-requested();
@@ -109,6 +112,7 @@ export component NuIdeWindow inherits Window {
     callback new-session();
     callback close-session();
     callback split-terminal();
+    callback terminal-focus-pane(int);
     // Menú "Ver": mostrar/ocultar regiones y cambiar el dock de cada panel.
     callback toggle-region(int);
     callback cycle-dock(int);
@@ -416,6 +420,9 @@ export component NuIdeWindow inherits Window {
             scroll-pos: root.term-scroll-pos;
             scroll-thumb: root.term-scroll-thumb;
             cell-width: root.cell-width;
+            split-view: root.term-split;
+            lines-2: root.term-lines-2;
+            focus-pane(p) => { root.terminal-focus-pane(p); }
             session-selected(i) => { root.session-selected(i); }
             key-input(text, ctrl, shift, alt) => { root.terminal-key(text, ctrl, shift, alt); }
             resized(w, h) => { root.terminal-resize(w, h); }
