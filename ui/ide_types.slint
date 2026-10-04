@@ -30,6 +30,8 @@ export struct IdeToken {
 export struct IdeCodeLine {
     indent: length,
     tokens: [IdeToken],
+    // Marca de error del analizador (línea con diagnóstico).
+    error: bool = false,
 }
 
 // Tramo de texto de la **terminal real**: celdas contiguas con el mismo frente,

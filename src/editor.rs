@@ -30,6 +30,7 @@ use slint::{ComponentHandle, Model, ModelRc, Timer, TimerMode, VecModel};
 use crate::config::Config;
 use crate::explorer::{Action, Explorer};
 use crate::highlight;
+use crate::lint;
 use crate::pty::{self, Pty, PtyEvent};
 use crate::spasm::Toolchain;
 use crate::ui::{IdeCodeLine, IdeTab, IdeToken, IdeTreeNode, NuIdeWindow, TermLine, TermRun};
@@ -367,6 +368,13 @@ pub struct Ide {
     redo: Vec<(Vec<String>, Cursor)>,
     /// Estado de la búsqueda del editor (barra, coincidencias).
     find: Find,
+    /// Diagnósticos del archivo activo (errores del parser de SpASM).
+    diagnostics: Vec<lint::Diagnostic>,
+    /// Archivo al que corresponden los diagnósticos actuales.
+    diagnostics_path: Option<PathBuf>,
+    /// Canal del linter (corre en un hilo).
+    lint_tx: Sender<lint::LintResult>,
+    lint_rx: Receiver<lint::LintResult>,
     /// Panel del agente: `opencode` en un PTY con su propia pantalla. Canal
     /// aparte para no mezclar la salida con la terminal local.
     agent: Option<LocalSession>,
@@ -400,6 +408,7 @@ impl Ide {
         ];
         let (local_tx, local_rx) = mpsc::channel();
         let (agent_tx, agent_rx) = mpsc::channel();
+        let (lint_tx, lint_rx) = mpsc::channel();
 
         let mut ide = Self {
             toolchain: Toolchain::discover(),
@@ -426,6 +435,10 @@ impl Ide {
             undo: Vec::new(),
             redo: Vec::new(),
             find: Find::default(),
+            diagnostics: Vec::new(),
+            diagnostics_path: None,
+            lint_tx,
+            lint_rx,
             agent: None,
             agent_tx,
             agent_rx,
@@ -1029,6 +1042,7 @@ impl Ide {
             self.editor_full = true;
             self.undo.clear();
             self.find_after_tab_change();
+            self.lint_active();
             return;
         }
         let (lines, trailing_newline, read_only) = read_lines(&path);
@@ -1045,6 +1059,7 @@ impl Ide {
         self.editor_full = true;
         self.undo.clear();
         self.find_after_tab_change();
+        self.lint_active();
     }
 
     fn tab_activated(&mut self, i: i32) {
@@ -1054,6 +1069,7 @@ impl Ide {
             self.editor_full = true;
             self.undo.clear();
             self.find_after_tab_change();
+            self.lint_active();
         }
     }
 
@@ -1112,6 +1128,11 @@ impl Ide {
         // Atajos globales del IDE, aun con la búsqueda abierta.
         if text == "\u{F708}" {
             self.run(None);
+            return;
+        }
+        if text == "\u{F709}" {
+            // F6: analiza el archivo activo con el parser de SpASM.
+            self.lint_active();
             return;
         }
         if control {
@@ -1212,6 +1233,54 @@ impl Ide {
         }
         if std::fs::write(&path, data).is_ok() {
             self.tabs[self.active_tab].dirty = false;
+            // Al guardar, corre el analizador de SpASM.
+            self.lint_active();
+        }
+    }
+
+    /// Corre el analizador de SpASM sobre el archivo activo, si es `.spasm` y
+    /// están el intérprete de Python y el frontend. Trabaja en un hilo.
+    fn lint_active(&mut self) {
+        // En las pruebas no se lanza Python; el linter se cubre con `lint::tests`.
+        if cfg!(test) {
+            return;
+        }
+        let Some(path) = self.tabs.get(self.active_tab).map(|t| t.path.clone()) else {
+            self.clear_diagnostics();
+            return;
+        };
+        let is_spasm = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .is_some_and(|e| e.eq_ignore_ascii_case("spasm"));
+        let tools = self
+            .toolchain
+            .python
+            .clone()
+            .zip(self.toolchain.frontend.clone());
+        match (is_spasm, tools) {
+            (true, Some((python, frontend))) => {
+                lint::spawn(python, frontend, path, self.lint_tx.clone());
+            }
+            _ => self.clear_diagnostics(),
+        }
+    }
+
+    /// Borra los diagnósticos (al cambiar a un archivo que no se analiza).
+    fn clear_diagnostics(&mut self) {
+        if !self.diagnostics.is_empty() {
+            self.diagnostics.clear();
+            self.diagnostics_path = None;
+            self.editor_full = true;
+        }
+    }
+
+    /// Texto de la barra de estado con el resultado del último análisis.
+    fn diagnostics_summary(&self) -> String {
+        match self.diagnostics.first() {
+            None => String::new(),
+            Some(d) if d.line == 0 => format!("error: {}", d.message),
+            Some(d) => format!("error (línea {}): {}", d.line, d.message),
         }
     }
 
@@ -2064,8 +2133,10 @@ impl Ide {
             }
         }
         let toks = render_tokens(&tab.lines[line], cursor, &marks);
+        let error = self.diagnostics.iter().any(|d| d.line == line + 1);
         IdeCodeLine {
             indent: 0.0,
+            error,
             tokens: ModelRc::from(Rc::new(VecModel::from(
                 toks.into_iter()
                     .map(|(text, kind)| IdeToken {
@@ -2210,6 +2281,7 @@ impl Ide {
                 .unwrap_or((1, 1));
             w.set_active_line(line);
             w.set_active_column(col);
+            w.set_diagnostics(self.diagnostics_summary().into());
 
             // Barra de búsqueda del editor.
             w.set_find_open(self.find.open);
@@ -2254,6 +2326,15 @@ impl Ide {
         }
         while let Ok(event) = self.agent_rx.try_recv() {
             self.apply_pty_event(Target::Agent, event);
+            got = true;
+        }
+        while let Ok(result) = self.lint_rx.try_recv() {
+            let active = self.tabs.get(self.active_tab).map(|t| t.path.clone());
+            if active.as_deref() == Some(result.path.as_path()) {
+                self.diagnostics = result.diagnostics;
+                self.diagnostics_path = Some(result.path);
+                self.editor_full = true;
+            }
             got = true;
         }
         if got {

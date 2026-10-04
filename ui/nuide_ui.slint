@@ -54,6 +54,8 @@ export component NuIdeWindow inherits Window {
     in-out property <string> project-name: "coquito";
     in-out property <int> active-line: 1;
     in-out property <int> active-column: 1;
+    // Diagnóstico de SpASM (vacío si no hay errores).
+    in-out property <string> diagnostics: "";
 
     // Búsqueda del editor.
     in-out property <bool> find-open: false;
@@ -240,6 +242,7 @@ export component NuIdeWindow inherits Window {
         encoding: "UTF-8";
         line: root.active-line;
         column: root.active-column;
+        diagnostics: root.diagnostics;
     }
 
     // --- área de contenido ---

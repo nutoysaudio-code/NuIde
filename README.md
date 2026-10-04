@@ -41,6 +41,7 @@ hasta abrir el primer archivo).
 | 10 | editor: buscar/reemplazar + resaltados de contexto | ✅ |
 | 11 | layout modular: controles en la barra + menú Ver | ✅ |
 | 12 | dock por panel + apilado por lado (hasta 3) | ✅ |
+| 13 | diagnóstico real: parser de SpASM en el editor | ✅ |
 
 > El parte de estado detallado —qué se cambió en cada iteración, limitaciones y
 > pendientes con su enfoque— está en [`docs/ESTADO.md`](docs/ESTADO.md).
@@ -97,8 +98,16 @@ entero al abrir, cambiar de pestaña o cambiar el número de líneas.
 | `Ctrl+H` | Abre la búsqueda con el campo de reemplazo. |
 | `F5` | Ejecuta el archivo activo con el intérprete de SpASM. |
 | `Ctrl+B` | Compila el archivo activo. |
+| `F6` | Analiza el archivo activo con el parser de SpASM (diagnóstico). |
 | Clic en una fila | Ubica el cursor en la columna más cercana a la x. |
 | Arrastrar | Selecciona con el mouse, cruzando líneas. |
+
+**Diagnóstico (lógica real de SpASM).** Al abrir o guardar un `.spasm` (o con
+`F6`), NuIde corre el **parser/analizador de SpASM** (`spasm-asm-gen.py`) en un
+hilo aparte y muestra el primer error: la línea se marca en rojo en el margen
+(barra y número) y el mensaje aparece en la **barra de estado**. Requiere Python
+y el frontend del compilador (se descubre junto a `spasmc.py`, en
+`F:\SpAMS-Oficial`, o con `NUIDE_SPASM_FRONTEND`).
 
 **Buscar y reemplazar.** Con la barra abierta, el teclado edita la búsqueda:
 `Enter` / `Shift+Enter` saltan a la coincidencia siguiente / anterior, `Tab`
@@ -163,9 +172,11 @@ en la propia terminal. En PowerShell usan el operador `&`; en `cmd`, no.
 `src/spasm.rs` no hardcodea rutas. Busca cada herramienta en este orden:
 
 1. Variables de entorno: `NUIDE_SPASM`, `NUIDE_SPASMC`, `NUIDE_PYTHON` (también
-   acepta `SPASM_EXE`, `SPASMC`, `PYTHON`) y `NUIDE_AGENT` para el CLI de OpenCode.
-2. Ubicaciones conocidas del ecosistema: `F:\SpASM\spasm.exe` y
-   `F:\SpAMS-Oficial\src\shared\spasmc.py`.
+   acepta `SPASM_EXE`, `SPASMC`, `PYTHON`), `NUIDE_SPASM_FRONTEND` (el parser,
+   `spasm-asm-gen.py`) y `NUIDE_AGENT` para el CLI de OpenCode.
+2. Ubicaciones conocidas del ecosistema: `F:\SpASM\spasm.exe`,
+   `F:\SpAMS-Oficial\src\shared\spasmc.py` y su frontend
+   `...\src\common\spasm-asm-gen.py`.
 3. El `PATH`.
 
 #### Nota sobre el Skill PTY
@@ -209,6 +220,7 @@ nuide/
     spasm.rs               descubrimiento del toolchain (spasm/spasmc/cc/opencode)
     pty.rs                 terminal real: ConPTY + hilos de lectura/escritura
     vt.rs                  emulador VT: pantalla → tramos con color
+    lint.rs                diagnóstico de SpASM (corre el parser real)
     terminal.rs            consola lineal heredada (sólo pruebas de integración)
     explorer.rs            árbol de archivos plano con profundidad
     highlight.rs           tokenizador/resaltado de SpASM
@@ -291,9 +303,9 @@ la hoja de ruta acordada. El enfoque de cada uno está en
 
 ### Estado al 2026-10-04
 
-Compilado y publicado: `gitlab.com/nutoys-group/nuide` (`main`). 52 tests OK;
+Compilado y publicado: `gitlab.com/nutoys-group/nuide` (`main`). 55 tests OK;
 clon limpio genera `nuide.exe`. Las dos terminales son PTY reales (shell local y
 TUI de `opencode`), el proyecto se elige con diálogo nativo y se recuerda, el
-editor tiene buscar/reemplazar y resaltados de contexto, y los paneles se
-acoplan/apilan por lado desde la barra y el menú Ver (y se recuerdan). Falta
-local: los ítems de arriba.
+editor tiene buscar/reemplazar, resaltados de contexto y **diagnóstico con el
+parser de SpASM**, y los paneles se acoplan/apilan por lado. Falta local: los
+ítems de arriba.

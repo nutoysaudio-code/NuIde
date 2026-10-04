@@ -27,21 +27,30 @@ pub struct Toolchain {
     /// CLI de OpenCode (`opencode.cmd` en Windows, `opencode` en el resto). Con
     /// él funciona el panel de agente.
     pub agent: Option<PathBuf>,
+    /// Frontend del compilador (`spasm-asm-gen.py`): tiene el tokenizer, el
+    /// parser y el chequeo de tipos que usa el diagnóstico.
+    pub frontend: Option<PathBuf>,
 }
 
 impl Toolchain {
     /// Busca las herramientas. Se puede forzar cada una con
     /// `NUIDE_SPASM`, `NUIDE_SPASMC` y `NUIDE_PYTHON`.
     pub fn discover() -> Self {
+        let compiler = from_env("NUIDE_SPASMC")
+            .or_else(|| from_env("SPASMC"))
+            .or_else(|| first_existing(&[r"F:\SpAMS-Oficial\src\shared\spasmc.py"]))
+            .or_else(|| on_path(&["spasmc.py"]));
+        let frontend = from_env("NUIDE_SPASM_FRONTEND")
+            .or_else(|| from_env("SPASM_FRONTEND"))
+            .or_else(|| compiler.as_deref().and_then(frontend_beside))
+            .or_else(|| first_existing(&[r"F:\SpAMS-Oficial\src\common\spasm-asm-gen.py"]))
+            .or_else(|| on_path(&["spasm-asm-gen.py"]));
         Self {
             interpreter: from_env("NUIDE_SPASM")
                 .or_else(|| from_env("SPASM_EXE"))
                 .or_else(|| first_existing(&[r"F:\SpASM\spasm.exe"]))
                 .or_else(|| on_path(&["spasm.exe", "spasm"])),
-            compiler: from_env("NUIDE_SPASMC")
-                .or_else(|| from_env("SPASMC"))
-                .or_else(|| first_existing(&[r"F:\SpAMS-Oficial\src\shared\spasmc.py"]))
-                .or_else(|| on_path(&["spasmc.py"])),
+            compiler,
             python: from_env("NUIDE_PYTHON")
                 .or_else(|| from_env("PYTHON"))
                 .or_else(|| on_path(&["python.exe", "python3.exe", "py.exe"]))
@@ -64,6 +73,7 @@ impl Toolchain {
                 }),
             agent: from_env("NUIDE_AGENT")
                 .or_else(|| on_path(&["opencode.cmd", "opencode.exe", "opencode"])),
+            frontend,
         }
     }
 
@@ -126,6 +136,14 @@ fn from_env(var: &str) -> Option<PathBuf> {
 /// Primera ruta de la lista que exista.
 fn first_existing(candidates: &[&str]) -> Option<PathBuf> {
     candidates.iter().map(PathBuf::from).find(|p| p.is_file())
+}
+
+/// El frontend vive junto a `spasmc.py`: `src/shared/spasmc.py` →
+/// `src/common/spasm-asm-gen.py`.
+fn frontend_beside(compiler: &Path) -> Option<PathBuf> {
+    let src = compiler.parent()?.parent()?;
+    let candidate = src.join("common").join("spasm-asm-gen.py");
+    candidate.is_file().then_some(candidate)
 }
 
 /// Busca uno de los nombres en las carpetas del `PATH`.

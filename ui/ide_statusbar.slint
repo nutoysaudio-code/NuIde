@@ -27,6 +27,8 @@ export component IdeStatusBar inherits Rectangle {
     in property <string> encoding: "UTF-8";
     in property <int> line: 24;
     in property <int> column: 8;
+    // Resultado del último análisis de SpASM (vacío si no hay errores).
+    in property <string> diagnostics: "";
 
     height: IdeTheme.statusbar-h;
     background: IdeTheme.panel;
@@ -46,6 +48,14 @@ export component IdeStatusBar inherits Rectangle {
         Text {
             text: root.branch;
             color: IdeTheme.text-soft;
+            font-family: IdeTheme.sans;
+            font-size: 11px;
+            vertical-alignment: center;
+        }
+
+        Text {
+            text: root.diagnostics;
+            color: IdeTheme.del;
             font-family: IdeTheme.sans;
             font-size: 11px;
             vertical-alignment: center;

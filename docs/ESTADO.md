@@ -49,8 +49,8 @@ ui/*.slint          la ventana, paneles y tema
   auto-indentación y resaltado de SpASM. **Buscar y reemplazar** (`Ctrl+F` /
   `Ctrl+H`) con contador, navegación, mayúsculas, **palabra completa** y edición
   del campo con cursor. Resaltados de contexto: palabra bajo el cursor y par de
-  llaves. `F5` ejecutar / `Ctrl+B` compilar. Menús Ejecutar/Compilar sobre el
-  archivo activo.
+  llaves. **Diagnóstico real**: corre el parser de SpASM y marca el error en el
+  margen y la barra de estado. `F5` ejecutar / `Ctrl+B` compilar / `F6` analizar.
 - **Terminal local**: shell persistente en ConPTY, varias sesiones, resize,
   scrollback de 2000 líneas, selección y copia con el mouse.
 - **Panel del agente**: `opencode` corriendo en un PTY (su TUI real), con los
@@ -134,6 +134,19 @@ ui/*.slint          la ventana, paneles y tema
   hay por región y reparte la altura entre los apilados. Dock y visibilidad de
   región se persisten en la config.
 
+### 3.6 Diagnóstico real con el parser de SpASM
+
+- `src/lint.rs` corre el frontend de SpASM (`spasm-asm-gen.py`: tokenizer, parser
+  y chequeo de tipos) con Python, en un hilo, y devuelve el error con su línea.
+  No es un language server: parsea el archivo y reporta el **primer** error.
+- Se dispara al **abrir**, al **guardar** y con **`F6`**. El resultado se drena
+  por un canal en el timer de 60 ms.
+- En el editor, la línea con error se marca con **barra y número rojos**
+  (`IdeCodeLine.error`) y el mensaje va a la **barra de estado**.
+- `spasm.rs` descubre el frontend junto a `spasmc.py` (`src/common/…`), en
+  `F:\SpAMS-Oficial` o por `NUIDE_SPASM_FRONTEND`. Test de punta a punta real
+  (se saltea si falta Python o el frontend).
+
 ---
 
 ## 4. Limitaciones conocidas
@@ -153,6 +166,10 @@ ui/*.slint          la ventana, paneles y tema
 - **Sin atajos globales.** `F5`/`Ctrl+B` funcionan con el foco en el editor, pero
   no son globales, y no hay paleta de comandos ni búsqueda de archivos. La
   búsqueda del editor no soporta expresiones regulares ni acotar a la selección.
+- **Diagnóstico acotado.** Corre el parser al abrir/guardar/`F6` (no en cada
+  tecla), reporta sólo el **primer** error, no hay subrayado por columna ni
+  panel de problemas, y el parser es el del **dialecto compilado** (no el de
+  intérprete).
 - **`terminal.rs` heredado.** La consola lineal ya no la usa la aplicación; sólo
   la ejercitan pruebas de integración del toolchain. Candidata a eliminar o
   migrar sus pruebas al PTY.
@@ -227,8 +244,8 @@ script de instalación.
 ## 6. Verificación
 
 - `cargo build` / `cargo check` sin warnings.
-- `cargo test`: **52 pruebas OK** (unitarias; las de PTY lanzan `cmd`/`opencode`
-  reales y se saltean si no están).
+- `cargo test`: **55 pruebas OK** (unitarias; las de PTY y el linter lanzan
+  `cmd`/`opencode`/Python reales y se saltean si no están).
 - `cargo fmt --check` limpio.
 - `slint-viewer --check ui/nuide_ui.slint` OK.
 - Arranque real del `.exe` sin panics.

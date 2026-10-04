@@ -79,12 +79,14 @@ component IdeCodeRow inherits Rectangle {
     height: 20px;
     background: root.active ? IdeTheme.active-line : transparent;
 
-    // Barra menta de la línea activa.
+    // Barra de la línea activa o con error (el error gana).
     Rectangle {
         y: 0;
         width: 2px;
         height: parent.height;
-        background: root.active ? IdeTheme.mint : transparent;
+        background: root.line.error ? IdeTheme.del
+            : root.active ? IdeTheme.mint
+            : transparent;
     }
 
     Text {
@@ -93,7 +95,9 @@ component IdeCodeRow inherits Rectangle {
         width: 46px;
         height: parent.height;
         text: root.num;
-        color: root.active ? IdeTheme.text-soft : IdeTheme.text-dim;
+        color: root.line.error ? IdeTheme.del
+            : root.active ? IdeTheme.text-soft
+            : IdeTheme.text-dim;
         font-family: IdeTheme.mono;
         font-size: 12px;
         horizontal-alignment: right;
