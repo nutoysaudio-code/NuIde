@@ -72,8 +72,8 @@ compactos y poco brillo. El código debe seguir siendo el protagonista.
 | Acento ámbar | `#E7BA70` |
 | Selección | `#294443` |
 
-La tipografía sans se toma del tema compartido del kit (`ChalkwaveTheme`); el
-código usa una pila monoespaciada.
+La tipografía sans es local (`IdeTheme.sans`) y el código usa una pila
+monoespaciada del sistema. NuIde no depende de ningún kit compartido.
 
 ---
 

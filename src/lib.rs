@@ -1,12 +1,8 @@
 // NuIde — IDE para SpASM con terminales integrados y OpenCode CLI.
 //
-// Este crate es deliberadamente delgado: todo lo genérico (motor DSP SpASM,
-// `editor_kit`, análisis y el kit de UI Slint "chalk") vive en el crate
-// compartido `nutoys-kit` (`../../shared`) y se reutiliza *in place*.
-//
-// A diferencia de los crates de `plugins/`, este NO es un plugin nice-plug: es
-// una aplicación de escritorio (editor de código + terminales + agente). Aun
-// así comparte la tipografía y los ingredientes del kit.
+// Proyecto independiente: no es un plugin de audio ni depende de ningún crate
+// compartido del workspace NuToys. Solo usa `slint` para la UI y `arboard` para
+// el portapapeles.
 //
 // Ver `README.md` y `docs/NUIDE_IDEA.md` en esta carpeta.
 

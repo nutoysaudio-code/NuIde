@@ -1,11 +1,9 @@
 // Tema visual de NuIde: instrumento electrónico retrofuturista sobrio.
 //
 // Paleta oscura dada por la especificación (apps/nuide/docs/NUIDE_IDEA.md),
-// pensada para que el código siga siendo el protagonista. La tipografía sans
-// sale del tema "chalk" compartido; el resto invierte su luminosidad:
-// superficies oscuras, bordes finos con relieve muy leve.
-
-import { ChalkwaveTheme } from "../../../shared/ui/kit/theme.slint";
+// pensada para que el código siga siendo el protagonista. La tipografía sans es
+// local y la mono usa la pila monoespaciada del sistema: NuIde no depende de
+// ningún kit compartido.
 
 export global IdeTheme {
     // --- superficies ---
@@ -51,7 +49,7 @@ export global IdeTheme {
     in-out property <length> hairline: 1px;
 
     // --- tipografía ---
-    // La sans sale del kit "chalk"; la mono, de la pila monoespaciada local.
-    in-out property <string> sans: ChalkwaveTheme.font-family;
+    // La sans es local; la mono, de la pila monoespaciada del sistema.
+    in-out property <string> sans: "Montserrat, Century Gothic, Segoe UI, sans-serif";
     in-out property <string> mono: "JetBrains Mono, Cascadia Mono, Consolas, monospace";
 }

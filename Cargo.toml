@@ -4,6 +4,11 @@ version = "0.1.0"
 edition = "2021"
 description = "NuIde — IDE para SpASM con terminales integrados y OpenCode CLI"
 
+# Proyecto independiente: no forma parte del workspace de audio NuToys. Declara
+# su propio workspace para poder compilarse solo, incluso viviendo dentro de
+# otra carpeta de trabajo.
+[workspace]
+
 [lib]
 name = "nuide"
 path = "src/lib.rs"
@@ -16,9 +21,6 @@ path = "src/main.rs"
 # Portapapeles del sistema para copiar/cortar/pegar en el editor. Sólo texto:
 # sin las features de imagen, que arrastran tiff/image de más.
 arboard = { version = "3.6.1", default-features = false }
-# Todo lo genérico (motor DSP SpASM, editor_kit, análisis y el kit de UI Slint
-# "chalk") vive en el crate compartido y se reutiliza *in place*.
-nutoys-kit = { path = "../../shared" }
 slint = "1.0"
 
 [build-dependencies]

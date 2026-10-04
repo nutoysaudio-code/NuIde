@@ -3,22 +3,19 @@
 IDE de escritorio para **SpASM**: explorador de archivos, editor de código con
 resaltado, terminal local y una terminal dedicada a **OpenCode CLI**.
 
-Este crate es la segunda app del workspace que **no es un plugin**: no usa
-`nice-plug` ni exporta VST3/CLAP. Es una aplicación de escritorio construida en
-**Rust + Slint**.
+NuIde es un **proyecto independiente**: una aplicación de escritorio en
+**Rust + Slint** que no depende del workspace de audio ni de ningún crate
+compartido de plugins. Sus únicas dependencias son `slint` (UI) y `arboard`
+(portapapeles). Tiene su propio `[workspace]` para compilarse solo.
 
-Comparte con los plugins todo lo caro:
-
-| Se reusa de `nutoys-kit` | Para qué |
-|---|---|
-| `ui/kit/theme.slint` | tipografía "chalk" (`ChalkwaveTheme.font-family`) |
-| `engine/*`, `editor_kit`, `lufs`, `spectrum`, `oversample`, `stereo` | disponibles como ingredientes para el motor real |
-| `ui/kit/chalk-layout.slint` | contenedores `ChalkColumn` / `ChalkRow` / `ChalkSpacer` disponibles para componer |
-
-La paleta de NuIde es oscura y propia (instrumento electrónico sobrio): vive en
+La paleta es oscura y propia (instrumento electrónico sobrio): vive en
 `ui/ide_theme.slint`. La especificación visual está en
 [`docs/NUIDE_IDEA.md`](docs/NUIDE_IDEA.md) y la referencia es
 `SpASM Studio con terminales integrados.png`.
+
+```sh
+cargo run --bin nuide          # o `cargo build --release`
+```
 
 ---
 
