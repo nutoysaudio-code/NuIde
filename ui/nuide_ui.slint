@@ -60,6 +60,7 @@ export component NuIdeWindow inherits Window {
     // Visores: imagen y vista previa de Markdown.
     in-out property <bool> show-image: false;
     in-out property <image> active-image;
+    in-out property <float> image-zoom: 1.0;
     in-out property <bool> show-preview: false;
     in-out property <styled-text> preview-styled;
     in-out property <bool> is-markdown: false;
@@ -129,6 +130,10 @@ export component NuIdeWindow inherits Window {
     callback replace-all();
     // Vista previa de Markdown.
     callback preview-toggle();
+    // Zoom del visor de imagen.
+    callback image-zoom-in();
+    callback image-zoom-out();
+    callback image-zoom-reset();
     // Panel del agente.
     callback agent-key(string, bool, bool, bool);
     callback agent-resize(length, length);
@@ -367,6 +372,7 @@ export component NuIdeWindow inherits Window {
             find-replace-after: root.find-replace-after;
             show-image: root.show-image;
             active-image: root.active-image;
+            image-zoom: root.image-zoom;
             show-preview: root.show-preview;
             preview-styled: root.preview-styled;
             is-markdown: root.is-markdown;
@@ -385,6 +391,9 @@ export component NuIdeWindow inherits Window {
             replace-one => { root.replace-one(); }
             replace-all => { root.replace-all(); }
             preview-toggle => { root.preview-toggle(); }
+            image-zoom-in => { root.image-zoom-in(); }
+            image-zoom-out => { root.image-zoom-out(); }
+            image-zoom-reset => { root.image-zoom-reset(); }
         }
 
         // --- panel: terminal local (dock configurable) ---

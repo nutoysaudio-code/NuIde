@@ -106,6 +106,8 @@ struct OpenTab {
     kind: DocKind,
     /// Imagen cargada (sólo para `DocKind::Image`).
     image: Option<slint::Image>,
+    /// Zoom de la imagen (1.0 = ajustada al panel).
+    image_zoom: f32,
     /// Lenguaje detectado por la extensión (para el resaltado y la barra).
     language: highlight::Language,
     /// Markdown: mostrar la vista previa en vez del código.
@@ -1122,6 +1124,7 @@ impl Ide {
             path: path.clone(),
             kind,
             image,
+            image_zoom: 1.0,
             language: highlight::Language::from_path(&path),
             preview: false,
             preview_doc: None,
@@ -1169,6 +1172,24 @@ impl Ide {
                 } else {
                     tab.preview_doc = None;
                 }
+            }
+        }
+    }
+
+    /// Cambia el zoom del visor de imagen (`factor` > 1 acerca).
+    fn image_zoom_by(&mut self, factor: f32) {
+        if let Some(tab) = self.tabs.get_mut(self.active_tab) {
+            if tab.kind == DocKind::Image {
+                tab.image_zoom = (tab.image_zoom * factor).clamp(0.1, 8.0);
+            }
+        }
+    }
+
+    /// Vuelve el zoom al 100% (ajustada al panel).
+    fn image_zoom_reset(&mut self) {
+        if let Some(tab) = self.tabs.get_mut(self.active_tab) {
+            if tab.kind == DocKind::Image {
+                tab.image_zoom = 1.0;
             }
         }
     }
@@ -2407,6 +2428,7 @@ impl Ide {
             w.set_diagnostics(self.diagnostics_summary().into());
             w.set_show_image(is_image);
             w.set_active_image(image);
+            w.set_image_zoom(active.map(|t| t.image_zoom).unwrap_or(1.0));
             w.set_show_preview(preview);
             w.set_preview_styled(preview_doc);
             w.set_is_markdown(is_markdown);
@@ -3007,6 +3029,41 @@ pub fn attach(window: &NuIdeWindow, ide: Rc<RefCell<Ide>>) {
             if let Some(w) = weak.upgrade() {
                 let mut e = ide.borrow_mut();
                 e.toggle_preview();
+                e.sync(&w);
+            }
+        });
+    }
+
+    // Zoom del visor de imagen.
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_image_zoom_in(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.image_zoom_by(1.25);
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_image_zoom_out(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.image_zoom_by(0.8);
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_image_zoom_reset(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.image_zoom_reset();
                 e.sync(&w);
             }
         });
@@ -3867,6 +3924,29 @@ mod tests {
         ide.open_file(sp);
         ide.toggle_preview();
         assert!(!ide.tabs[1].preview);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn el_zoom_de_imagen_se_acota_y_se_reinicia() {
+        let dir = temp_dir("zoom");
+        let img = dir.join("foto.png");
+        // El contenido no hace falta que sea una imagen válida: lo que importa
+        // es que se abra como `DocKind::Image`.
+        std::fs::write(&img, b"no-es-png").unwrap();
+        let mut ide = Ide::new();
+        ide.open_file(img.clone());
+        assert_eq!(ide.tabs[0].kind, DocKind::Image);
+        assert_eq!(ide.tabs[0].image_zoom, 1.0);
+
+        ide.image_zoom_by(1.25);
+        assert!((ide.tabs[0].image_zoom - 1.25).abs() < 1e-6);
+        ide.image_zoom_by(100.0);
+        assert_eq!(ide.tabs[0].image_zoom, 8.0); // tope superior
+        ide.image_zoom_by(0.0001);
+        assert_eq!(ide.tabs[0].image_zoom, 0.1); // tope inferior
+        ide.image_zoom_reset();
+        assert_eq!(ide.tabs[0].image_zoom, 1.0);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

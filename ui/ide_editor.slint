@@ -202,6 +202,7 @@ export component IdeEditor inherits FocusScope {
     // Visores.
     in property <bool> show-image: false;
     in property <image> active-image;
+    in property <float> image-zoom: 1.0;
     in property <bool> show-preview: false;
     in property <styled-text> preview-styled;
     in property <bool> is-markdown: false;
@@ -225,6 +226,10 @@ export component IdeEditor inherits FocusScope {
     callback replace-all();
     // Alterna la vista previa de Markdown.
     callback preview-toggle();
+    // Zoom del visor de imagen.
+    callback image-zoom-in();
+    callback image-zoom-out();
+    callback image-zoom-reset();
 
     focus-on-click: true;
 
@@ -585,7 +590,7 @@ export component IdeEditor inherits FocusScope {
             }
         }
 
-        // --- visor de imagen ---
+        // --- visor de imagen (zoom + paneo) ---
         if root.show-image: Rectangle {
             x: 0;
             y: root.canvas-y;
@@ -594,13 +599,35 @@ export component IdeEditor inherits FocusScope {
             background: IdeTheme.bg;
             clip: true;
 
-            Image {
-                source: root.active-image;
+            img-scroll := Flickable {
                 x: 0;
                 y: 0;
                 width: parent.width;
                 height: parent.height;
-                image-fit: contain;
+                content-width: img-scroll.width * root.image-zoom;
+                content-height: img-scroll.height * root.image-zoom;
+
+                Image {
+                    source: root.active-image;
+                    x: 0;
+                    y: 0;
+                    width: img-scroll.content-width;
+                    height: img-scroll.content-height;
+                    image-fit: contain;
+                }
+            }
+
+            // Controles de zoom.
+            HorizontalLayout {
+                x: parent.width - 104px;
+                y: 8px;
+                height: 22px;
+                spacing: 4px;
+                alignment: start;
+
+                IdeFindButton { label: "−"; activated => { root.image-zoom-out(); } }
+                IdeFindButton { label: "+"; activated => { root.image-zoom-in(); } }
+                IdeFindButton { label: "Ajustar"; activated => { root.image-zoom-reset(); } }
             }
         }
 

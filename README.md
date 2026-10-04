@@ -116,10 +116,11 @@ y el frontend del compilador (se descubre junto a `spasmc.py`, en
 `F:\SpAMS-Oficial`, o con `NUIDE_SPASM_FRONTEND`).
 
 **Visores de documentos.** Las imágenes (`.png`, `.jpg`, `.webp`, …) se abren en
-una pestaña y se muestran (no se editan). Los `.md` tienen un botón **Vista /
-Código** (o `Ctrl+Shift+M`) que alterna entre el código y una **vista previa**
-con negrita, itálica, código, links y listas (headings no soportados por el
-`StyledText` de Slint: se convierten a negrita). El lenguaje del archivo se
+una pestaña y se muestran (no se editan), con **zoom** (botones `−` / `+` /
+`Ajustar`) y **paneo** arrastrando (o con la rueda). Los `.md` tienen un botón
+**Vista / Código** (o `Ctrl+Shift+M`) que alterna entre el código y una **vista
+previa** con negrita, itálica, código, links y listas (headings no soportados por
+el `StyledText` de Slint: se convierten a negrita). El lenguaje del archivo se
 muestra en la barra de estado.
 
 **Buscar y reemplazar.** Con la barra abierta, el teclado edita la búsqueda:
@@ -321,7 +322,7 @@ la hoja de ruta acordada. El enfoque de cada uno está en
 
 ### Estado al 2026-10-04
 
-Compilado y publicado: `gitlab.com/nutoys-group/nuide` (`main`). 57 tests OK;
+Compilado y publicado: `gitlab.com/nutoys-group/nuide` (`main`). 58 tests OK;
 clon limpio genera `nuide.exe`. Las dos terminales son PTY reales (shell local y
 TUI de `opencode`), el proyecto se elige con diálogo nativo y se recuerda, el
 editor tiene buscar/reemplazar, resaltados, **resaltado por lenguaje y visores**

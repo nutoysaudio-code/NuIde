@@ -183,7 +183,9 @@ ui/*.slint          la ventana, paneles y tema
 
 - Las imágenes (`.png`, `.jpg`, `.webp`, `.gif`, `.bmp`, `.ico`) se abren como
   pestañas `DocKind::Image`: se cargan con `slint::Image::load_from_path` y se
-  muestran con un `Image` (`image-fit: contain`), sin edición.
+  muestran con un `Image` (`image-fit: contain`) dentro de un `Flickable`, con
+  **zoom** por pestaña (`image_zoom`, botones `−`/`+`/`Ajustar`, de 0.1× a 8×) y
+  paneo arrastrando.
 - Los `.md` tienen vista previa. Un botón **Vista / Código** (o `Ctrl+Shift+M`)
   alterna. `markdown_preview` convierte a `slint::StyledText` (negrita, itálica,
   código, links, listas); como `StyledText` no soporta headings ni cercos, se
@@ -286,7 +288,7 @@ script de instalación.
 ## 6. Verificación
 
 - `cargo build` / `cargo check` sin warnings.
-- `cargo test`: **57 pruebas OK** (unitarias; las de PTY y el linter lanzan
+- `cargo test`: **58 pruebas OK** (unitarias; las de PTY y el linter lanzan
   `cmd`/`opencode`/Python reales y se saltean si no están).
 - `cargo fmt --check` limpio.
 - `slint-viewer --check ui/nuide_ui.slint` OK.
