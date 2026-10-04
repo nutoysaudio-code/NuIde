@@ -1,5 +1,5 @@
 import { IdeTheme } from "ide_theme.slint";
-import { IdeTermLine, TermLine } from "ide_types.slint";
+import { TermLine } from "ide_types.slint";
 
 // Botón compacto de encabezado (nuevo, cerrar, dividir…).
 export component IdeHeaderButton inherits Rectangle {
@@ -78,80 +78,6 @@ component IdeTermSession inherits Rectangle {
     ta := TouchArea {
         mouse-cursor: MouseCursor.pointer;
         clicked => { root.activated(); }
-    }
-}
-
-// Cuerpo de terminal reutilizable: líneas con color por especie + línea de
-// entrada. `editable` lo activa solo en la terminal local; el panel de OpenCode
-// lo usa en modo salida. (`interactive` no se puede usar: lo define `Flickable`.)
-export component TerminalBody inherits Flickable {
-    in property <[IdeTermLine]> lines: [];
-    in property <string> prompt: "";
-    in property <bool> editable: false;
-    // Texto que el usuario está escribiendo (sin el prompt).
-    in property <string> input: "";
-
-    content-width: self.width;
-    content-height: body.preferred-height + 20px;
-    // Pegado al fondo: la salida nueva queda a la vista. `content-y` es el
-    // desplazamiento del contenido y suele ser negativo; el fondo del scroll es
-    // `height - content-height`, acotado a 0 si el contenido es más corto.
-    content-y: min(0px, self.height - self.content-height);
-
-    body := VerticalLayout {
-        x: 0;
-        y: 10px;
-        width: parent.width;
-        padding-left: 12px;
-        padding-right: 12px;
-        spacing: 2px;
-
-        for line in root.lines: Text {
-            text: line.text;
-            color: line.kind == 1 ? IdeTheme.text-dim
-                : line.kind == 2 ? IdeTheme.add
-                : line.kind == 3 ? IdeTheme.del
-                : line.kind == 4 ? IdeTheme.mint
-                : line.kind == 5 ? IdeTheme.amber
-                : IdeTheme.text;
-            font-family: IdeTheme.mono;
-            font-size: 12px;
-        }
-
-        // Línea de entrada: prompt + lo escrito + cursor.
-        if root.editable: HorizontalLayout {
-            spacing: 0;
-            alignment: start;
-            cross-axis-alignment: center;
-
-            Text {
-                text: root.prompt;
-                color: IdeTheme.mint;
-                font-family: IdeTheme.mono;
-                font-size: 12px;
-            }
-
-            Text {
-                text: root.input;
-                color: IdeTheme.text;
-                font-family: IdeTheme.mono;
-                font-size: 12px;
-            }
-
-            Rectangle {
-                width: 2px;
-                height: 13px;
-                background: IdeTheme.mint;
-            }
-        }
-
-        // Prompt de solo lectura (panel de OpenCode).
-        if !root.editable && root.prompt != "": Text {
-            text: root.prompt;
-            color: IdeTheme.mint;
-            font-family: IdeTheme.mono;
-            font-size: 12px;
-        }
     }
 }
 

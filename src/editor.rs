@@ -6,13 +6,12 @@
 //!
 //! ### Terminales
 //!
-//! La terminal local es un **PTY** (ConPTY en Windows) con una shell
-//! persistente; los bytes crudos los interpreta el emulador de `vt`. Escribir es
-//! mandarle teclas a la shell. Los menús Ejecutar/Compilar escriben la orden en
-//! esa misma shell, así la salida aparece en la terminal.
-//!
-//! El panel del agente sigue siendo una consola *lineal* (`terminal`), porque
-//! `opencode run` es un proceso por prompt.
+//! Las dos terminales —la local inferior y el panel del agente— son un **PTY**
+//! (ConPTY en Windows) con un proceso persistente; los bytes crudos los
+//! interpreta el emulador de `vt`. Escribir es mandarle teclas al proceso. En la
+//! terminal local corre una shell; en el panel del agente corre `opencode` (su
+//! TUI interactiva). Los menús Ejecutar/Compilar escriben la orden en la shell
+//! local, así la salida aparece ahí.
 //!
 //! Los procesos corren en hilos y avisan por canales. Como los callbacks de
 //! Slint viven en el hilo de la UI, un `Timer` de 60 ms drena los canales y
@@ -31,10 +30,7 @@ use crate::explorer::{Action, Explorer};
 use crate::highlight;
 use crate::pty::{self, Pty, PtyEvent};
 use crate::spasm::Toolchain;
-use crate::terminal::{self, Line, Msg, Terminal};
-use crate::ui::{
-    IdeCodeLine, IdeTab, IdeTermLine, IdeToken, IdeTreeNode, NuIdeWindow, TermLine, TermRun,
-};
+use crate::ui::{IdeCodeLine, IdeTab, IdeToken, IdeTreeNode, NuIdeWindow, TermLine, TermRun};
 use crate::vt::{Screen, Selection};
 
 /// Tope de líneas que se abren de un archivo. Un archivo enorme no puede
@@ -48,9 +44,6 @@ const MAX_UNDO: usize = 500;
 /// píxeles: el render es monoespaciado y el caret es un carácter al lado.
 const CURSOR_GLYPH: &str = "|";
 
-/// Prompt del panel del agente. Es fijo (el proyecto ya se ve en la ficha).
-const AGENT_PROMPT: &str = "opencode> ";
-
 /// Ancho aproximado de un carácter monoespaciado a 12 px y arranque del texto
 /// dentro de la fila (ver `IdeCodeRow`). Se usa sólo para ubicar el cursor al
 /// hacer clic: un error de una columna en el borde es aceptable.
@@ -61,10 +54,13 @@ const CODE_X0: f32 = 58.0;
 const ROW_H: f32 = 20.0;
 const CODE_TOP: f32 = 8.0;
 
-/// Tamaño inicial de la terminal real (columnas × filas) hasta que la UI avise
-/// el tamaño del panel.
+/// Tamaño inicial de cada terminal (columnas × filas) hasta que la UI avise el
+/// tamaño real del panel.
 const TERM_COLS: u16 = 100;
 const TERM_ROWS: u16 = 24;
+/// El panel del agente es más angosto que la terminal inferior.
+const AGENT_COLS: u16 = 60;
+const AGENT_ROWS: u16 = 30;
 /// Métricas de celda de la terminal real. Coinciden con `TerminalScreen`
 /// (mono 12 px). El ancho es aproximado: sólo decide cuántas columnas pedirle al
 /// PTY, no la posición del cursor (que se dibuja invirtiendo la celda).
@@ -230,6 +226,17 @@ impl TermSel {
     }
 }
 
+/// Cuál de las dos terminales de la ventana. Las dos comparten el mismo
+/// emulador y los mismos gestos (teclado, rueda, selección); sólo cambian el
+/// proceso que corre y el panel donde se dibujan.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Target {
+    /// Terminal local inferior (una shell).
+    Local,
+    /// Panel derecho del agente (la TUI de `opencode`).
+    Agent,
+}
+
 /// Estado completo de la IDE.
 pub struct Ide {
     toolchain: Toolchain,
@@ -262,12 +269,14 @@ pub struct Ide {
     undo: Vec<(Vec<String>, Cursor)>,
     /// Pila de rehacer. Se vacía con cada edición nueva.
     redo: Vec<(Vec<String>, Cursor)>,
-    /// Consola dedicada al agente (OpenCode CLI). Canal propio para no mezclar
-    /// sesiones con la terminal real.
-    agent: Terminal,
-    agent_input: String,
-    agent_tx: Sender<Msg>,
-    agent_rx: Receiver<Msg>,
+    /// Panel del agente: `opencode` en un PTY con su propia pantalla. Canal
+    /// aparte para no mezclar la salida con la terminal local.
+    agent: Option<LocalSession>,
+    agent_tx: Sender<PtyEvent>,
+    agent_rx: Receiver<PtyEvent>,
+    /// Tamaño actual del panel del agente (columnas × filas).
+    agent_cols: u16,
+    agent_rows: u16,
     /// Encabezado del panel de agente.
     agent_version: String,
     agent_model: String,
@@ -280,10 +289,8 @@ pub struct Ide {
 impl Ide {
     pub fn new() -> Self {
         let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-        let (agent_tx, agent_rx) = mpsc::channel();
-        let mut agent = Terminal::new(cwd.clone());
-        agent.sessions[0].name = "opencode".to_string();
         let (local_tx, local_rx) = mpsc::channel();
+        let (agent_tx, agent_rx) = mpsc::channel();
 
         let mut ide = Self {
             toolchain: Toolchain::discover(),
@@ -303,10 +310,11 @@ impl Ide {
             editor_full: false,
             undo: Vec::new(),
             redo: Vec::new(),
-            agent,
-            agent_input: String::new(),
+            agent: None,
             agent_tx,
             agent_rx,
+            agent_cols: AGENT_COLS,
+            agent_rows: AGENT_ROWS,
             agent_version: std::env::var("NUIDE_AGENT_VERSION")
                 .unwrap_or_else(|_| "OpenCode CLI".to_string()),
             agent_model: std::env::var("NUIDE_AGENT_MODEL")
@@ -315,15 +323,17 @@ impl Ide {
             timer: None,
         };
         ide.new_local_session();
+        // En las pruebas no se lanza la TUI real (abriría procesos de más); el
+        // arranque de `opencode` en un PTY se cubre con `pty::tests`.
+        if !cfg!(test) {
+            ide.start_agent();
+        }
         ide
     }
 
-    /// Estado listo para compartir con los callbacks de Slint, con el banner de
-    /// arranque ya escrito.
+    /// Estado listo para compartir con los callbacks de Slint.
     pub fn shared() -> Rc<RefCell<Self>> {
-        let ide = Rc::new(RefCell::new(Self::new()));
-        ide.borrow_mut().banner();
-        ide
+        Rc::new(RefCell::new(Self::new()))
     }
 }
 
@@ -332,28 +342,56 @@ impl Ide {
 // ---------------------------------------------------------------------------
 
 impl Ide {
-    /// Banner del panel del agente. La terminal real no necesita banner: la
-    /// shell imprime el suyo.
-    fn banner(&mut self) {
-        match &self.toolchain.agent {
-            Some(p) => {
-                self.agent.push_active(Line {
-                    text: format!("OpenCode CLI: {}", p.display()),
-                    kind: 0,
-                });
-                self.agent.push_active(Line {
-                    text:
-                        "escribí un prompt (se corre `opencode run`), o '$ <comando>' para el shell"
-                            .into(),
-                    kind: 1,
-                });
-                self.spawn_in_agent(p.clone(), vec!["--version".to_string()]);
+    /// Lanza `opencode` en un PTY para el panel del agente.
+    ///
+    /// Si no está el CLI, o el PTY no se abre, deja la pantalla con el motivo.
+    fn start_agent(&mut self) {
+        let mut screen = Screen::new(self.agent_rows, self.agent_cols);
+        let Some(bin) = self.toolchain.agent.clone() else {
+            screen.process(
+                b"CLI de OpenCode no encontrado (defini NUIDE_AGENT).\r\n\
+                  \r\nopencode: https://opencode.ai\r\n"
+                    .as_ref(),
+            );
+            self.agent = Some(LocalSession {
+                id: 0,
+                name: "opencode".to_string(),
+                pty: None,
+                screen,
+                powershell: false,
+                alive: false,
+                sel: None,
+            });
+            return;
+        };
+        let cwd = self.explorer.root().to_path_buf();
+        let pty = match Pty::spawn(
+            0,
+            &bin.display().to_string(),
+            &[],
+            &cwd,
+            self.agent_cols,
+            self.agent_rows,
+            self.agent_tx.clone(),
+        ) {
+            Ok(p) => Some(p),
+            Err(e) => {
+                screen.process(
+                    format!("no se pudo abrir opencode ({}): {e}\r\n", bin.display()).as_bytes(),
+                );
+                None
             }
-            None => self.agent.push_active(Line {
-                text: "CLI de OpenCode no encontrado (definí NUIDE_AGENT)".into(),
-                kind: 5,
-            }),
-        }
+        };
+        let alive = pty.is_some();
+        self.agent = Some(LocalSession {
+            id: 0,
+            name: "opencode".to_string(),
+            pty,
+            screen,
+            powershell: false,
+            alive,
+            sel: None,
+        });
     }
 
     /// Abre una shell nueva en un PTY y la deja activa.
@@ -403,74 +441,107 @@ impl Ide {
 // ---------------------------------------------------------------------------
 
 impl Ide {
-    /// Teclas de la terminal real: se traducen a bytes y van al PTY activo.
-    ///
-    /// Antes de mandarlas se atienden los atajos que no son de la shell:
-    /// `Ctrl+Shift+C/V` copian/pegan la selección y `Shift+PageUp/Down` recorren
-    /// el scrollback. Cualquier otra tecla vuelve la vista al final.
+    /// Teclas de la terminal local.
     fn local_key(&mut self, text: &str, control: bool, shift: bool, alt: bool) {
+        self.pty_key(Target::Local, text, control, shift, alt);
+    }
+
+    /// Teclas del panel del agente.
+    fn agent_key(&mut self, text: &str, control: bool, shift: bool, alt: bool) {
+        self.pty_key(Target::Agent, text, control, shift, alt);
+    }
+
+    /// Teclado compartido por las dos terminales.
+    ///
+    /// Antes de mandar las teclas al PTY se atienden los atajos que no son del
+    /// proceso: `Ctrl+Shift+C/V` copian/pegan la selección y `Shift+PageUp/Down`
+    /// recorren el scrollback. Cualquier otra tecla vuelve la vista al final.
+    fn pty_key(&mut self, target: Target, text: &str, control: bool, shift: bool, alt: bool) {
         if control && shift {
             match text.to_ascii_lowercase().as_str() {
                 "c" => {
-                    self.copy_local_selection();
+                    self.copy_selection(target);
                     return;
                 }
                 "v" => {
-                    self.paste_local();
+                    self.paste_into(target);
                     return;
                 }
                 _ => {}
             }
         }
-        if shift {
-            match text {
-                "\u{F72c}" => {
-                    let half = (self.local_rows / 2).max(1) as i32;
-                    self.scroll_local(half);
-                    return;
-                }
-                "\u{F72d}" => {
-                    let half = (self.local_rows / 2).max(1) as i32;
-                    self.scroll_local(-half);
-                    return;
-                }
-                _ => {}
-            }
+        if shift && matches!(text, "\u{F72c}" | "\u{F72d}") {
+            let half = (self.dimensions(target).1 / 2).max(1) as i32;
+            let delta = if text == "\u{F72c}" { half } else { -half };
+            self.scroll_session(target, delta);
+            return;
         }
         // Cualquier tecla normal abandona el historial y la selección.
-        if let Some(session) = self.local.get_mut(self.local_active) {
+        if let Some(session) = self.session_mut(target) {
             session.sel = None;
             session.screen.scroll_to_end();
         }
-        let Some(bytes) = encode_key(text, control, shift, alt) else {
-            return;
-        };
-        self.write_to_local(&bytes);
+        if let Some(bytes) = encode_key(text, control, shift, alt) {
+            self.write_to(target, &bytes);
+        }
     }
 
-    /// Escribe bytes en el PTY de la sesión activa.
-    fn write_to_local(&mut self, bytes: &[u8]) {
-        if let Some(session) = self.local.get_mut(self.local_active) {
+    /// Escribe bytes en el PTY de la terminal indicada.
+    fn write_to(&mut self, target: Target, bytes: &[u8]) {
+        if let Some(session) = self.session_mut(target) {
             if let Some(pty) = session.pty.as_mut() {
                 let _ = pty.write(bytes);
             }
         }
     }
 
+    /// Tamaño actual (columnas × filas) de la terminal indicada.
+    fn dimensions(&self, target: Target) -> (u16, u16) {
+        match target {
+            Target::Local => (self.local_cols, self.local_rows),
+            Target::Agent => (self.agent_cols, self.agent_rows),
+        }
+    }
+
+    /// Sesión de la terminal indicada (la local es la activa).
+    fn session(&self, target: Target) -> Option<&LocalSession> {
+        match target {
+            Target::Local => self.local.get(self.local_active),
+            Target::Agent => self.agent.as_ref(),
+        }
+    }
+
+    fn session_mut(&mut self, target: Target) -> Option<&mut LocalSession> {
+        match target {
+            Target::Local => self.local.get_mut(self.local_active),
+            Target::Agent => self.agent.as_mut(),
+        }
+    }
+
+    /// Busca la sesión por su id dentro de la terminal indicada: los eventos del
+    /// PTY llegan con el id de la sesión.
+    fn session_by_id_mut(&mut self, target: Target, id: u64) -> Option<&mut LocalSession> {
+        match target {
+            Target::Local => self.local.iter_mut().find(|s| s.id == id),
+            Target::Agent => self.agent.as_mut().filter(|s| s.id == id),
+        }
+    }
+
     /// Traduce una `(y, x)` en píxeles (relativas a la pantalla de la terminal)
     /// a la celda más cercana. Usa las mismas métricas de celda que el PTY.
-    fn term_cell(&self, y: f32, x: f32) -> (u16, u16) {
-        let rows = self.local_rows.max(1) as i64;
-        let cols = self.local_cols.max(1) as i64;
+    fn term_cell(&self, target: Target, y: f32, x: f32) -> (u16, u16) {
+        let (cols, rows) = self.dimensions(target);
+        let rows = rows.max(1) as i64;
+        let cols = cols.max(1) as i64;
         let row = ((y.max(0.0) / TERM_CELL_H).floor() as i64).clamp(0, rows - 1) as u16;
         let col = ((x.max(0.0) / TERM_CELL_W).floor() as i64).clamp(0, cols - 1) as u16;
         (row, col)
     }
 
     /// Empieza (o reinicia) una selección con el mouse.
-    fn local_select_start(&mut self, y: f32, x: f32) {
-        let cell = self.term_cell(y, x);
-        if let Some(session) = self.local.get_mut(self.local_active) {
+    fn select_start(&mut self, target: Target, y: f32, x: f32) {
+        let cell = self.term_cell(target, y, x);
+        if let Some(session) = self.session_mut(target) {
             session.sel = Some(TermSel {
                 anchor: cell,
                 head: cell,
@@ -479,9 +550,9 @@ impl Ide {
     }
 
     /// Extiende la selección hasta la celda bajo el mouse.
-    fn local_select_update(&mut self, y: f32, x: f32) {
-        let cell = self.term_cell(y, x);
-        if let Some(session) = self.local.get_mut(self.local_active) {
+    fn select_update(&mut self, target: Target, y: f32, x: f32) {
+        let cell = self.term_cell(target, y, x);
+        if let Some(session) = self.session_mut(target) {
             if let Some(sel) = session.sel.as_mut() {
                 sel.head = cell;
             }
@@ -489,8 +560,8 @@ impl Ide {
     }
 
     /// Cierra la selección y, si quedó texto, lo copia al portapapeles.
-    fn local_select_end(&mut self) {
-        let text = self.selected_local_text();
+    fn select_end(&mut self, target: Target) {
+        let text = self.selected_text(target);
         if !text.is_empty() {
             let _ = clipboard_write(&text);
         }
@@ -498,8 +569,8 @@ impl Ide {
 
     /// Texto de la selección activa, sin espacios sobrantes al final de cada
     /// línea. `String::new()` si no hay selección.
-    fn selected_local_text(&self) -> String {
-        let Some(session) = self.local.get(self.local_active) else {
+    fn selected_text(&self, target: Target) -> String {
+        let Some(session) = self.session(target) else {
             return String::new();
         };
         let Some((sr, sc, er, ec)) = session.sel.and_then(|s| s.region(session.screen.size().1))
@@ -518,33 +589,34 @@ impl Ide {
     }
 
     /// Copia la selección actual, si la hay.
-    fn copy_local_selection(&mut self) {
-        let text = self.selected_local_text();
+    fn copy_selection(&mut self, target: Target) {
+        let text = self.selected_text(target);
         if !text.is_empty() {
             let _ = clipboard_write(&text);
         }
     }
 
-    /// Manda el portapapeles al PTY activo (como si se tipeara).
-    fn paste_local(&mut self) {
+    /// Manda el portapapeles al PTY indicado (como si se tipeara).
+    fn paste_into(&mut self, target: Target) {
         if let Some(text) = read_clipboard() {
             if !text.is_empty() {
                 let text = text.replace("\r\n", "\r").replace('\n', "\r");
-                self.write_to_local(text.as_bytes());
+                self.write_to(target, text.as_bytes());
             }
         }
     }
 
-    /// Recorre el scrollback de la sesión activa (`delta` positivo = más atrás).
-    fn scroll_local(&mut self, delta: i32) {
-        if let Some(session) = self.local.get_mut(self.local_active) {
+    /// Recorre el scrollback de la terminal indicada (`delta` positivo = más
+    /// atrás).
+    fn scroll_session(&mut self, target: Target, delta: i32) {
+        if let Some(session) = self.session_mut(target) {
             session.sel = None;
             session.screen.scroll_by(delta);
         }
     }
 
     /// Rueda del mouse: `dy` es el delta en píxeles (positivo = hacia abajo).
-    fn local_wheel(&mut self, dy: f32) {
+    fn wheel(&mut self, target: Target, dy: f32) {
         let lines = (-dy / TERM_CELL_H).round() as i32;
         let lines = if lines == 0 {
             if dy > 0.0 {
@@ -555,10 +627,10 @@ impl Ide {
         } else {
             lines
         };
-        self.scroll_local(lines);
+        self.scroll_session(target, lines);
     }
 
-    /// Escribe una línea de comando en la shell activa (menú Ejecutar/Compilar).
+    /// Escribe una línea de comando en la shell local (menú Ejecutar/Compilar).
     fn run_in_local(&mut self, program: &Path, args: &[String]) {
         let Some(session) = self.local.get(self.local_active) else {
             return;
@@ -566,65 +638,7 @@ impl Ide {
         let line = shell_line(session.powershell, program, args);
         let mut bytes = line.into_bytes();
         bytes.push(b'\r');
-        self.write_to_local(&bytes);
-    }
-
-    /// Tecla cruda del panel del agente.
-    fn agent_key(&mut self, text: &str, control: bool) {
-        if control {
-            match text.to_ascii_lowercase().as_str() {
-                "c" | "u" => self.agent_input.clear(),
-                "l" => self.agent.clear_active(),
-                _ => {}
-            }
-            return;
-        }
-        if apply_text_key(&mut self.agent_input, text) {
-            self.agent_submit();
-        }
-    }
-
-    /// Envía la línea de entrada del agente.
-    fn agent_submit(&mut self) {
-        let raw = std::mem::take(&mut self.agent_input);
-        self.agent.push_active(Line {
-            text: format!("{AGENT_PROMPT}{raw}"),
-            kind: 4,
-        });
-        let msg = raw.trim().to_string();
-        if msg.is_empty() {
-            return;
-        }
-
-        // `$ <comando>` corre en el shell, en la carpeta del proyecto. El resto
-        // se le pasa al agente como `opencode run <mensaje>`.
-        if let Some(cmd) = msg.strip_prefix('$') {
-            let (program, args) = shell_command(cmd.trim());
-            self.spawn_in_agent(program, args);
-            return;
-        }
-        match self.toolchain.agent_command(&msg) {
-            Ok((program, args)) => self.spawn_in_agent(program, args),
-            Err(e) => self.agent.push_active(Line { text: e, kind: 5 }),
-        }
-    }
-
-    /// Lanza un proceso en el panel del agente, en la raíz del proyecto.
-    fn spawn_in_agent(&mut self, program: PathBuf, args: Vec<String>) {
-        let cwd = self.explorer.root().to_path_buf();
-        let display = program.display().to_string();
-        self.agent.sessions[0].running = true;
-        let tx = self.agent_tx.clone();
-        if let Err(e) = terminal::spawn_streaming(0, &cwd, &display, &args, tx) {
-            self.agent.push(
-                0,
-                Line {
-                    text: format!("no se pudo ejecutar {display}: {e}"),
-                    kind: 3,
-                },
-            );
-            self.agent.sessions[0].running = false;
-        }
+        self.write_to(Target::Local, &bytes);
     }
 
     /// Ejecuta el archivo activo con el intérprete de SpASM: escribe la orden en
@@ -703,10 +717,21 @@ impl Ide {
         self.resize_local();
     }
 
-    /// Avisa a la sesión activa el tamaño actual del panel.
+    /// Avisa a la shell local el tamaño actual del panel.
     fn resize_local(&mut self) {
-        let (cols, rows) = (self.local_cols, self.local_rows);
-        if let Some(session) = self.local.get_mut(self.local_active) {
+        self.resize_target(Target::Local);
+    }
+
+    /// Avisa al panel del agente el tamaño actual.
+    fn resize_agent(&mut self) {
+        self.resize_target(Target::Agent);
+    }
+
+    /// Aplica a la terminal indicada el tamaño que ya tiene registrado (resize
+    /// del emulador y SIGWINCH del PTY).
+    fn resize_target(&mut self, target: Target) {
+        let (cols, rows) = self.dimensions(target);
+        if let Some(session) = self.session_mut(target) {
             session.screen.resize(rows, cols);
             if let Some(pty) = session.pty.as_ref() {
                 let _ = pty.resize(cols, rows);
@@ -714,15 +739,24 @@ impl Ide {
         }
     }
 
-    /// La UI informa el tamaño del área de pantalla de la terminal (en píxeles,
-    /// sin el encabezado).
+    /// La UI informa el tamaño del área de pantalla de la terminal local (en
+    /// píxeles, sin el encabezado).
     fn local_resize(&mut self, w: f32, h: f32) {
-        let cols = ((w / TERM_CELL_W).floor() as i64).clamp(20, 500) as u16;
-        let rows = ((h / TERM_CELL_H).floor() as i64).clamp(2, 200) as u16;
+        let (cols, rows) = cells_for(w, h);
         if cols != self.local_cols || rows != self.local_rows {
             self.local_cols = cols;
             self.local_rows = rows;
             self.resize_local();
+        }
+    }
+
+    /// Igual que `local_resize`, pero para el panel del agente.
+    fn agent_resize(&mut self, w: f32, h: f32) {
+        let (cols, rows) = cells_for(w, h);
+        if cols != self.agent_cols || rows != self.agent_rows {
+            self.agent_cols = cols;
+            self.agent_rows = rows;
+            self.resize_agent();
         }
     }
 }
@@ -1378,6 +1412,49 @@ impl Ide {
 // ---------------------------------------------------------------------------
 
 impl Ide {
+    /// Arma el modelo de una terminal para la UI: las filas (con la selección
+    /// pintada) y el estado de la barra de scrollback. Lo comparten la terminal
+    /// local y el panel del agente.
+    fn term_view(&mut self, target: Target) -> (Vec<TermLine>, i32, f32, f32) {
+        let Some(session) = self.session_mut(target) else {
+            return (Vec::new(), 0, 1.0, 1.0);
+        };
+        let (visible_rows, cols) = session.screen.size();
+        let sel = session.sel.and_then(|s| s.region(cols));
+        let total = session.screen.scrollback_total();
+        let offset = session.screen.scrollback();
+        let (rows, _cursor) = session.screen.snapshot(sel);
+        let lines: Vec<TermLine> = rows
+            .into_iter()
+            .map(|runs| TermLine {
+                runs: ModelRc::from(Rc::new(VecModel::from(
+                    runs.into_iter()
+                        .map(|run| TermRun {
+                            text: run.text.into(),
+                            fg: to_color(run.fg),
+                            bg: to_color(run.bg),
+                            bold: run.bold,
+                        })
+                        .collect::<Vec<_>>(),
+                ))),
+            })
+            .collect();
+        // Posición de la barra: 0 arriba (lo más viejo), 1 abajo.
+        let total_f = total as f32;
+        let pos = if total == 0 {
+            1.0
+        } else {
+            (total - offset) as f32 / total_f
+        };
+        let visible_f = visible_rows as f32;
+        let thumb = if total == 0 {
+            1.0
+        } else {
+            (visible_f / (visible_f + total_f)).clamp(0.08, 1.0)
+        };
+        (lines, total as i32, pos, thumb)
+    }
+
     /// Vuelca el estado a la ventana. Idempotente.
     fn sync(&mut self, w: &NuIdeWindow) {
         // --- terminal real ---
@@ -1386,66 +1463,19 @@ impl Ide {
         w.set_term_sessions(ModelRc::from(Rc::new(VecModel::from(sessions))));
         w.set_active_session(self.local_active as i32);
 
-        let (term_lines, scroll_total, scroll_pos, scroll_thumb) =
-            match self.local.get_mut(self.local_active) {
-                Some(session) => {
-                    let (visible_rows, cols) = session.screen.size();
-                    let sel = session.sel.and_then(|s| s.region(cols));
-                    let total = session.screen.scrollback_total();
-                    let offset = session.screen.scrollback();
-                    let (rows, _cursor) = session.screen.snapshot(sel);
-                    let lines: Vec<TermLine> = rows
-                        .into_iter()
-                        .map(|runs| TermLine {
-                            runs: ModelRc::from(Rc::new(VecModel::from(
-                                runs.into_iter()
-                                    .map(|run| TermRun {
-                                        text: run.text.into(),
-                                        fg: to_color(run.fg),
-                                        bg: to_color(run.bg),
-                                        bold: run.bold,
-                                    })
-                                    .collect::<Vec<_>>(),
-                            ))),
-                        })
-                        .collect();
-                    // Posición de la barra: 0 arriba (lo más viejo), 1 abajo.
-                    let total_f = total as f32;
-                    let pos = if total == 0 {
-                        1.0
-                    } else {
-                        (total - offset) as f32 / total_f
-                    };
-                    let visible_f = visible_rows as f32;
-                    let thumb = if total == 0 {
-                        1.0
-                    } else {
-                        (visible_f / (visible_f + total_f)).clamp(0.08, 1.0)
-                    };
-                    (lines, total as i32, pos, thumb)
-                }
-                None => (Vec::new(), 0, 1.0, 1.0),
-            };
+        let (term_lines, scroll_total, scroll_pos, scroll_thumb) = self.term_view(Target::Local);
         w.set_term_lines(ModelRc::from(Rc::new(VecModel::from(term_lines))));
         w.set_term_scroll_total(scroll_total);
         w.set_term_scroll_pos(scroll_pos);
         w.set_term_scroll_thumb(scroll_thumb);
 
         // --- panel del agente ---
-        let agent_lines: Vec<IdeTermLine> = self
-            .agent
-            .active()
-            .lines
-            .iter()
-            .map(|l| IdeTermLine {
-                text: l.text.clone().into(),
-                kind: l.kind,
-            })
-            .collect();
+        let (agent_lines, agent_total, agent_pos, agent_thumb) = self.term_view(Target::Agent);
         w.set_agent_lines(ModelRc::from(Rc::new(VecModel::from(agent_lines))));
-        w.set_agent_input(self.agent_input.clone().into());
-        w.set_agent_prompt(AGENT_PROMPT.into());
-        w.set_agent_connected(self.toolchain.agent.is_some());
+        w.set_agent_scroll_total(agent_total);
+        w.set_agent_scroll_pos(agent_pos);
+        w.set_agent_scroll_thumb(agent_thumb);
+        w.set_agent_connected(self.agent.as_ref().is_some_and(|a| a.alive));
         w.set_agent_version(self.agent_version.clone().into());
         w.set_agent_model(self.agent_model.clone().into());
 
@@ -1515,11 +1545,11 @@ impl Ide {
     fn drain(&mut self, w: &NuIdeWindow) {
         let mut got = false;
         while let Ok(event) = self.local_rx.try_recv() {
-            self.apply_pty_event(event);
+            self.apply_pty_event(Target::Local, event);
             got = true;
         }
-        while let Ok(msg) = self.agent_rx.try_recv() {
-            self.agent.apply(msg);
+        while let Ok(event) = self.agent_rx.try_recv() {
+            self.apply_pty_event(Target::Agent, event);
             got = true;
         }
         if got {
@@ -1529,10 +1559,10 @@ impl Ide {
 
     /// Procesa un evento del PTY: alimenta el emulador y contesta el pedido de
     /// posición del cursor (ConPTY lo necesita para poder renderizar).
-    fn apply_pty_event(&mut self, event: PtyEvent) {
+    fn apply_pty_event(&mut self, target: Target, event: PtyEvent) {
         match event {
             PtyEvent::Output { session, bytes } => {
-                let Some(s) = self.local.iter_mut().find(|s| s.id == session) else {
+                let Some(s) = self.session_by_id_mut(target, session) else {
                     return;
                 };
                 if bytes.windows(4).any(|w| w == b"\x1b[6n") {
@@ -1552,7 +1582,7 @@ impl Ide {
                 }
             }
             PtyEvent::Exit { session, code } => {
-                if let Some(s) = self.local.iter_mut().find(|s| s.id == session) {
+                if let Some(s) = self.session_by_id_mut(target, session) {
                     s.alive = false;
                     s.pty = None;
                     s.screen
@@ -1686,39 +1716,12 @@ fn file_name(path: &Path) -> String {
         .unwrap_or_else(|| path.display().to_string())
 }
 
-/// Aplica una tecla de texto a una línea de entrada. Devuelve `true` cuando la
-/// línea debe enviarse (Enter).
-fn apply_text_key(input: &mut String, text: &str) -> bool {
-    let mut submit = false;
-    for ch in text.chars() {
-        match ch {
-            '\u{8}' | '\u{7f}' => {
-                input.pop();
-            }
-            '\n' | '\r' => submit = true,
-            '\u{3}' => input.clear(),
-            '\u{1b}' => {}
-            c if c >= ' ' && c < '\u{E000}' => input.push(c),
-            _ => {}
-        }
-    }
-    submit
-}
-
-/// Comando de shell del sistema para una línea.
-fn shell_command(cmd: &str) -> (PathBuf, Vec<String>) {
-    #[cfg(windows)]
-    {
-        let comspec = std::env::var("ComSpec").unwrap_or_else(|_| "cmd.exe".into());
-        (
-            PathBuf::from(comspec),
-            vec!["/D".to_string(), "/C".to_string(), cmd.to_string()],
-        )
-    }
-    #[cfg(not(windows))]
-    {
-        (PathBuf::from("sh"), vec!["-c".to_string(), cmd.to_string()])
-    }
+/// Traduce el tamaño de un panel en píxeles a celdas de terminal (columnas ×
+/// filas), acotado a un rango razonable para el PTY.
+fn cells_for(w: f32, h: f32) -> (u16, u16) {
+    let cols = ((w / TERM_CELL_W).floor() as i64).clamp(20, 500) as u16;
+    let rows = ((h / TERM_CELL_H).floor() as i64).clamp(2, 200) as u16;
+    (cols, rows)
 }
 
 /// Convierte un RGB del emulador a color de Slint.
@@ -1837,7 +1840,7 @@ pub fn attach(window: &NuIdeWindow, ide: Rc<RefCell<Ide>>) {
         window.on_terminal_scroll(move |dy| {
             if let Some(w) = weak.upgrade() {
                 let mut e = ide.borrow_mut();
-                e.local_wheel(dy);
+                e.wheel(Target::Local, dy);
                 e.sync(&w);
             }
         });
@@ -1848,7 +1851,7 @@ pub fn attach(window: &NuIdeWindow, ide: Rc<RefCell<Ide>>) {
         window.on_terminal_selection_start(move |y, x| {
             if let Some(w) = weak.upgrade() {
                 let mut e = ide.borrow_mut();
-                e.local_select_start(y, x);
+                e.select_start(Target::Local, y, x);
                 e.sync(&w);
             }
         });
@@ -1859,7 +1862,7 @@ pub fn attach(window: &NuIdeWindow, ide: Rc<RefCell<Ide>>) {
         window.on_terminal_selection_update(move |y, x| {
             if let Some(w) = weak.upgrade() {
                 let mut e = ide.borrow_mut();
-                e.local_select_update(y, x);
+                e.select_update(Target::Local, y, x);
                 e.sync(&w);
             }
         });
@@ -1870,7 +1873,7 @@ pub fn attach(window: &NuIdeWindow, ide: Rc<RefCell<Ide>>) {
         window.on_terminal_selection_end(move || {
             if let Some(w) = weak.upgrade() {
                 let mut e = ide.borrow_mut();
-                e.local_select_end();
+                e.select_end(Target::Local);
                 e.sync(&w);
             }
         });
@@ -1989,13 +1992,69 @@ pub fn attach(window: &NuIdeWindow, ide: Rc<RefCell<Ide>>) {
             }
         });
     }
+    // Panel del agente (mismos gestos que la terminal local).
     {
         let ide = Rc::clone(&ide);
         let weak = window.as_weak();
-        window.on_agent_key(move |text, control| {
+        window.on_agent_key(move |text, control, shift, alt| {
             if let Some(w) = weak.upgrade() {
                 let mut e = ide.borrow_mut();
-                e.agent_key(&text, control);
+                e.agent_key(&text, control, shift, alt);
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_agent_resize(move |w_px, h_px| {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.agent_resize(w_px, h_px);
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_agent_scroll(move |dy| {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.wheel(Target::Agent, dy);
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_agent_selection_start(move |y, x| {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.select_start(Target::Agent, y, x);
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_agent_selection_update(move |y, x| {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.select_update(Target::Agent, y, x);
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_agent_selection_end(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.select_end(Target::Agent);
                 e.sync(&w);
             }
         });
@@ -2244,10 +2303,32 @@ mod tests {
         ide.local_cols = 80;
         ide.local_rows = 24;
         // Fila 1, columna 2 (celda de 16 px de alto y ~7.2 de ancho).
-        assert_eq!(ide.term_cell(20.0, 15.0), (1, 2));
+        assert_eq!(ide.term_cell(Target::Local, 20.0, 15.0), (1, 2));
         // Fuera del área se acota a la primera / última celda.
-        assert_eq!(ide.term_cell(-5.0, -5.0), (0, 0));
-        assert_eq!(ide.term_cell(9_999.0, 9_999.0), (23, 79));
+        assert_eq!(ide.term_cell(Target::Local, -5.0, -5.0), (0, 0));
+        assert_eq!(ide.term_cell(Target::Local, 9_999.0, 9_999.0), (23, 79));
+        // El agente tiene su propio tamaño.
+        assert_eq!(ide.term_cell(Target::Agent, 0.0, 0.0), (0, 0));
+        assert_eq!(
+            ide.term_cell(Target::Agent, 9_999.0, 9_999.0),
+            (AGENT_ROWS - 1, AGENT_COLS - 1)
+        );
+    }
+
+    #[test]
+    fn el_panel_del_agente_arranca_con_una_pantalla() {
+        let mut ide = Ide::new();
+        ide.start_agent();
+        {
+            let agent = ide.agent.as_ref().expect("el agente queda inicializado");
+            assert_eq!(agent.name, "opencode");
+        }
+        // La pantalla del agente tiene exactamente las filas del panel.
+        let (lines, total, pos, thumb) = ide.term_view(Target::Agent);
+        assert_eq!(lines.len(), ide.agent_rows as usize);
+        assert_eq!(total, 0);
+        assert_eq!(pos, 1.0);
+        assert_eq!(thumb, 1.0);
     }
 
     #[test]

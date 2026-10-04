@@ -32,13 +32,6 @@ export struct IdeCodeLine {
     tokens: [IdeToken],
 }
 
-// Línea de terminal (sirve para la terminal local y para OpenCode CLI).
-// kind: 0 normal, 1 apagado, 2 añadido, 3 eliminado, 4 menta, 5 ámbar.
-export struct IdeTermLine {
-    text: string,
-    kind: int,
-}
-
 // Tramo de texto de la **terminal real**: celdas contiguas con el mismo frente,
 // fondo y negrita. Agruparlos evita un `Text` por carácter.
 export struct TermRun {

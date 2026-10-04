@@ -208,6 +208,47 @@ mod tests {
         );
     }
 
+    /// Prueba de humo: `opencode` (un `.cmd` de npm en Windows) arranca dentro
+    /// de un PTY y emite algo. Se saltea si no está instalado.
+    #[cfg(windows)]
+    #[test]
+    fn el_pty_lanza_opencode() {
+        let Some(agent) = crate::spasm::Toolchain::discover().agent else {
+            eprintln!("test salteado: no se encontró opencode");
+            return;
+        };
+        let (tx, rx) = channel();
+        let mut pty = Pty::spawn(
+            0,
+            &agent.display().to_string(),
+            &[],
+            &std::env::temp_dir(),
+            100,
+            30,
+            tx,
+        )
+        .expect("abrir el PTY con opencode");
+
+        let mut out: Vec<u8> = Vec::new();
+        let deadline = Instant::now() + Duration::from_secs(20);
+        while out.len() < 64 && Instant::now() < deadline {
+            match rx.recv_timeout(Duration::from_millis(300)) {
+                Ok(PtyEvent::Output { bytes, .. }) => {
+                    if bytes.windows(4).any(|w| w == b"\x1b[6n") {
+                        let _ = pty.write(b"\x1b[1;1R");
+                    }
+                    out.extend_from_slice(&bytes);
+                }
+                Ok(PtyEvent::Exit { code, .. }) => {
+                    panic!("opencode terminó demasiado pronto: código {code}");
+                }
+                Err(_) => {}
+            }
+        }
+        drop(pty);
+        assert!(!out.is_empty(), "opencode no emitió salida en el PTY");
+    }
+
     /// Prueba de ida y vuelta con una shell interactiva: se le mandan teclas y
     /// la salida vuelve.
     #[cfg(windows)]

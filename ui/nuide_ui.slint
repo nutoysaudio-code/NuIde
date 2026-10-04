@@ -1,5 +1,5 @@
 import { IdeTheme } from "ide_theme.slint";
-import { IdeTreeNode, IdeTab, IdeCodeLine, IdeTermLine, TermLine } from "ide_types.slint";
+import { IdeTreeNode, IdeTab, IdeCodeLine, TermLine } from "ide_types.slint";
 import { IdeTopBar } from "ide_topbar.slint";
 import { IdeStatusBar } from "ide_statusbar.slint";
 import { IdeExplorer } from "ide_explorer.slint";
@@ -44,12 +44,13 @@ export component NuIdeWindow inherits Window {
     in-out property <int> active-line: 1;
     in-out property <int> active-column: 1;
 
-    // Panel del agente (OpenCode CLI).
-    in-out property <string> agent-input: "";
-    in-out property <string> agent-prompt: "opencode> ";
+    // Panel del agente (OpenCode CLI): estado y scrollback.
     in-out property <bool> agent-connected: false;
     in-out property <string> agent-version: "OpenCode CLI";
     in-out property <string> agent-model: "por defecto";
+    in-out property <int> agent-scroll-total: 0;
+    in-out property <float> agent-scroll-pos: 1.0;
+    in-out property <float> agent-scroll-thumb: 1.0;
 
     // Terminal real: estado del scrollback (lo llena Rust).
     in-out property <int> term-scroll-total: 0;
@@ -76,7 +77,12 @@ export component NuIdeWindow inherits Window {
     callback editor-cursor(length, length, length);
     callback editor-extend(length, length, length);
     // Panel del agente.
-    callback agent-key(string, bool);
+    callback agent-key(string, bool, bool, bool);
+    callback agent-resize(length, length);
+    callback agent-scroll(length);
+    callback agent-selection-start(length, length);
+    callback agent-selection-update(length, length);
+    callback agent-selection-end();
 
     // La terminal recibe el teclado apenas se abre la ventana: sólo hay un
     // elemento focusable y éste es el dueño natural del foco.
@@ -257,9 +263,15 @@ export component NuIdeWindow inherits Window {
             model: root.agent-model;
             project: root.project-name;
             lines: root.agent-lines;
-            prompt: root.agent-prompt;
-            input: root.agent-input;
-            key-input(text, ctrl) => { root.agent-key(text, ctrl); }
+            scroll-total: root.agent-scroll-total;
+            scroll-pos: root.agent-scroll-pos;
+            scroll-thumb: root.agent-scroll-thumb;
+            key-input(text, ctrl, shift, alt) => { root.agent-key(text, ctrl, shift, alt); }
+            resized(w, h) => { root.agent-resize(w, h); }
+            scrolled(dy) => { root.agent-scroll(dy); }
+            selection-start(y, x) => { root.agent-selection-start(y, x); }
+            selection-update(y, x) => { root.agent-selection-update(y, x); }
+            selection-end => { root.agent-selection-end(); }
         }
     }
 
@@ -329,38 +341,6 @@ export component NuIdeWindow inherits Window {
     // La pantalla real la llena Rust; arranca vacía.
     in property <[TermLine]> term-lines: [];
 
-    in property <[IdeTermLine]> agent-lines: [
-        { text: "> Revisar memory.spasm", kind: 4 },
-        { text: " ", kind: 0 },
-        { text: "Leyendo archivos...", kind: 1 },
-        { text: "✓ src/memory.spasm (124 lineas)", kind: 0 },
-        { text: "✓ src/main.spasm (28 lineas)", kind: 0 },
-        { text: "✓ runtime/memory.spasm (96 lineas)", kind: 0 },
-        { text: " ", kind: 0 },
-        { text: "Analizando ...", kind: 1 },
-        { text: "Revisando manejo de memoria, direcciones y limites ...", kind: 0 },
-        { text: "Generando propuesta ...", kind: 0 },
-        { text: " ", kind: 0 },
-        { text: "✓ Propuesta lista", kind: 2 },
-        { text: " ", kind: 0 },
-        { text: "Archivo: src/memory.spasm", kind: 5 },
-        { text: "@@ -10,7 +10,9 @@ init_memory:", kind: 1 },
-        { text: "    lda #0", kind: 1 },
-        { text: "    tay", kind: 1 },
-        { text: ".clear_loop:", kind: 1 },
-        { text: "-   sta (MEM_PTR),y", kind: 3 },
-        { text: "+   sta (MEM_PTR),y    ; escribir 0 en memoria", kind: 2 },
-        { text: "+   iny                ; avanzar al siguiente byte", kind: 2 },
-        { text: "+   cpy #$00           ; ¿llegamos al final?", kind: 2 },
-        { text: "    bne .clear_loop", kind: 1 },
-        { text: "    rts", kind: 1 },
-        { text: " ", kind: 0 },
-        { text: "Notas:", kind: 5 },
-        { text: "- Se añade verificación de límite para evitar", kind: 0 },
-        { text: "  desbordamiento de página.", kind: 0 },
-        { text: "- Se documenta la intención de cada instrucción.", kind: 0 },
-        { text: "- El cambio no altera el comportamiento principal.", kind: 0 },
-        { text: "- Considera extraer esta rutina a un módulo común", kind: 0 },
-        { text: "  si se usa en más de un archivo.", kind: 0 },
-    ];
+    // La TUI del agente también la llena Rust.
+    in property <[TermLine]> agent-lines: [];
 }

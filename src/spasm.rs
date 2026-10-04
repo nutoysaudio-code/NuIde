@@ -67,18 +67,6 @@ impl Toolchain {
         }
     }
 
-    /// Comando para pedirle algo al agente de OpenCode.
-    ///
-    /// Usa el modo no interactivo `opencode run <mensaje>`: cada envío es un
-    /// proceso nuevo, que es lo que encaja con la consola lineal.
-    pub fn agent_command(&self, message: &str) -> Result<(PathBuf, Vec<String>), String> {
-        let bin = self
-            .agent
-            .clone()
-            .ok_or_else(|| "no se encontró el CLI de OpenCode (definí NUIDE_AGENT)".to_string())?;
-        Ok((bin, vec!["run".to_string(), message.to_string()]))
-    }
-
     /// Intérprete listo para usar, o `None` con un motivo para mostrar.
     pub fn interpreter_required(&self) -> Result<PathBuf, String> {
         self.interpreter
@@ -180,20 +168,6 @@ mod tests {
     fn sin_compilador_de_c_no_se_pide_build() {
         let args = compile_args(Path::new("prog.spasm"), Path::new("build/prog.c"), false);
         assert!(!args.iter().any(|a| a == "--build"));
-    }
-
-    #[test]
-    fn agent_command_arma_run_con_el_mensaje() {
-        let tc = Toolchain {
-            agent: Some(PathBuf::from("opencode.cmd")),
-            ..Default::default()
-        };
-        let (prog, args) = tc.agent_command("hola").expect("arma el comando");
-        assert_eq!(prog, PathBuf::from("opencode.cmd"));
-        assert_eq!(args, vec!["run", "hola"]);
-
-        let vacio = Toolchain::default();
-        assert!(vacio.agent_command("x").is_err());
     }
 
     /// Prueba real de que el CLI de OpenCode se puede lanzar y su salida llega

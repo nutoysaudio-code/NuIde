@@ -35,6 +35,7 @@ hasta abrir el primer archivo).
 | 5 | terminal real (PTY/ConPTY) + panel de OpenCode CLI | ✅ |
 | 6 | integración con el toolchain `spasm`/`spasmc` (build/run) | ✅ |
 | 7 | terminal: scrollback + selección y copia con el mouse | ✅ |
+| 8 | panel del agente: `opencode` en un PTY (TUI real) | ✅ |
 
 ### El explorador (real)
 
@@ -141,26 +142,26 @@ declara `pty_open`/`pty_spawn`/`pty_read`/… pero el intérprete `spasm.exe`
 instalado no los implementa. Por eso la terminal de NuIde **no** depende de ese
 Skill: implementa su propio PTY nativo (ConPTY) en Rust.
 
-La consola *lineal* de `src/terminal.rs` sigue viva, pero sólo para el panel del
-agente (`opencode run` es un proceso por prompt).
+La consola *lineal* de `src/terminal.rs` queda como utilidad heredada (la usan
+pruebas de integración del toolchain). El panel del agente ya no la usa.
 
-### El panel del agente (OpenCode CLI, real)
+### El panel del agente (OpenCode CLI, TUI real)
 
-El panel derecho es una consola dedicada al CLI de **OpenCode**, con su propio
-canal (`agent_tx`/`agent_rx`) para no mezclar sesiones con la terminal local.
-Escribí un prompt y Enter: se ejecuta `opencode run <mensaje>` en la raíz del
-proyecto y la salida se vuelca ahí.
+El panel derecho corre **`opencode` en un PTY**, igual que la terminal local:
+su TUI interactiva se renderiza con el mismo emulador (`vt`), con scrollback,
+selección/copia y las mismas teclas. El canal es propio (`agent_tx`/`agent_rx`)
+para no mezclar la salida con la terminal inferior.
 
-- `$ <comando>` corre ese comando en el shell del sistema (en la raíz del
-  proyecto) en vez de mandarlo al agente.
-- Al arrancar se ejecuta `opencode --version` para mostrar la versión real; el
-  encabezado dice «Conectado» si se encontró el CLI.
+- Al arrancar se lanza `opencode` (sin argumentos) en la raíz del proyecto; si
+  el CLI no está, la pantalla muestra el motivo.
+- El encabezado dice «Conectado» mientras el proceso vive; al salir pasa a
+  «Desconectado».
 - El encabezado y el modelo son configurables con `NUIDE_AGENT_VERSION` y
   `NUIDE_AGENT_MODEL`.
 - El CLI se descubre como `opencode.cmd` (Windows), `opencode.exe` u `opencode`.
 
-**Limitación:** cada envío es un proceso `opencode run` nuevo (modo no
-interactivo). No es una TUI persistente; para eso haría falta el PTY.
+**Limitación:** el mouse se usa para seleccionar texto, así que no se reenvía a
+la TUI (no hay *mouse reporting*). El teclado sí llega completo.
 
 ## Estructura
 
@@ -175,7 +176,7 @@ nuide/
     spasm.rs               descubrimiento del toolchain (spasm/spasmc/cc/opencode)
     pty.rs                 terminal real: ConPTY + hilos de lectura/escritura
     vt.rs                  emulador VT: pantalla → tramos con color
-    terminal.rs            consola lineal (sólo para el panel del agente)
+    terminal.rs            consola lineal heredada (sólo pruebas de integración)
     explorer.rs            árbol de archivos plano con profundidad
     highlight.rs           tokenizador/resaltado de SpASM
     editor.rs              estado de la IDE (explorador, editor, terminales) + wiring
@@ -187,8 +188,8 @@ nuide/
     ide_statusbar.slint    barra inferior (rama, lenguaje, cursor)
     ide_explorer.slint     árbol de archivos
     ide_editor.slint       pestañas + ruta + área de código
-    ide_terminal.slint     terminal local + `TerminalBody` reutilizable
-    ide_opencode.slint     panel de OpenCode CLI
+    ide_terminal.slint     terminal local + `TerminalScreen` reutilizable
+    ide_opencode.slint     panel de OpenCode CLI (TUI en PTY)
     nuide_ui.slint         la ventana: layout, divisores y datos demo
   docs/NUIDE_IDEA.md       especificación visual/funcional
 ```
@@ -214,8 +215,8 @@ slint-viewer --screenshot ui.png ui/nuide_ui.slint
   detecta la zona pulsada (huecos de 6 px) y reparte el espacio con
   `left-frac` / `right-frac` / `bottom-frac`. Cambiar la terminal inferior solo
   afecta a la columna central.
-- **Cada área hace su propio scroll** (`Flickable`): explorador, código,
-  terminal local y OpenCode.
+- **Cada área hace su propio scroll**: el explorador y el editor con `Flickable`;
+  las dos terminales con el scrollback del emulador `vt` (rueda y barra).
 - **Selección por índice**: la UI guarda índices (`explorer-selected`,
   `active-tab`, `active-session`) en vez de reconstruir los modelos.
 - **Explorador y editor reales**: clic en carpeta abre/cierra; clic en archivo lo
@@ -225,28 +226,30 @@ slint-viewer --screenshot ui.png ui/nuide_ui.slint
   `FocusScope` y tienen `focus-on-click`. La ventana hace `forward-focus` a la
   terminal local, así que ésta recibe el teclado apenas se abre; clic en el
   editor le pasa el foco (para tipear código), y clic en cualquiera de las dos
-  consolas lo devuelve.
+  terminales lo devuelve.
 
 ## Próximos pasos
 
 Ordenados por impacto para usar el IDE día a día. (Nada de esto está hecho; es
 la hoja de ruta acordada.)
 
-1. **Panel del agente con PTY real.** Hoy usa `opencode run` (un proceso por
-   prompt). El paso grande es correr `opencode` en un PTY para tener su TUI.
-2. **Elegir proyecto.** El explorador arranca en la carpeta de lanzamiento; falta
-   un diálogo para abrir otra carpeta como raíz (y recordarla).
-3. **Persistencia de estado.** Guardar entre ejecuciones: tamaño/posición de la
+1. **Elegir proyecto.** El explorador arranca en la carpeta de lanzamiento; falta
+   un diálogo para abrir otra carpeta como raíz (y recordarla). Hoy la única
+   forma de cambiar de raíz es relanzar la IDE.
+2. **Persistencia de estado.** Guardar entre ejecuciones: tamaño/posición de la
    ventana, proyecto, pestañas abiertas y sesiones.
-4. **Git.** Barra de estado con rama y estado reales + acciones básicas (stage,
+3. **Git.** Barra de estado con rama y estado reales + acciones básicas (stage,
    commit, push) desde la IDE.
-5. **Atajos y búsqueda.** `F5` ejecutar / `Ctrl+B` compilar, paleta de comandos y
+4. **Atajos y búsqueda.** `F5` ejecutar / `Ctrl+B` compilar, paleta de comandos y
    búsqueda de archivos; buscar/reemplazar dentro del editor.
+5. **Mouse reporting en las terminales.** Reenviar el mouse a los procesos que lo
+   pidan (la TUI de OpenCode, `vim`…) sin perder la selección/copia.
 6. **Empaquetado.** `.exe` release con icono y versión, e instalador, como las
    otras apps del ecosistema.
 
 ### Estado al 2026-10-04
 
 Compilado y publicado: `gitlab.com/nutoys-group/nuide` (`main`). 41 tests OK;
-clon limpio genera `nuide.exe`. La terminal ya tiene scrollback y
-selección/copia con el mouse. Falta local: los ítems de arriba.
+clon limpio genera `nuide.exe`. Las dos terminales son PTY reales: la local con
+shell y el panel del agente con la TUI de `opencode`. Falta local: los ítems de
+arriba.

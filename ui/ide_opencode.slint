@@ -1,8 +1,10 @@
 import { IdeTheme } from "ide_theme.slint";
-import { IdeTermLine } from "ide_types.slint";
-import { TerminalBody } from "ide_terminal.slint";
+import { TermLine } from "ide_types.slint";
+import { TerminalScreen } from "ide_terminal.slint";
 
-// Panel derecho: terminal interactiva de OpenCode CLI (sin burbujas de chat).
+// Panel derecho: la TUI de OpenCode CLI corriendo en un PTY (sin burbujas de
+// chat). Reutiliza `TerminalScreen`: mismo emulador, scrollback y selección que
+// la terminal local.
 //
 // Hereda de `FocusScope` para recibir el teclado cuando se lo clickea. Como
 // `FocusScope` no tiene superficie propia, lo visual vive en el `Rectangle`
@@ -12,17 +14,34 @@ export component IdeOpenCode inherits FocusScope {
     in property <string> version: "OpenCode CLI";
     in property <string> model: "por defecto";
     in property <string> project: "";
-    in property <[IdeTermLine]> lines: [];
-    in property <string> prompt: "";
-    in property <string> input: "";
-    callback key-input(string, bool);
+    in property <[TermLine]> lines: [];
+    in property <int> scroll-total: 0;
+    in property <float> scroll-pos: 1.0;
+    in property <float> scroll-thumb: 1.0;
+    callback key-input(string, bool, bool, bool);
+    // Tamaño del área de pantalla en píxeles, para dimensionar el PTY.
+    callback resized(length, length);
+    callback scrolled(length);
+    callback selection-start(length, length);
+    callback selection-update(length, length);
+    callback selection-end();
 
     focus-on-click: true;
 
     key-pressed(event) => {
-        root.key-input(event.text, event.modifiers.control);
+        root.key-input(event.text, event.modifiers.control, event.modifiers.shift, event.modifiers.alt);
         accept
     }
+
+    // La ficha de sesión ocupa los 92 px de arriba (34 de encabezado + 58).
+    private property <length> screen-top: 92px;
+
+    function report-size() {
+        root.resized(self.width, max(0px, self.height - root.screen-top));
+    }
+
+    changed width => { root.report-size(); }
+    changed height => { root.report-size(); }
 
     // --- superficie visual ---
     Rectangle {
@@ -134,16 +153,20 @@ export component IdeOpenCode inherits FocusScope {
             }
         }
 
-        // --- salida / entrada de la terminal ---
-        TerminalBody {
+        // --- pantalla de la TUI (opencode) ---
+        TerminalScreen {
             x: 0;
-            y: 92px;
+            y: root.screen-top;
             width: parent.width;
-            height: parent.height - 92px;
+            height: parent.height - root.screen-top;
             lines: root.lines;
-            prompt: root.prompt;
-            editable: true;
-            input: root.input;
+            scroll-total: root.scroll-total;
+            scroll-pos: root.scroll-pos;
+            scroll-thumb: root.scroll-thumb;
+            selection-start(y, x) => { root.focus(); root.selection-start(y, x); }
+            selection-update(y, x) => { root.selection-update(y, x); }
+            selection-end => { root.selection-end(); }
+            scrolled(dy) => { root.scrolled(dy); }
         }
     }
 }
