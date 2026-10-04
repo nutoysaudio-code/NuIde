@@ -352,11 +352,11 @@ export component NuIdeWindow inherits Window {
             visible: root.panel-visible(0);
             nodes: root.tree-nodes;
             selected-index: root.explorer-selected;
-            node-clicked(i) => { root.explorer-selected = i; root.node-activated(i); }
+            node-clicked(i) => { root.explorer-selected = i; root.node-activated(i); editor.focus(); }
         }
 
         // --- columna central: editor ---
-        IdeEditor {
+        editor := IdeEditor {
             x: root.center-x;
             y: 0;
             width: root.center-w;

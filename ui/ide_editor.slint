@@ -295,7 +295,7 @@ export component IdeEditor inherits FocusScope {
                     title: tab.title;
                     dirty: tab.dirty;
                     active: i == root.active-tab;
-                    activated => { root.tab-selected(i); }
+                    activated => { root.focus(); root.tab-selected(i); }
                     closed => { root.tab-closed(i); }
                 }
 
@@ -602,6 +602,10 @@ export component IdeEditor inherits FocusScope {
 
             pointer-event(event) => {
                 if (event.kind == PointerEventKind.down) {
+                    // El TouchArea captura el clic, así que hay que darle el foco
+                    // al editor explícitamente (si no, el teclado sigue yendo a
+                    // la terminal).
+                    root.focus();
                     root.selecting = true;
                     root.cursor-to(self.mouse-y, self.mouse-x, code-scroll.content-y);
                 } else if (event.kind == PointerEventKind.up || event.kind == PointerEventKind.cancel) {
