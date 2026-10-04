@@ -55,6 +55,8 @@ export component NuIdeWindow inherits Window {
     in-out property <string> project-name: "coquito";
     in-out property <int> active-line: 1;
     in-out property <int> active-column: 1;
+    // Lenguaje del archivo activo (barra de estado).
+    in-out property <string> language: "SpASM";
     // Diagnóstico de SpASM (vacío si no hay errores).
     in-out property <string> diagnostics: "";
 
@@ -255,7 +257,7 @@ export component NuIdeWindow inherits Window {
         y: parent.height - IdeTheme.statusbar-h;
         width: parent.width;
         branch: "main";
-        language: "SpASM";
+        language: root.language;
         encoding: "UTF-8";
         line: root.active-line;
         column: root.active-column;

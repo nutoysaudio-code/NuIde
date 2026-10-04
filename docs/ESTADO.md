@@ -46,11 +46,13 @@ ui/*.slint          la ventana, paneles y tema
 - **Explorador**: árbol real, abrir/cerrar carpetas, abrir archivos en pestañas,
   icono de engranaje para configs, topes (500/carpeta, 4000 nodos).
 - **Editor**: edición, guardado, deshacer/rehacer, selección, copiar/cortar/pegar,
-  auto-indentación y resaltado de SpASM. **Buscar y reemplazar** (`Ctrl+F` /
-  `Ctrl+H`) con contador, navegación, mayúsculas, **palabra completa** y edición
-  del campo con cursor. Resaltados de contexto: palabra bajo el cursor y par de
-  llaves. **Diagnóstico real**: corre el parser de SpASM y marca el error en el
-  margen y la barra de estado. `F5` ejecutar / `Ctrl+B` compilar / `F6` analizar.
+  auto-indentación y **resaltado por lenguaje** (se detecta por extensión: SpASM,
+  Slint, JSON, TOML, YAML, Markdown, shell, Rust; el lenguaje va en la barra de
+  estado). **Buscar y reemplazar** (`Ctrl+F` / `Ctrl+H`) con contador, navegación,
+  mayúsculas, **palabra completa** y edición del campo con cursor. Resaltados de
+  contexto: palabra bajo el cursor y par de llaves. **Diagnóstico real**: corre el
+  parser de SpASM y marca el error en el margen y la barra de estado. `F5` ejecutar
+  / `Ctrl+B` compilar / `F6` analizar.
 - **Terminal local**: shell persistente en ConPTY, varias sesiones, resize,
   scrollback de 2000 líneas, selección y copia con el mouse.
 - **Panel del agente**: `opencode` corriendo en un PTY (su TUI real), con los
@@ -163,6 +165,16 @@ ui/*.slint          la ventana, paneles y tema
 - `TerminalScreen` dibuja cada tramo en su **columna** (`run.col * cell-width`,
   ancho `run.cols * cell-width`, con clip). Así los glifos de caja/bloque
   (`▀ █ ┃ ╹`) caen en la grilla y no se superponen.
+
+### 3.8 Editor: resaltado por lenguaje
+
+- `highlight.rs` define `Language` (detectado por extensión) y `tokenize_line(line,
+  lang)`. Tokenizadores: **SpASM** (el original), **Slint**, **JSON**, **TOML**,
+  **YAML**, **Markdown**, **shell** y **Rust**; el resto va texto plano.
+- Cada `OpenTab` guarda su `Language`; `build_row` resalta con el del archivo y la
+  **barra de estado** muestra el lenguaje real (antes decía siempre "SpASM").
+- Los tokenizadores genéricos se parametrizan con un `Spec` (comentarios, comillas,
+  keywords, `@macro`, `$var`, `#color`, `[sección]`, clave antes de `:`/`=`).
 
 ---
 

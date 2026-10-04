@@ -43,6 +43,7 @@ hasta abrir el primer archivo).
 | 12 | dock por panel + apilado por lado (hasta 3) | ✅ |
 | 13 | diagnóstico real: parser de SpASM en el editor | ✅ |
 | 14 | terminales: grilla exacta (ancho de celda medido) | ✅ |
+| 15 | editor: resaltado por lenguaje (SpASM, Slint, JSON, …) | ✅ |
 
 > El parte de estado detallado —qué se cambió en cada iteración, limitaciones y
 > pendientes con su enfoque— está en [`docs/ESTADO.md`](docs/ESTADO.md).
@@ -69,9 +70,11 @@ elección se recuerda en `%APPDATA%\NuIde\config` para el próximo arranque.
 
 ### El editor (edición + resaltado)
 
-`src/highlight.rs` es un tokenizador de SpASM por línea que colorea comentarios
-(`;`, `//`), strings, números (`0x…`, floats), palabras clave/builtins y
-etiquetas (`loop:`, `.next_char:`). Los tabs se expanden a cuatro espacios y la
+`src/highlight.rs` detecta el **lenguaje por la extensión** y resalta cada tipo de
+documento con su tokenizador: **SpASM** (`;`/`//`, strings, números, keywords,
+etiquetas `nombre:`), **Slint**, **JSON**, **TOML**, **YAML**, **Markdown**,
+**shell** y **Rust** (y texto plano para el resto). La **barra de estado** muestra
+el lenguaje real del archivo activo. Los tabs se expanden a cuatro espacios y la
 concatenación de tokens reproduce la línea exacta, que es lo que necesita el
 render monoespaciado.
 

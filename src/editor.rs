@@ -93,6 +93,8 @@ struct Cursor {
 /// Un archivo abierto en una pestaña del editor.
 struct OpenTab {
     path: PathBuf,
+    /// Lenguaje detectado por la extensión (para el resaltado y la barra).
+    language: highlight::Language,
     /// Líneas sin el `\n` (el separador se reconstruye al guardar).
     lines: Vec<String>,
     cursor: Cursor,
@@ -1086,6 +1088,7 @@ impl Ide {
         let (lines, trailing_newline, read_only) = read_lines(&path);
         self.tabs.push(OpenTab {
             path: path.clone(),
+            language: highlight::Language::from_path(&path),
             lines,
             cursor: Cursor { line: 0, col: 0 },
             anchor: None,
@@ -2170,7 +2173,7 @@ impl Ide {
                 marks.push((a, b, if is_current { 9 } else { 8 }));
             }
         }
-        let toks = render_tokens(&tab.lines[line], cursor, &marks);
+        let toks = render_tokens(&tab.lines[line], tab.language, cursor, &marks);
         let error = self.diagnostics.iter().any(|d| d.line == line + 1);
         IdeCodeLine {
             indent: 0.0,
@@ -2326,6 +2329,12 @@ impl Ide {
                 .unwrap_or((1, 1));
             w.set_active_line(line);
             w.set_active_column(col);
+            let language = self
+                .tabs
+                .get(self.active_tab)
+                .map(|t| t.language.name())
+                .unwrap_or("SpASM");
+            w.set_language(language.into());
             w.set_diagnostics(self.diagnostics_summary().into());
 
             // Barra de búsqueda del editor.
@@ -2462,12 +2471,13 @@ fn point_to_cursor(tab: &OpenTab, y: f32, x: f32, scroll: f32) -> Cursor {
 /// se mapea a su posición en la línea expandida.
 fn render_tokens(
     line: &str,
+    lang: highlight::Language,
     cursor: Option<usize>,
     marks: &[(usize, usize, i32)],
 ) -> Vec<(String, i32)> {
     // Atributo por carácter según el resaltado.
     let mut chars: Vec<(char, i32)> = Vec::new();
-    for (text, kind) in highlight::tokenize_line(line) {
+    for (text, kind) in highlight::tokenize_line(line, lang) {
         for c in text.chars() {
             chars.push((c, kind));
         }
@@ -3350,8 +3360,9 @@ mod tests {
 
     #[test]
     fn el_cursor_se_inserta_como_token() {
+        let lang = highlight::Language::Spasm;
         let joined = |col| -> String {
-            render_tokens("let x = 1", Some(col), &[])
+            render_tokens("let x = 1", lang, Some(col), &[])
                 .into_iter()
                 .map(|(t, _)| t)
                 .collect()
@@ -3360,25 +3371,26 @@ mod tests {
         assert_eq!(joined(0), "|let x = 1");
         assert_eq!(joined(9), "let x = 1|");
 
-        let toks = render_tokens("ab", Some(2), &[]);
+        let toks = render_tokens("ab", lang, Some(2), &[]);
         assert!(toks.iter().any(|(t, k)| t == "|" && *k == 6));
 
         // La selección se marca como kind 7.
-        let toks = render_tokens("hola", None, &[(0, 2, 7)]);
+        let toks = render_tokens("hola", lang, None, &[(0, 2, 7)]);
         assert!(toks.iter().any(|(t, k)| t == "ho" && *k == 7));
     }
 
     #[test]
     fn el_tab_se_expande_para_mapear_el_cursor_y_la_seleccion() {
+        let lang = highlight::Language::Spasm;
         // El cursor tras el tab (columna cruda 1) cae tras los cuatro espacios.
-        let joined: String = render_tokens("\tx", Some(1), &[])
+        let joined: String = render_tokens("\tx", lang, Some(1), &[])
             .into_iter()
             .map(|(t, _)| t)
             .collect();
         assert_eq!(joined, "    |x");
 
         // Seleccionar el tab crudo (0..1) pinta los cuatro espacios.
-        let toks = render_tokens("\tx", None, &[(0, 1, 7)]);
+        let toks = render_tokens("\tx", lang, None, &[(0, 1, 7)]);
         assert!(toks.iter().any(|(t, k)| t == "    " && *k == 7));
     }
 
