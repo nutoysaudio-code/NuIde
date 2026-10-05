@@ -1034,6 +1034,12 @@ pub struct Ide {
     timer: Option<Timer>,
 }
 
+impl Default for Ide {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Ide {
     pub fn new() -> Self {
         let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
@@ -2385,8 +2391,8 @@ impl Ide {
     fn palette_accept(&mut self) {
         let action = self.palette.rows.get(self.palette.selected).cloned();
         self.palette.open = false;
-        match action {
-            Some(row) => match row.action {
+        if let Some(row) = action {
+            match row.action {
                 PaletteAction::Command(c) => self.run_command(c),
                 PaletteAction::File(p) => self.open_file(p),
                 PaletteAction::GoToLine(n) => self.goto_line_number(n),
@@ -2399,8 +2405,7 @@ impl Ide {
                         self.insert_str(&w);
                     }
                 }
-            },
-            None => {}
+            }
         }
     }
 
@@ -3833,7 +3838,7 @@ impl Ide {
                 '\u{F700}' | '\u{F701}' | '\u{F702}' | '\u{F703}' | '\u{F729}' | '\u{F72b}'
                 | '\u{F72c}' | '\u{F72d}' => self.move_for_key(ch, shift),
                 '\u{1b}' => {}
-                c if c >= ' ' && c < '\u{E000}' => self.insert_char(c),
+                c if (' '..'\u{E000}').contains(&c) => self.insert_char(c),
                 _ => {}
             }
         }
@@ -3941,24 +3946,18 @@ impl Ide {
     }
 
     fn undo_active(&mut self) {
-        match self.undo.pop() {
-            Some((lines, cursor)) => {
-                let current = self.tabs[self.active_tab].snapshot();
-                self.redo.push(current);
-                self.apply_snapshot(lines, cursor);
-            }
-            None => {}
+        if let Some((lines, cursor)) = self.undo.pop() {
+            let current = self.tabs[self.active_tab].snapshot();
+            self.redo.push(current);
+            self.apply_snapshot(lines, cursor);
         }
     }
 
     fn redo_active(&mut self) {
-        match self.redo.pop() {
-            Some((lines, cursor)) => {
-                let current = self.tabs[self.active_tab].snapshot();
-                self.undo.push(current);
-                self.apply_snapshot(lines, cursor);
-            }
-            None => {}
+        if let Some((lines, cursor)) = self.redo.pop() {
+            let current = self.tabs[self.active_tab].snapshot();
+            self.undo.push(current);
+            self.apply_snapshot(lines, cursor);
         }
     }
 
@@ -4301,7 +4300,7 @@ impl Ide {
                     *cursor = 0;
                 }
                 '\u{F72b}' => self.find_move_cursor(0, true),
-                c if c >= ' ' && c < '\u{E000}' => {
+                c if (' '..'\u{E000}').contains(&c) => {
                     self.find_insert(c);
                     edited = true;
                 }
@@ -6184,7 +6183,7 @@ fn encode_key(text: &str, control: bool, shift: bool, alt: bool) -> Option<Vec<u
             c if control && c.is_ascii_alphabetic() => {
                 out.push((c as u8).to_ascii_uppercase() & 0x1f);
             }
-            c if c >= ' ' && c < '\u{E000}' => {
+            c if (' '..'\u{E000}').contains(&c) => {
                 let mut buf = [0u8; 4];
                 out.extend_from_slice(c.encode_utf8(&mut buf).as_bytes());
             }

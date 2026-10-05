@@ -296,7 +296,7 @@ pub fn strip_ansi(input: &str) -> String {
             match chars.next() {
                 Some('[') => {
                     // CSI: termina en un byte del rango '@'..='~'.
-                    while let Some(n) = chars.next() {
+                    for n in chars.by_ref() {
                         if ('@'..='~').contains(&n) {
                             break;
                         }

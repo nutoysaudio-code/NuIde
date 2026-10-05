@@ -131,7 +131,7 @@ pub fn default_shell() -> (String, Vec<String>) {
             return (p, vec!["-NoLogo".to_string()]);
         }
         let comspec = std::env::var("ComSpec").unwrap_or_else(|_| "cmd.exe".into());
-        return (comspec, Vec::new());
+        (comspec, Vec::new())
     }
     #[cfg(not(windows))]
     {

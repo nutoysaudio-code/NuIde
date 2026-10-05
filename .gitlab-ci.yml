@@ -1,0 +1,62 @@
+# CI de NuIde: calidad en cada push y un .exe de release en Windows.
+#
+# Las etapas `fmt`/`clippy`/`test` corren en un contenedor Linux (rust + las
+# dependencias de sistema de Slint). El empaquetado corre en un *runner* de
+# Windows, porque el objetivo es el `.exe` con ConPTY. Si tu runner usa otro
+# tag, ajustá `tags` en `package:windows`.
+
+stages:
+  - check
+  - test
+  - package
+
+default:
+  image: rust:bookworm
+  cache:
+    key: "$CI_COMMIT_REF_SLUG"
+    paths:
+      - target/
+  before_script:
+    - rustup component add rustfmt clippy
+    - apt-get update -qq
+    - apt-get install -y -qq libfontconfig1-dev libxkbcommon-dev libxcb-shape0-dev libxcb-xfixes0-dev libgl1-mesa-dev pkg-config
+
+fmt:
+  stage: check
+  script:
+    - cargo fmt --check
+
+clippy:
+  stage: check
+  script:
+    - cargo clippy --all-targets -- -D warnings
+
+test:
+  stage: test
+  script:
+    - cargo test
+
+# `.exe` de release en Windows (artefacto descargable).
+package:windows:
+  stage: package
+  tags:
+    - saas-windows-medium-amd64
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_COMMIT_TAG
+  before_script:
+    - >-
+      if (-not (Get-Command cargo -ErrorAction SilentlyContinue)) {
+        Invoke-WebRequest -Uri https://win.rustup.rs/x86_64 -OutFile rustup-init.exe;
+        .\rustup-init.exe -y --default-toolchain stable --profile minimal;
+        $env:Path += ";$env:USERPROFILE\.cargo\bin";
+      }
+    - rustc --version
+  script:
+    - cargo build --release
+    - .\target\release\nuide.exe --version
+  artifacts:
+    name: "NuIde-$CI_COMMIT_SHORT_SHA"
+    paths:
+      - target/release/nuide.exe
+    expire_in: 2 weeks
