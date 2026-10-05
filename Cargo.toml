@@ -1,6 +1,6 @@
 [package]
 name = "nuide"
-version = "0.1.0"
+version = "0.1.0-alpha"
 edition = "2021"
 description = "NuIde — IDE para SpASM con terminales integrados y OpenCode CLI"
 

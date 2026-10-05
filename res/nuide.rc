@@ -16,11 +16,11 @@ FILETYPE 0x1
         {
             VALUE "CompanyName", "NuToys\0"
             VALUE "FileDescription", "NuIde - IDE para SpASM\0"
-            VALUE "FileVersion", "0.1.0\0"
+            VALUE "FileVersion", "0.1.0-alpha\0"
             VALUE "InternalName", "nuide\0"
             VALUE "OriginalFilename", "nuide.exe\0"
             VALUE "ProductName", "NuIde\0"
-            VALUE "ProductVersion", "0.1.0\0"
+            VALUE "ProductVersion", "0.1.0-alpha\0"
             VALUE "LegalCopyright", "Copyright (C) NuToys\0"
         }
     }
