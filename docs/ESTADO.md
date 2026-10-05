@@ -10,8 +10,9 @@ guía de uso; la especificación visual/funcional es
 
 ## 1. Qué es NuIde
 
-IDE de escritorio para **SpASM** (Rust + Slint): explorador de archivos, editor
-con resaltado, **dos terminales reales** (una shell local y la TUI de OpenCode) y
+IDE de escritorio con **soporte de SpASM** y de otros lenguajes (Rust + Slint):
+explorador de archivos, editor con resaltado para ~24 lenguajes,
+**dos terminales reales** (una shell local y la TUI de OpenCode) y
 barra de estado. Proyecto independiente, sin workspace ni crates compartidos del
 ecosistema de audio.
 

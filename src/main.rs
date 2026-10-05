@@ -25,7 +25,7 @@ fn main() -> Result<(), slint::PlatformError> {
     if args.iter().any(|a| a == "--help" || a == "-h") {
         attach_console();
         print(&format!(
-            "NuIde {} — IDE para SpASM con terminales y OpenCode CLI\n\nUso: nuide [--version] [--help]\n",
+            "NuIde {} — IDE multi-lenguaje con soporte de SpASM, terminales y OpenCode CLI\n\nUso: nuide [--version] [--help]\n",
             env!("CARGO_PKG_VERSION")
         ));
         return Ok(());

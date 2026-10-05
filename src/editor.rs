@@ -80,7 +80,12 @@ const TERM_CELL_H: f32 = 16.0;
 
 /// Familias preferidas (nombre, archivo de fuente). Slint no soporta listas de
 /// fuentes, así que se elige una sola según lo instalado.
+///
+/// La **interfaz** usa JetBrains Mono por defecto (es la fuente del proyecto y
+/// mantiene el mismo aire que el código y las terminales); si no está instalada
+/// se cae a las otras. Se puede ciclar desde Preferencias.
 const SANS_FONTS: &[(&str, &str)] = &[
+    ("JetBrains Mono", "JetBrainsMono-Regular.ttf"),
     ("Montserrat", "Montserrat-Regular.ttf"),
     ("Century Gothic", "GOTHIC.TTF"),
     ("Segoe UI", "segoeui.ttf"),

@@ -1,6 +1,7 @@
 # Guía de NuIde
 
-Guía rápida para usar NuIde con proyectos SpASM. Para el detalle interno y las
+Guía rápida para usar NuIde —con proyectos **SpASM** y con otros lenguajes—. Para
+el detalle interno y las
 decisiones de diseño, ver [`ESTADO.md`](ESTADO.md) y [`PLAN.md`](PLAN.md).
 
 ## 1. Requisitos

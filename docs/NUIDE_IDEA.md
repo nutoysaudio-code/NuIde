@@ -1,8 +1,10 @@
-# NuIde (SpASM Studio) — idea y especificación
+# NuIde — idea y especificación
 
-Referencia visual: [`../SpASM Studio con terminales integrados.png`](../SpASM%20Studio%20con%20terminales%20integrados.png).
+Referencia visual: [`../SpASM Studio con terminales integrados.png`](../SpASM%20Studio%20con%20terminales%20integrados.png)
+(boceto original; el nombre del archivo es histórico).
 
-NuIde es un editor de código para **SpASM** con terminales integrados y un
+NuIde es un editor de código con **soporte de SpASM** (transpiler + compilador
+nativo + lint) **y de otros lenguajes**, terminales integrados y un
 agente (OpenCode CLI). La imagen define el diseño visual; los ejemplos de
 código, versiones y respuestas de OpenCode son **contenido ilustrativo**, no
 especificaciones funcionales.

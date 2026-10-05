@@ -1,8 +1,9 @@
 // Tema visual de NuIde: instrumento electrónico retrofuturista sobrio.
 //
 // Paleta oscura dada por la especificación (docs/NUIDE_IDEA.md),
-// pensada para que el código siga siendo el protagonista. La tipografía sans es
-// local y la mono usa la pila monoespaciada del sistema: NuIde no depende de
+// pensada para que el código siga siendo el protagonista. Por defecto la
+// interfaz y el código usan JetBrains Mono (si está instalada); Rust elige la
+// familia según lo instalado y esto es sólo el respaldo. NuIde no depende de
 // ningún kit compartido.
 
 export global IdeTheme {
@@ -59,7 +60,8 @@ export global IdeTheme {
     // --- tipografía ---
     // Slint NO soporta listas separadas por comas: `font-family` es un único
     // nombre de familia. Rust elige la mejor instalada al arrancar (ver
-    // `editor::attach`); estos son los valores de respaldo.
-    in-out property <string> sans: "Segoe UI";
-    in-out property <string> mono: "Consolas";
+    // `editor::attach`); estos son los valores de respaldo. Por defecto se busca
+    // **JetBrains Mono** (interfaz y código); si no está, cae en Segoe UI / Consolas.
+    in-out property <string> sans: "JetBrains Mono";
+    in-out property <string> mono: "JetBrains Mono";
 }

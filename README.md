@@ -1,7 +1,9 @@
-# NuIde — SpASM Studio
+# NuIde — IDE multi-lenguaje con SpASM, terminales y OpenCode
 
-IDE de escritorio para **SpASM**: explorador de archivos, editor de código con
-resaltado, terminal local y una terminal dedicada a **OpenCode CLI**.
+IDE de escritorio con soporte de **SpASM** (transpilar, compilar, ejecutar y
+lint con su toolchain) **y de otros lenguajes**: explorador de archivos, editor
+de código con resaltado para ~24 lenguajes, terminal local y una terminal
+dedicada a **OpenCode CLI**.
 
 NuIde es un **proyecto independiente**: una aplicación de escritorio en
 **Rust + Slint** que no depende del workspace de audio ni de ningún crate
@@ -12,8 +14,9 @@ nativos) y `regex-lite` (búsqueda con expresiones regulares). Tiene su propio
 
 La paleta es oscura y propia (instrumento electrónico sobrio): vive en
 `ui/ide_theme.slint`. La especificación visual está en
-[`docs/NUIDE_IDEA.md`](docs/NUIDE_IDEA.md) y la referencia es
-`SpASM Studio con terminales integrados.png`. La **guía de uso** está en
+[`docs/NUIDE_IDEA.md`](docs/NUIDE_IDEA.md) y el boceto original es
+`SpASM Studio con terminales integrados.png` (el archivo conserva ese nombre
+histórico; NuIde no es un studio exclusivo de SpASM). La **guía de uso** está en
 [`docs/GUIA.md`](docs/GUIA.md).
 
 ```sh
