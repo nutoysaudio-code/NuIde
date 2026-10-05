@@ -478,13 +478,31 @@ slint-viewer --screenshot ui.png ui/nuide_ui.slint
 - El `.exe` de release lleva **icono y metadatos de versión**. `build.rs` compila
   `res/nuide.rc` con `rc.exe` (de los Windows Kits; se puede forzar con `RC`). Si
   no está, avisa y compila igual, sin recursos.
+- El binario de release es de **subsistema ventanas** (sin consola): al abrirlo
+  desde el Explorador o el menú Inicio **no aparece una terminal vacía**. En
+  `debug` se deja la consola; en release, `--version`/`--help` se enganchan a la
+  consola del proceso padre para seguir imprimiendo.
 - El icono se regenera con:
   `powershell -ExecutionPolicy Bypass -File packaging/make_icon.ps1`.
+- **Sin consola en release**: `src/main.rs` declara
+  `#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]`, así al
+  abrir la app desde el Explorador / el menú Inicio **no aparece una terminal
+  vacía** antes de la ventana (en `debug` la consola se conserva para ver la
+  salida). `--version` / `--help` enganchan la consola del proceso padre con
+  `AttachConsole`, así que siguen imprimiendo cuando se corren desde una terminal.
 - **Instalador** (`packaging/NuIde.iss`, Inno Setup 6):
 
   ```sh
   cargo build --release
   iscc packaging\NuIde.iss      # deja releases\NuIde-<version>-setup.exe
+  ```
+
+  O todo junto (compila, busca `ISCC.exe` si no está en el `PATH` —la instalación
+  por usuario lo deja en `%LOCALAPPDATA%\Programs\Inno Setup 6`— y verifica el
+  subsistema del `.exe`):
+
+  ```sh
+  powershell -ExecutionPolicy Bypass -File packaging\make_installer.ps1
   ```
 
   Instala NuIde, crea accesos directos y puede **asociar `.spasm`**, **instalar

@@ -428,6 +428,10 @@ ui/*.slint          la ventana, paneles y tema
   dos pasos: transpila (`transpile_command`) y compila el `.c` a binario
   (`native_command`, con un `.bat` temporal para MSVC). `build::spawn` ahora corre
   una **cadena de pasos**. `Ctrl+B` compila; `Ctrl+Shift+B` compila y ejecuta.
+- **Sin consola en release**: `main.rs` usa
+  `#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]` para que el
+  `.exe` no abra una terminal vacía; `attach_console()` engancha la consola del
+  padre sólo para `--version`/`--help`.
 
 - **Menú Ayuda** + **Acerca de** (`ui/ide_about.slint`): versión
   (`CARGO_PKG_VERSION`), créditos y enlace; `menu_command` resuelve `help.*` y
