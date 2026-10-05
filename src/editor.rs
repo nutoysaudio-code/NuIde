@@ -448,6 +448,7 @@ enum RecentEntry {
 enum Command {
     Run,
     Build,
+    BuildAndRun,
     Lint,
     NextError,
     Find,
@@ -501,9 +502,10 @@ enum Command {
 
 impl Command {
     /// Todos, en el orden en que se muestran.
-    const ALL: [Command; 51] = [
+    const ALL: [Command; 52] = [
         Command::Run,
         Command::Build,
+        Command::BuildAndRun,
         Command::Lint,
         Command::NextError,
         Command::Find,
@@ -559,6 +561,7 @@ impl Command {
         match self {
             Command::Run => "Ejecutar el programa",
             Command::Build => "Compilar (spasmc)",
+            Command::BuildAndRun => "Compilar y ejecutar",
             Command::Lint => "Analizar / diagnóstico",
             Command::NextError => "Siguiente error",
             Command::Find => "Buscar",
@@ -615,6 +618,7 @@ impl Command {
         match self {
             Command::Run => "F5",
             Command::Build => "Ctrl+B",
+            Command::BuildAndRun => "Ctrl+Shift+B",
             Command::Lint => "F6",
             Command::NextError => "F8",
             Command::Find => "Ctrl+F",
@@ -1049,6 +1053,8 @@ pub struct Ide {
     build_rx: Receiver<build::BuildResult>,
     /// Id de la sesión de terminal dedicada a la salida de build.
     build_session: Option<u64>,
+    /// Nota para agregar a la salida del próximo build (p. ej. falta de cc).
+    build_note: Option<String>,
     /// Git del proyecto: estado, nota, hilo de operaciones.
     git_status: git::Status,
     git_note: String,
@@ -1216,6 +1222,7 @@ impl Ide {
             build_tx,
             build_rx,
             build_session: None,
+            build_note: None,
             git_status,
             git_note: String::new(),
             git_error: false,
@@ -2015,15 +2022,15 @@ impl Ide {
         self.scroll_session(target, lines);
     }
 
-    /// Corre el toolchain en segundo plano (build/run) y muestra la salida en la
-    /// sesión "build" de la terminal.
-    fn spawn_build(&mut self, program: PathBuf, args: Vec<String>) {
+    /// Corre el toolchain en segundo plano (una cadena de pasos) y muestra la
+    /// salida en la sesión "build" de la terminal.
+    fn spawn_build(&mut self, steps: Vec<build::Step>) {
         let cwd = self.explorer.root().to_path_buf();
         let index = self.ensure_build_session();
         // La salida queda a la vista.
         self.local_active = index;
         self.resize_local();
-        build::spawn(program, args, cwd, self.build_tx.clone());
+        build::spawn(steps, cwd, self.build_tx.clone());
     }
 
     /// Crea (o reutiliza) la sesión "build" de la terminal. Devuelve su índice.
@@ -2087,7 +2094,7 @@ impl Ide {
         }
         let mut args = vec![file.display().to_string()];
         args.extend(shell_split(&self.run_args));
-        self.spawn_build(exe, args);
+        self.spawn_build(vec![build::Step { program: exe, args }]);
     }
 
     /// Elige el archivo de entrada de F5 con el diálogo nativo.
@@ -2178,9 +2185,9 @@ impl Ide {
         self.palette_open(PaletteKind::Help);
     }
 
-    /// Transpila el archivo activo a C con `spasmc.py` (y lo construye si hay
-    /// compilador de C), capturando la salida y los diagnósticos.
-    fn build(&mut self, _arg: &str) {
+    /// Transpila el archivo activo a C con `spasmc.py` y lo compila a binario con
+    /// el compilador de C nativo (si hay). Con `run_after`, corre el binario.
+    fn build(&mut self, run_after: bool) {
         let Some(file) = self.active_file.clone() else {
             return;
         };
@@ -2192,9 +2199,41 @@ impl Ide {
         let out_dir = self.explorer.root().join("build");
         let _ = std::fs::create_dir_all(&out_dir);
         let out_c = out_dir.join(format!("{stem}.c"));
-        if let Ok((program, args, _build)) = self.toolchain.compile_command(&file, &out_c) {
-            self.spawn_build(program, args);
+        let out_exe = out_dir.join(format!("{stem}.exe"));
+
+        let Ok((python, args)) = self.toolchain.transpile_command(&file, &out_c) else {
+            return;
+        };
+        let mut steps = vec![build::Step {
+            program: python,
+            args,
+        }];
+        if let Some((cc, cc_args)) = self.toolchain.native_command(&out_c, &out_exe) {
+            steps.push(build::Step {
+                program: cc,
+                args: cc_args,
+            });
+            if run_after {
+                steps.push(build::Step {
+                    program: out_exe,
+                    args: Vec::new(),
+                });
+            }
+            self.build_note = None;
+        } else if run_after {
+            self.build_note = Some(
+                "No hay compilador de C: no se pudo generar ni correr el binario. \
+                 Instalá gcc/clang o MSVC, o definí NUIDE_CC."
+                    .to_string(),
+            );
+        } else {
+            self.build_note = Some(
+                "No hay compilador de C: se generó el .c pero no el binario. \
+                 Instalá gcc/clang o MSVC, o definí NUIDE_CC."
+                    .to_string(),
+            );
         }
+        self.spawn_build(steps);
     }
 
     /// Mueve el cursor a una línea (1-based) del archivo activo.
@@ -2258,7 +2297,7 @@ impl Ide {
     fn menu(&mut self, label: &str) {
         match label {
             "Ejecutar" => self.run(None),
-            "Compilar" => self.build(""),
+            "Compilar" => self.build(false),
             // Archivo/Editar/Ver/Ayuda abren su desplegable (y lo cierran si ya está).
             "Archivo" | "Editar" | "Ver" | "Ayuda" => {
                 self.menu_open = if self.menu_open == label {
@@ -2482,7 +2521,8 @@ impl Ide {
     fn run_command(&mut self, c: Command) {
         match c {
             Command::Run => self.run(None),
-            Command::Build => self.build(""),
+            Command::Build => self.build(false),
+            Command::BuildAndRun => self.build(true),
             Command::Lint => self.lint_active(),
             Command::NextError => self.diagnostic_step(true),
             Command::Find => self.find_open(false),
@@ -3866,6 +3906,11 @@ impl Ide {
             self.save_as();
             return;
         }
+        if control && shift && text.eq_ignore_ascii_case("b") {
+            // Ctrl+Shift+B: compilar y ejecutar.
+            self.build(true);
+            return;
+        }
         if control {
             match text.to_ascii_lowercase().as_str() {
                 "s" => {
@@ -3882,7 +3927,7 @@ impl Ide {
                     return;
                 }
                 "b" => {
-                    self.build("");
+                    self.build(false);
                     return;
                 }
                 _ => {}
@@ -3980,7 +4025,7 @@ impl Ide {
                 .and_then(|e| e.to_str())
                 .is_some_and(|e| e.eq_ignore_ascii_case("spasm"));
             if self.run_build_on_save && is_spasm && !cfg!(test) {
-                self.build("");
+                self.build(false);
             }
         }
     }
@@ -5656,6 +5701,11 @@ impl Ide {
         while let Ok(result) = self.build_rx.try_recv() {
             let mut text = result.output;
             text.push_str(&format!("\n[build: código {}]\n", result.code));
+            if let Some(note) = self.build_note.take() {
+                text.push('\n');
+                text.push_str(&note);
+                text.push('\n');
+            }
             self.write_build_output(&text);
             self.diagnostics = result.diagnostics;
             self.diagnostics_path = self.active_file.clone();

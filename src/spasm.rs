@@ -12,6 +12,15 @@
 
 use std::path::{Path, PathBuf};
 
+/// Compilador de C nativo disponible, para pasar del `.c` al binario.
+#[derive(Debug, Clone)]
+pub enum CCompiler {
+    /// `gcc`/`clang`/`cc`/`tcc` directo.
+    Direct(PathBuf),
+    /// MSVC: hay que cargar el entorno con `vcvars64.bat` antes de `cl`.
+    Msvc(PathBuf),
+}
+
 /// Rutas de las herramientas de SpASM disponibles en esta máquina.
 #[derive(Debug, Clone, Default)]
 pub struct Toolchain {
@@ -24,6 +33,8 @@ pub struct Toolchain {
     /// Compilador de C (`CC` o uno del `PATH`). Sin él, `spasmc --build` no
     /// puede pasar del `.c` al binario.
     pub cc: Option<String>,
+    /// Compilador de C nativo detectado (PATH o MSVC), para el paso final.
+    pub cc_native: Option<CCompiler>,
     /// CLI de OpenCode (`opencode.cmd` en Windows, `opencode` en el resto). Con
     /// él funciona el panel de agente.
     pub agent: Option<PathBuf>,
@@ -71,6 +82,7 @@ impl Toolchain {
                     ])
                     .map(|p| p.display().to_string())
                 }),
+            cc_native: detect_cc_native(),
             agent: from_env("NUIDE_AGENT")
                 .or_else(|| on_path(&["opencode.cmd", "opencode.exe", "opencode"])),
             frontend,
@@ -84,15 +96,13 @@ impl Toolchain {
             .ok_or_else(|| "no se encontró el intérprete spasm.exe (definí NUIDE_SPASM)".into())
     }
 
-    /// Par `(python, argumentos de spasmc, ¿compiló a binario?)`.
-    ///
-    /// El tercer valor es `false` cuando no hay compilador de C: en ese caso
-    /// `spasmc` transpila a `.c` y para, y la UI lo avisa.
-    pub fn compile_command(
+    /// `(python, argumentos)` para **transpilar** `source` a C en `out_c`
+    /// (`spasmc.py --target c`). No usa `--build`: el paso nativo lo hace la IDE.
+    pub fn transpile_command(
         &self,
         source: &Path,
         out_c: &Path,
-    ) -> Result<(PathBuf, Vec<String>, bool), String> {
+    ) -> Result<(PathBuf, Vec<String>), String> {
         let python = self
             .python
             .clone()
@@ -100,11 +110,118 @@ impl Toolchain {
         let compiler = self.compiler.clone().ok_or_else(|| {
             "no se encontró el compilador spasmc.py (definí NUIDE_SPASMC)".to_string()
         })?;
-        let build = self.cc.is_some();
         let mut args = vec![compiler.display().to_string()];
-        args.extend(compile_args(source, out_c, build));
-        Ok((python, args, build))
+        args.extend(compile_args(source, out_c, false));
+        Ok((python, args))
     }
+
+    /// `(programa, argumentos)` para compilar el `.c` a `out_exe` con el
+    /// compilador nativo detectado (o `None` si no hay).
+    pub fn native_command(&self, out_c: &Path, out_exe: &Path) -> Option<(PathBuf, Vec<String>)> {
+        match self.cc_native.as_ref()? {
+            CCompiler::Direct(cc) => {
+                let mut args = vec![
+                    out_c.display().to_string(),
+                    "-o".to_string(),
+                    out_exe.display().to_string(),
+                ];
+                if cfg!(not(windows)) {
+                    args.push("-lm".to_string());
+                }
+                Some((cc.clone(), args))
+            }
+            CCompiler::Msvc(vcvars) => {
+                // `cmd /C "call vcvars && cl ..."` tiene problemas de
+                // entrecomillado; se escribe un `.bat` y se lo corre.
+                let bat = out_exe.with_extension("build.bat");
+                let script = format!(
+                    "@echo off\r\ncall \"{}\" >NUL\r\nif errorlevel 1 exit /b 1\r\ncl /nologo /O2 \"{}\" /Fe:\"{}\"\r\nexit /b %errorlevel%\r\n",
+                    vcvars.display(),
+                    out_c.display(),
+                    out_exe.display()
+                );
+                if std::fs::write(&bat, script).is_err() {
+                    return None;
+                }
+                Some((
+                    PathBuf::from("cmd"),
+                    vec!["/C".to_string(), bat.display().to_string()],
+                ))
+            }
+        }
+    }
+}
+
+/// Detecta un compilador de C nativo: `NUIDE_CC`/`CC`, uno del `PATH`, o MSVC
+/// (`vcvars64.bat` de Visual Studio).
+fn detect_cc_native() -> Option<CCompiler> {
+    if let Some(cc) = from_env("NUIDE_CC").or_else(|| from_env("CC")) {
+        return Some(CCompiler::Direct(cc));
+    }
+    if let Some(cc) = on_path(&[
+        "gcc.exe",
+        "gcc",
+        "clang.exe",
+        "clang",
+        "cc.exe",
+        "cc",
+        "tcc.exe",
+        "tcc",
+    ]) {
+        return Some(CCompiler::Direct(cc));
+    }
+    find_vcvars().map(CCompiler::Msvc)
+}
+
+/// Busca `vcvars64.bat` en las instalaciones de Visual Studio.
+fn find_vcvars() -> Option<PathBuf> {
+    #[cfg(windows)]
+    {
+        // `vswhere` es lo canónico.
+        let vswhere = r"C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe";
+        if std::path::Path::new(vswhere).is_file() {
+            let out = std::process::Command::new(vswhere)
+                .args(["-latest", "-products", "*", "-property", "installationPath"])
+                .output();
+            if let Ok(o) = out {
+                let base = String::from_utf8_lossy(&o.stdout).trim().to_string();
+                if !base.is_empty() {
+                    let cand = PathBuf::from(base)
+                        .join("VC")
+                        .join("Auxiliary")
+                        .join("Build")
+                        .join("vcvars64.bat");
+                    if cand.is_file() {
+                        return Some(cand);
+                    }
+                }
+            }
+        }
+        // Reserva: recorre las dos raíces conocidas (dos niveles).
+        for root in [
+            r"C:\Program Files\Microsoft Visual Studio",
+            r"C:\Program Files (x86)\Microsoft Visual Studio",
+        ] {
+            if let Ok(years) = std::fs::read_dir(root) {
+                for year in years.flatten() {
+                    if let Ok(editions) = std::fs::read_dir(year.path()) {
+                        for edition in editions.flatten() {
+                            let cand = edition
+                                .path()
+                                .join("VC")
+                                .join("Auxiliary")
+                                .join("Build")
+                                .join("vcvars64.bat");
+                            if cand.is_file() {
+                                return Some(cand);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    None
 }
 
 /// Argumentos de `spasmc.py` para transpilar `source` a C en `out_c`.

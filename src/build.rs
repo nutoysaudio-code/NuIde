@@ -18,47 +18,63 @@ pub struct BuildResult {
     pub diagnostics: Vec<Diagnostic>,
     /// Salida cruda (stdout + stderr) para mostrar en la terminal.
     pub output: String,
-    /// Código de salida del proceso.
+    /// Código de salida del último paso que corrió.
     pub code: i32,
 }
 
-/// Corre `program args` en `cwd` en un hilo, captura la salida y manda el
-/// resultado por `tx`.
-pub fn spawn(program: PathBuf, args: Vec<String>, cwd: PathBuf, tx: Sender<BuildResult>) {
+/// Un paso de la cadena de build: un programa con sus argumentos.
+pub struct Step {
+    pub program: PathBuf,
+    pub args: Vec<String>,
+}
+
+/// Corre los `steps` en orden en `cwd` (en un hilo), captura la salida y manda el
+/// resultado por `tx`. Se detiene en el primer paso que falle.
+pub fn spawn(steps: Vec<Step>, cwd: PathBuf, tx: Sender<BuildResult>) {
     thread::spawn(move || {
-        let mut cmd = Command::new(&program);
-        cmd.args(&args).current_dir(&cwd);
+        let mut text = String::new();
+        let mut code = 0;
+        for step in &steps {
+            let mut cmd = Command::new(&step.program);
+            cmd.args(&step.args).current_dir(&cwd);
 
-        #[cfg(windows)]
-        {
-            use std::os::windows::process::CommandExt;
-            const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-            cmd.creation_flags(CREATE_NO_WINDOW);
-        }
+            #[cfg(windows)]
+            {
+                use std::os::windows::process::CommandExt;
+                const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+                cmd.creation_flags(CREATE_NO_WINDOW);
+            }
 
-        let result = match cmd.output() {
-            Ok(out) => {
-                let mut text = String::from_utf8_lossy(&out.stdout).into_owned();
-                let err = String::from_utf8_lossy(&out.stderr);
-                if !err.is_empty() {
-                    if !text.is_empty() && !text.ends_with('\n') {
-                        text.push('\n');
+            match cmd.output() {
+                Ok(out) => {
+                    text.push_str(&String::from_utf8_lossy(&out.stdout));
+                    let err = String::from_utf8_lossy(&out.stderr);
+                    if !err.is_empty() {
+                        if !text.is_empty() && !text.ends_with('\n') {
+                            text.push('\n');
+                        }
+                        text.push_str(&err);
                     }
-                    text.push_str(&err);
+                    code = out.status.code().unwrap_or(-1);
+                    if code != 0 {
+                        break;
+                    }
                 }
-                BuildResult {
-                    diagnostics: parse_diagnostics(&text),
-                    output: text,
-                    code: out.status.code().unwrap_or(-1),
+                Err(e) => {
+                    text.push_str(&format!(
+                        "no se pudo ejecutar {}: {e}\n",
+                        step.program.display()
+                    ));
+                    code = -1;
+                    break;
                 }
             }
-            Err(e) => BuildResult {
-                diagnostics: Vec::new(),
-                output: format!("no se pudo ejecutar {}: {e}\n", program.display()),
-                code: -1,
-            },
-        };
-        let _ = tx.send(result);
+        }
+        let _ = tx.send(BuildResult {
+            diagnostics: parse_diagnostics(&text),
+            output: text,
+            code,
+        });
     });
 }
 
@@ -159,7 +175,14 @@ mod tests {
         args.extend(crate::spasm::compile_args(&bad, &out_c, false));
 
         let (tx, rx) = std::sync::mpsc::channel();
-        spawn(python, args, dir.clone(), tx);
+        spawn(
+            vec![Step {
+                program: python,
+                args,
+            }],
+            dir.clone(),
+            tx,
+        );
         let result = rx
             .recv_timeout(std::time::Duration::from_secs(40))
             .expect("el build devolvió un resultado");
@@ -171,6 +194,65 @@ mod tests {
                 .any(|d| d.line == 4 && d.message.contains("no declarada")),
             "diagnósticos inesperados: {:?}\nsalida: {}",
             result.diagnostics,
+            result.output
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Punta a punta del paso nativo: `spasmc` → `.c` → compilador de C → `.exe`.
+    /// Se saltea si falta Python, el compilador o un compilador de C.
+    #[test]
+    fn compila_a_binario_nativo() {
+        let toolchain = crate::spasm::Toolchain::discover();
+        let Some(python) = toolchain.python.clone() else {
+            eprintln!("test salteado: falta Python");
+            return;
+        };
+        let compiler = std::path::PathBuf::from(r"F:\SpAMS-Oficial\src\shared\spasmc.py");
+        if !compiler.is_file() {
+            eprintln!("test salteado: no está el compilador del ecosistema");
+            return;
+        }
+        let dir = std::env::temp_dir().join(format!("nuide-native-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let src = dir.join("prog.spasm");
+        std::fs::write(
+            &src,
+            "programa \"x\"\n\nmain {\n    print \"hola nativo\"\n}\n",
+        )
+        .unwrap();
+        let out_c = dir.join("prog.c");
+        let out_exe = dir.join("prog.exe");
+        let Some((cc, cc_args)) = toolchain.native_command(&out_c, &out_exe) else {
+            eprintln!("test salteado: no hay compilador de C (gcc/clang/MSVC)");
+            let _ = std::fs::remove_dir_all(&dir);
+            return;
+        };
+
+        let mut args = vec![compiler.display().to_string()];
+        args.extend(crate::spasm::compile_args(&src, &out_c, false));
+        let (tx, rx) = std::sync::mpsc::channel();
+        spawn(
+            vec![
+                Step {
+                    program: python,
+                    args,
+                },
+                Step {
+                    program: cc,
+                    args: cc_args,
+                },
+            ],
+            dir.clone(),
+            tx,
+        );
+        let result = rx
+            .recv_timeout(std::time::Duration::from_secs(180))
+            .expect("el build devolvió un resultado");
+        assert!(
+            out_exe.is_file(),
+            "no se generó el binario (código {})\nsalida: {}",
+            result.code,
             result.output
         );
         let _ = std::fs::remove_dir_all(&dir);

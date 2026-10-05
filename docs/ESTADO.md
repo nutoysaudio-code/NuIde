@@ -423,6 +423,12 @@ ui/*.slint          la ventana, paneles y tema
 
 ### 3.24 Icono, instalador y extras
 
+- **Compilación nativa**: `spasm.rs` detecta un compilador de C (`CCompiler::Direct`
+  para gcc/clang/cc/tcc o `Msvc` con `vcvars64.bat` vía `vswhere`). `build()` hace
+  dos pasos: transpila (`transpile_command`) y compila el `.c` a binario
+  (`native_command`, con un `.bat` temporal para MSVC). `build::spawn` ahora corre
+  una **cadena de pasos**. `Ctrl+B` compila; `Ctrl+Shift+B` compila y ejecuta.
+
 - **Menú Ayuda** + **Acerca de** (`ui/ide_about.slint`): versión
   (`CARGO_PKG_VERSION`), créditos y enlace; `menu_command` resuelve `help.*` y
   `open_url` abre el navegador.
@@ -549,7 +555,7 @@ script de instalación.
 
 - `cargo build` / `cargo check` sin warnings.
 - `cargo clippy --all-targets -- -D warnings` limpio.
-- `cargo test`: **109 pruebas OK** (unitarias; las de PTY, el linter y el build
+- `cargo test`: **110 pruebas OK** (unitarias; las de PTY, el linter y el build
   lanzan `cmd`/`opencode`/Python/spasmc reales y se saltean si no están).
 - `cargo fmt --check` limpio.
 - `slint-viewer --check ui/nuide_ui.slint` OK.

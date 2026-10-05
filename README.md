@@ -275,9 +275,11 @@ anterior y el mensaje va a la barra de estado.
 > **Flujo de trabajo.** SpASM trae **intérprete** (`spasm.exe`) y **compilador**
 > (`spasmc.py`). El intérprete sólo entiende el *dialecto de intérprete*
 > (`print ...; end;`), así que se usa para **desarrollo** (**Ejecutar**, `F5`). El
-> compilador acepta ambos dialectos y es el paso de **release**: transpila/compila
-> el *dialecto compilado* (`programa "..."` + `main { ... }`) con **Compilar**
-> (`Ctrl+B`; con `--build` sólo si hay un compilador de C en el `PATH`). Las
+> compilador acepta ambos dialectos y es el paso de **release**: NuIde transpila a
+> C (`spasmc.py --target c`) y **compila el `.c` a binario** con el compilador de C
+> que detecte (`gcc`/`clang`/`cc`/`tcc` en el `PATH`, o **MSVC `cl`** cargando
+> `vcvars64.bat`), con **Compilar** (`Ctrl+B`) o **Compilar y ejecutar**
+> (`Ctrl+Shift+B`). Si no hay compilador de C, avisa y deja el `.c`. Las
 > plantillas lo reflejan (*desarrollo* = intérprete, *release* = compilado), y si
 > intentás Ejecutar un archivo con `programa` NuIde avisa en la sesión `build` en
 > vez de mostrar «Error de sintaxis».
@@ -533,7 +535,7 @@ Ordenados por impacto para usar el IDE día a día; el **plan en fases** complet
 
 ### Estado al 2026-10-04
 
-Compilado y publicado: `gitlab.com/nutoys-group/nuide` (`main`). 109 tests OK;
+Compilado y publicado: `gitlab.com/nutoys-group/nuide` (`main`). 110 tests OK;
 clon limpio genera `nuide.exe`. Las dos terminales son PTY reales (shell local y
 TUI de `opencode`) con **mouse reporting**, el proyecto se elige con diálogo
 nativo y se recuerda, el editor tiene buscar/reemplazar (con **regex**, **en
