@@ -160,6 +160,9 @@ export component NuIdeWindow inherits Window {
     in-out property <int> palette-selected: -1;
     // Diagnóstico de SpASM (vacío si no hay errores).
     in-out property <string> diagnostics: "";
+    // Uso del sistema (porcentajes enteros).
+    in-out property <int> cpu-percent: 0;
+    in-out property <int> ram-percent: 0;
 
     // Búsqueda del editor.
     in-out property <bool> find-open: false;
@@ -456,6 +459,8 @@ export component NuIdeWindow inherits Window {
         line: root.active-line;
         column: root.active-column;
         diagnostics: root.diagnostics;
+        cpu: root.cpu-percent;
+        ram: root.ram-percent;
     }
 
     // --- área de contenido ---

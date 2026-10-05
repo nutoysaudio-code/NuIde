@@ -36,6 +36,7 @@ use crate::lint;
 use crate::pty::{self, Pty, PtyEvent};
 use crate::search;
 use crate::spasm::Toolchain;
+use crate::sysinfo;
 use crate::templates;
 use crate::ui::{
     IdeCodeLine, IdeDiffLine, IdeGitFile, IdeMenuEntry, IdeOutlineItem, IdePaletteItem, IdePrefRow,
@@ -1002,6 +1003,11 @@ pub struct Ide {
     about_open: bool,
     /// Versión de la app (para Acerca de).
     version: String,
+    /// Uso de CPU/RAM del sistema (medidor discreto del pie).
+    monitor: sysinfo::Monitor,
+    metrics: sysinfo::Metrics,
+    /// Contador para muestrear el sistema cada ~1.5 s.
+    drain_tick: u32,
     /// Estado de la búsqueda del editor (barra, coincidencias).
     find: Find,
     /// Buscar en el proyecto: estado y canal del hilo.
@@ -1174,6 +1180,9 @@ impl Ide {
             capturing_key: None,
             about_open: false,
             version: env!("CARGO_PKG_VERSION").to_string(),
+            monitor: sysinfo::Monitor::default(),
+            metrics: sysinfo::Metrics::default(),
+            drain_tick: 0,
             find: Find::default(),
             search: Search::default(),
             search_tx,
@@ -5181,6 +5190,9 @@ impl Ide {
             _ => Vec::new(),
         };
         w.set_menu_items(ModelRc::from(Rc::new(VecModel::from(menu_items))));
+        // Uso del sistema (pie).
+        w.set_cpu_percent((self.metrics.cpu * 100.0).round() as i32);
+        w.set_ram_percent((self.metrics.ram * 100.0).round() as i32);
         // Diálogo de cambios sin guardar.
         w.set_confirm_open(self.confirm.is_some());
         if let Some(c) = self.confirm {
@@ -5585,6 +5597,12 @@ impl Ide {
     /// Drena los mensajes pendientes de los hilos. Se llama desde el timer.
     fn drain(&mut self, w: &NuIdeWindow) {
         let mut got = false;
+        // Medidor de sistema cada ~1.5 s (25 ticks de 60 ms).
+        self.drain_tick = self.drain_tick.wrapping_add(1);
+        if self.drain_tick % 25 == 0 {
+            self.metrics = self.monitor.sample();
+            got = true;
+        }
         while let Ok(event) = self.local_rx.try_recv() {
             self.apply_pty_event(Target::Local, event);
             got = true;

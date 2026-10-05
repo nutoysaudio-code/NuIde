@@ -29,6 +29,9 @@ export component IdeStatusBar inherits Rectangle {
     in property <int> column: 8;
     // Resultado del último análisis de SpASM (vacío si no hay errores).
     in property <string> diagnostics: "";
+    // Uso del sistema (porcentajes enteros), discreto a la derecha.
+    in property <int> cpu: 0;
+    in property <int> ram: 0;
 
     height: IdeTheme.statusbar-h;
     background: IdeTheme.panel;
@@ -84,6 +87,22 @@ export component IdeStatusBar inherits Rectangle {
             color: IdeTheme.text-soft;
             font-family: IdeTheme.sans;
             font-size: 11px;
+            vertical-alignment: center;
+        }
+
+        IdeStatusDivider { }
+        Text {
+            text: "CPU " + root.cpu + "%";
+            color: IdeTheme.text-dim;
+            font-family: IdeTheme.mono;
+            font-size: 10px;
+            vertical-alignment: center;
+        }
+        Text {
+            text: "RAM " + root.ram + "%";
+            color: IdeTheme.text-dim;
+            font-family: IdeTheme.mono;
+            font-size: 10px;
             vertical-alignment: center;
         }
     }
