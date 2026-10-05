@@ -36,6 +36,7 @@ use crate::lint;
 use crate::pty::{self, Pty, PtyEvent};
 use crate::search;
 use crate::spasm::Toolchain;
+use crate::templates;
 use crate::ui::{
     IdeCodeLine, IdeDiffLine, IdeGitFile, IdeMenuEntry, IdeOutlineItem, IdePaletteItem, IdeRecent,
     IdeSearchHit, IdeTab, IdeToken, IdeTreeNode, NuIdeWindow, TermLine, TermRun,
@@ -468,11 +469,20 @@ enum Command {
     GitUnstageAll,
     GitAmend,
     GitDiff,
+    RunPickEntry,
+    RunUseActive,
+    RunEditArgs,
+    RunToggleBuildOnSave,
+    SpasmHelp,
+    NewProject,
+    TemplateCompiled,
+    TemplateInterpreter,
+    TemplateEmpty,
 }
 
 impl Command {
     /// Todos, en el orden en que se muestran.
-    const ALL: [Command; 41] = [
+    const ALL: [Command; 50] = [
         Command::Run,
         Command::Build,
         Command::Lint,
@@ -514,6 +524,15 @@ impl Command {
         Command::GitUnstageAll,
         Command::GitAmend,
         Command::GitDiff,
+        Command::RunPickEntry,
+        Command::RunUseActive,
+        Command::RunEditArgs,
+        Command::RunToggleBuildOnSave,
+        Command::SpasmHelp,
+        Command::NewProject,
+        Command::TemplateCompiled,
+        Command::TemplateInterpreter,
+        Command::TemplateEmpty,
     ];
 
     fn label(self) -> &'static str {
@@ -559,6 +578,15 @@ impl Command {
             Command::GitUnstageAll => "Git: quitar todo del índice",
             Command::GitAmend => "Git: enmendar el último commit",
             Command::GitDiff => "Git: ver diff del archivo",
+            Command::RunPickEntry => "Ejecutar: elegir archivo de entrada…",
+            Command::RunUseActive => "Ejecutar: usar el archivo activo",
+            Command::RunEditArgs => "Ejecutar: argumentos…",
+            Command::RunToggleBuildOnSave => "Ejecutar: compilar al guardar",
+            Command::SpasmHelp => "SpASM: ayuda de sintaxis",
+            Command::NewProject => "SpASM: nuevo proyecto…",
+            Command::TemplateCompiled => "Plantilla: programa compilado…",
+            Command::TemplateInterpreter => "Plantilla: hola mundo (intérprete)…",
+            Command::TemplateEmpty => "Plantilla: archivo vacío…",
         }
     }
 
@@ -595,6 +623,15 @@ impl Command {
             Command::ProjectSearch => "Ctrl+Shift+F",
             Command::GitPull | Command::GitUnstageAll | Command::GitAmend | Command::GitDiff => {
                 "git"
+            }
+            Command::RunPickEntry
+            | Command::RunUseActive
+            | Command::RunEditArgs
+            | Command::RunToggleBuildOnSave => "F5",
+            Command::SpasmHelp => "F1",
+            Command::NewProject => "spasm",
+            Command::TemplateCompiled | Command::TemplateInterpreter | Command::TemplateEmpty => {
+                "plantilla"
             }
             _ => "",
         }
@@ -633,6 +670,39 @@ fn menu_sep() -> IdeMenuEntry {
         detail: "".into(),
         enabled: false,
     }
+}
+
+/// Separa una línea de argumentos respetando comillas simples y dobles.
+fn shell_split(s: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut cur = String::new();
+    let mut quote: Option<char> = None;
+    for c in s.chars() {
+        match quote {
+            Some(q) => {
+                if c == q {
+                    quote = None;
+                } else {
+                    cur.push(c);
+                }
+            }
+            None => {
+                if c == '"' || c == '\'' {
+                    quote = Some(c);
+                } else if c.is_whitespace() {
+                    if !cur.is_empty() {
+                        out.push(std::mem::take(&mut cur));
+                    }
+                } else {
+                    cur.push(c);
+                }
+            }
+        }
+    }
+    if !cur.is_empty() {
+        out.push(cur);
+    }
+    out
 }
 
 /// Convierte un diff unificado en líneas tipadas para la UI.
@@ -717,6 +787,8 @@ enum PaletteKind {
     Files,
     /// "Ir a línea…": el texto es un número.
     GoToLine,
+    /// Ayuda de sintaxis de SpASM: inserta la palabra elegida.
+    Help,
 }
 
 /// Acción de una fila de la paleta.
@@ -725,6 +797,8 @@ enum PaletteAction {
     Command(Command),
     File(PathBuf),
     GoToLine(usize),
+    /// Inserta la palabra en el cursor.
+    InsertWord(String),
 }
 
 /// Una fila ya resuelta para dibujar (texto + acción).
@@ -789,6 +863,8 @@ enum PromptKind {
     SessionName,
     /// Crear una rama nueva en Git.
     NewBranch,
+    /// Argumentos extra para ejecutar (F5).
+    RunArgs,
 }
 
 /// Diálogo de entrada de texto pendiente.
@@ -872,6 +948,11 @@ pub struct Ide {
     /// Ajustes del editor: ancho de tab y si inserta espacios.
     tab_size: usize,
     insert_spaces: bool,
+    /// Configuración de ejecución (F5): archivo de entrada, argumentos y si
+    /// compila al guardar.
+    run_entry: Option<PathBuf>,
+    run_args: String,
+    run_build_on_save: bool,
     /// Estado de la búsqueda del editor (barra, coincidencias).
     find: Find,
     /// Buscar en el proyecto: estado y canal del hilo.
@@ -936,6 +1017,12 @@ impl Ide {
         let show_generated = config.bool("explorer.generated", true);
         let tab_size = config.i32("editor.tab-size", 4).clamp(1, 16) as usize;
         let insert_spaces = config.bool("editor.insert-spaces", true);
+        let run_entry = config
+            .get("run.entry")
+            .map(PathBuf::from)
+            .filter(|p| p.is_file());
+        let run_args = config.get("run.args").unwrap_or("").to_string();
+        let run_build_on_save = config.bool("run.build-on-save", false);
         let docks = [
             Dock::from_code(config.i32("panel.0.dock", 0)),
             Dock::from_code(config.i32("panel.1.dock", 1)),
@@ -995,6 +1082,9 @@ impl Ide {
             redo: Vec::new(),
             tab_size,
             insert_spaces,
+            run_entry,
+            run_args,
+            run_build_on_save,
             find: Find::default(),
             search: Search::default(),
             search_tx,
@@ -1110,6 +1200,16 @@ impl Ide {
         self.config.set("editor.tab-size", self.tab_size);
         self.config
             .set("editor.insert-spaces", u8::from(self.insert_spaces));
+        self.config.set(
+            "run.entry",
+            self.run_entry
+                .as_ref()
+                .map(|p| p.display().to_string())
+                .unwrap_or_default(),
+        );
+        self.config.set("run.args", &self.run_args);
+        self.config
+            .set("run.build-on-save", u8::from(self.run_build_on_save));
         self.config.save();
     }
 
@@ -1223,24 +1323,8 @@ impl Ide {
     /// Crea un archivo SpASM nuevo (diálogo de guardar) y lo abre. Si la ruta ya
     /// existe, no la pisa: sólo la abre.
     fn new_file(&mut self) {
-        let start = self.explorer.root().to_path_buf();
-        let path = match rfd::FileDialog::new()
-            .set_title("Nuevo archivo")
-            .set_directory(&start)
-            .set_file_name("nuevo.spasm")
-            .save_file()
-        {
-            Some(p) => p,
-            None => return,
-        };
-        if !path.exists() {
-            const TEMPLATE: &str = "; nuevo archivo SpASM\n\nprograma \"nuevo\"\n\nfunc suma(a : int) -> int {\n    let b = a\n    return b\n}\n\nmain {\n    let c = suma(1)\n}\n";
-            if std::fs::write(&path, TEMPLATE).is_err() {
-                return;
-            }
-            self.explorer.rebuild();
-        }
-        self.open_file(path);
+        let body = templates::by_id("compilado").map(|t| t.body).unwrap_or("");
+        self.new_file_with(body);
     }
 
     /// Proyectos y archivos recientes, en el orden de la lista de la bienvenida
@@ -1849,17 +1933,107 @@ impl Ide {
         session.screen.process(normalized.as_bytes());
     }
 
-    /// Ejecuta el archivo activo con el intérprete de SpASM (capturando la
-    /// salida en la sesión "build").
+    /// Ejecuta el archivo de entrada (o el activo) con el intérprete de SpASM,
+    /// con los argumentos configurados, capturando la salida en la sesión "build".
     fn run(&mut self, _arg: Option<&str>) {
-        let Some(file) = self.active_file.clone() else {
+        let Some(file) = self.run_entry.clone().or_else(|| self.active_file.clone()) else {
             return;
         };
         let Ok(exe) = self.toolchain.interpreter_required() else {
             return;
         };
         self.open_file(file.clone());
-        self.spawn_build(exe, vec![file.display().to_string()]);
+        let mut args = vec![file.display().to_string()];
+        args.extend(shell_split(&self.run_args));
+        self.spawn_build(exe, args);
+    }
+
+    /// Elige el archivo de entrada de F5 con el diálogo nativo.
+    fn run_pick_entry(&mut self) {
+        let start = self.explorer.root().to_path_buf();
+        if let Some(path) = rfd::FileDialog::new()
+            .set_title("Archivo de entrada para Ejecutar")
+            .set_directory(&start)
+            .add_filter("SpASM", &["spasm", "asm"])
+            .pick_file()
+        {
+            self.config.set("run.entry", path.display());
+            self.config.save();
+            self.run_entry = Some(path);
+        }
+    }
+
+    /// Vuelve a "usar el archivo activo" como entrada.
+    fn run_use_active(&mut self) {
+        self.run_entry = None;
+        self.config.set("run.entry", "");
+        self.config.save();
+    }
+
+    /// Edita los argumentos extra de la ejecución.
+    fn run_edit_args(&mut self) {
+        self.prompt = Some(Prompt {
+            kind: PromptKind::RunArgs,
+            target: PathBuf::new(),
+            text: self.run_args.clone(),
+        });
+    }
+
+    /// Activa o desactiva compilar al guardar.
+    fn run_toggle_build_on_save(&mut self) {
+        self.run_build_on_save = !self.run_build_on_save;
+        self.config
+            .set("run.build-on-save", u8::from(self.run_build_on_save));
+        self.config.save();
+    }
+
+    /// Crea un archivo nuevo con el cuerpo de una plantilla.
+    fn new_file_with(&mut self, body: &str) {
+        let start = self.explorer.root().to_path_buf();
+        let path = match rfd::FileDialog::new()
+            .set_title("Nuevo archivo")
+            .set_directory(&start)
+            .set_file_name("nuevo.spasm")
+            .save_file()
+        {
+            Some(p) => p,
+            None => return,
+        };
+        if !path.exists() {
+            if std::fs::write(&path, body).is_err() {
+                return;
+            }
+            self.explorer.rebuild();
+        }
+        self.open_file(path);
+    }
+
+    /// Crea un proyecto mínimo en una carpeta elegida y lo abre.
+    fn new_project(&mut self) {
+        let start = self.explorer.root().to_path_buf();
+        let Some(dir) = rfd::FileDialog::new()
+            .set_title("Carpeta del nuevo proyecto")
+            .set_directory(&start)
+            .pick_folder()
+        else {
+            return;
+        };
+        let src = dir.join("src");
+        let _ = std::fs::create_dir_all(&src);
+        let main = src.join("main.spasm");
+        if !main.exists() {
+            let body = templates::by_id("compilado").map(|t| t.body).unwrap_or("");
+            if std::fs::write(&main, body).is_err() {
+                return;
+            }
+        }
+        self.set_project(dir);
+        self.open_file(main);
+    }
+
+    /// Abre la ayuda de sintaxis de SpASM en la paleta.
+    fn spasm_help(&mut self) {
+        self.palette_open(PaletteKind::Help);
     }
 
     /// Transpila el archivo activo a C con `spasmc.py` (y lo construye si hay
@@ -1993,6 +2167,12 @@ impl Ide {
         if kind == PaletteKind::Files {
             self.palette.files = collect_files(self.explorer.root());
         }
+        if kind == PaletteKind::Help {
+            // Arranca con la palabra bajo el cursor (ayuda contextual).
+            if let Some(word) = self.tabs.get(self.active_tab).and_then(word_under_cursor) {
+                self.palette.query = word;
+            }
+        }
         self.palette_recompute();
     }
 
@@ -2057,6 +2237,18 @@ impl Ide {
                 }],
                 _ => Vec::new(),
             },
+            PaletteKind::Help => {
+                let q = self.palette.query.to_lowercase();
+                highlight::spasm_words()
+                    .iter()
+                    .filter(|w| q.is_empty() || w.to_lowercase().contains(&q))
+                    .map(|w| PaletteRow {
+                        label: (*w).to_string(),
+                        detail: "SpASM".to_string(),
+                        action: PaletteAction::InsertWord((*w).to_string()),
+                    })
+                    .collect()
+            }
         };
         let len = self.palette.rows.len();
         self.palette.selected = if len == 0 {
@@ -2130,6 +2322,15 @@ impl Ide {
                 PaletteAction::Command(c) => self.run_command(c),
                 PaletteAction::File(p) => self.open_file(p),
                 PaletteAction::GoToLine(n) => self.goto_line_number(n),
+                PaletteAction::InsertWord(w) => {
+                    if self
+                        .tabs
+                        .get(self.active_tab)
+                        .is_some_and(|t| t.kind == DocKind::Text)
+                    {
+                        self.insert_str(&w);
+                    }
+                }
             },
             None => {}
         }
@@ -2190,6 +2391,24 @@ impl Ide {
             Command::GitUnstageAll => self.git_unstage_all(),
             Command::GitAmend => self.git_amend(String::new()),
             Command::GitDiff => self.git_diff_active(),
+            Command::RunPickEntry => self.run_pick_entry(),
+            Command::RunUseActive => self.run_use_active(),
+            Command::RunEditArgs => self.run_edit_args(),
+            Command::RunToggleBuildOnSave => self.run_toggle_build_on_save(),
+            Command::SpasmHelp => self.spasm_help(),
+            Command::NewProject => self.new_project(),
+            Command::TemplateCompiled => {
+                let body = templates::by_id("compilado").map(|t| t.body).unwrap_or("");
+                self.new_file_with(body);
+            }
+            Command::TemplateInterpreter => {
+                let body = templates::by_id("interprete").map(|t| t.body).unwrap_or("");
+                self.new_file_with(body);
+            }
+            Command::TemplateEmpty => {
+                let body = templates::by_id("vacio").map(|t| t.body).unwrap_or("");
+                self.new_file_with(body);
+            }
         }
     }
 
@@ -2640,6 +2859,11 @@ impl Ide {
             }
             PromptKind::NewBranch => {
                 self.git_spawn(git::Op::CreateBranch(name));
+            }
+            PromptKind::RunArgs => {
+                self.run_args = p.text.trim().to_string();
+                self.config.set("run.args", &self.run_args);
+                self.config.save();
             }
         }
     }
@@ -3311,6 +3535,11 @@ impl Ide {
             return;
         }
         // Atajos globales del IDE, aun con la búsqueda abierta.
+        if text == "\u{F704}" {
+            // F1: ayuda de sintaxis de SpASM.
+            self.spasm_help();
+            return;
+        }
         if text == "\u{F708}" {
             self.run(None);
             return;
@@ -3447,6 +3676,14 @@ impl Ide {
             // El archivo cambió: se relee el estado de Git.
             if !cfg!(test) {
                 self.git_refresh();
+            }
+            // Compilar al guardar (opt-in), si el archivo es `.spasm`.
+            let is_spasm = path
+                .extension()
+                .and_then(|e| e.to_str())
+                .is_some_and(|e| e.eq_ignore_ascii_case("spasm"));
+            if self.run_build_on_save && is_spasm && !cfg!(test) {
+                self.build("");
             }
         }
     }
@@ -4818,6 +5055,7 @@ impl Ide {
                 PromptKind::Rename => ("Renombrar", ""),
                 PromptKind::SessionName => ("Renombrar terminal", "sesión"),
                 PromptKind::NewBranch => ("Nueva rama", "nombre-rama"),
+                PromptKind::RunArgs => ("Argumentos para ejecutar", "--flag valor"),
             };
             w.set_prompt_title(title.into());
             w.set_prompt_placeholder(placeholder.into());
@@ -4961,6 +5199,7 @@ impl Ide {
                 PaletteKind::Commands => "Comandos",
                 PaletteKind::Files => "Archivos del proyecto",
                 PaletteKind::GoToLine => "Ir a línea",
+                PaletteKind::Help => "Ayuda SpASM",
             }
             .into(),
         );
@@ -7972,5 +8211,18 @@ mod tests {
         );
         let kinds: Vec<i32> = d.iter().map(|l| l.kind).collect();
         assert_eq!(kinds, vec![4, 4, 4, 3, 2, 1, 0]);
+    }
+
+    #[test]
+    fn separa_argumentos_de_ejecucion() {
+        assert_eq!(
+            shell_split("--a b"),
+            vec!["--a".to_string(), "b".to_string()]
+        );
+        assert_eq!(
+            shell_split("--x \"a b\" --y"),
+            vec!["--x".to_string(), "a b".to_string(), "--y".to_string()]
+        );
+        assert!(shell_split("   ").is_empty());
     }
 }

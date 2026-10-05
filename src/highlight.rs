@@ -162,6 +162,11 @@ pub fn is_keyword(word: &str) -> bool {
     SPASM_KEYWORDS.contains(&word)
 }
 
+/// Palabras clave y builtins de SpASM (para la ayuda de sintaxis).
+pub fn spasm_words() -> &'static [&'static str] {
+    SPASM_KEYWORDS
+}
+
 /// Palabras clave y builtins de SpASM (ambos dialectos).
 const SPASM_KEYWORDS: &[&str] = &[
     // estructura / control

@@ -170,9 +170,12 @@ fase: persistencia de sesiones/scrollback y buscar en el scrollback.)
 
 ---
 
-## Fase 7 — Flujo SpASM  ·  L  ·  must + nice
+## Fase 7 — Flujo SpASM  ·  L  ·  must + nice  ·  ⚠️ parcial (3.22)
 
 **Objetivo:** que NuIde sea *el* entorno de SpASM, no un editor genérico.
+(Hecho: configuración de ejecución, plantillas/nuevo proyecto y ayuda de
+sintaxis. **Bloqueado:** el depurador — el intérprete `spasm` no expone paso a
+paso ni inspección; habría que agregarlo al toolchain en `SpAMS-Oficial`.)
 
 - `M` **Configuración de ejecución**: archivo/entrada, argumentos, intérprete
   vs. compilado y directorio de salida (hoy usa el archivo activo).

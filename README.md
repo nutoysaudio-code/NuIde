@@ -59,6 +59,7 @@ abiertos es una **página de bienvenida** real (accesos y atajos).
 | 27 | terminal: mouse reporting + renombrar/reiniciar sesión | ✅ |
 | 28 | buscar y reemplazar en todo el proyecto | ✅ |
 | 29 | Git avanzado: diff, ramas, pull, ahead/behind, descartar/amend | ✅ |
+| 30 | flujo SpASM: config de ejecución, plantillas y ayuda de sintaxis | ✅ |
 
 > El parte de estado detallado —qué se cambió en cada iteración, limitaciones y
 > pendientes con su enfoque— está en [`docs/ESTADO.md`](docs/ESTADO.md).
@@ -248,6 +249,25 @@ errores y warnings que reporta el toolchain se parsean con su línea y se marcan
 en rojo en el editor; **`F8` / `Shift+F8`** saltan al diagnóstico siguiente /
 anterior y el mensaje va a la barra de estado.
 
+#### Configuración de ejecución, plantillas y ayuda
+
+- **`F5`** corre el **archivo de entrada** configurado (o el activo) con los
+  **argumentos** guardados. Desde la paleta: *Ejecutar: elegir archivo de
+  entrada…*, *usar el archivo activo*, *argumentos…* y *compilar al guardar*. La
+  config se recuerda (`run.entry`, `run.args`, `run.build-on-save`).
+- **Plantillas** (`src/templates.rs`): *Plantilla: programa compilado / hola
+  mundo (intérprete) / archivo vacío…* crean un `.spasm` con el diálogo de
+  guardar. *SpASM: nuevo proyecto…* elige una carpeta, crea `src/main.spasm` y la
+  fija como proyecto.
+- **Ayuda de sintaxis** (`F1` o el comando): la paleta lista las palabras clave y
+  builtins de SpASM, filtradas por la **palabra bajo el cursor**; al elegir una,
+  se inserta en el cursor.
+
+> **Depurador.** El toolchain de SpASM **no** expone un modo de paso a paso,
+> breakpoints ni inspección de registros (`spasm.exe --help` no los ofrece), así
+> que un depurador interactivo queda pendiente de agregarlo al intérprete
+> (documentado en `docs/PLAN.md`, Fase 7).
+
 > **Dialectos.** SpASM tiene dos: el intérprete `spasm.exe` corre el *dialecto de
 > intérprete* (`print ...; end;`) y el compilador AOT el *dialecto compilado*
 > (`programa "..."` + `main { ... }`). «Ejecutar» lanza el intérprete y «Compilar»
@@ -375,6 +395,7 @@ nuide/
     build.rs               ejecuta el toolchain y parsea la salida (build/run)
     git.rs                 control de código por CLI (status, stage, commit, push)
     search.rs              buscar en todo el proyecto (en un hilo)
+    templates.rs           plantillas de archivos SpASM
     terminal.rs            consola lineal heredada (sólo pruebas de integración)
     explorer.rs            árbol de archivos plano con profundidad
     highlight.rs           tokenizador/resaltado de SpASM
@@ -461,7 +482,7 @@ Ordenados por impacto para usar el IDE día a día; el **plan en fases** complet
 
 ### Estado al 2026-10-04
 
-Compilado y publicado: `gitlab.com/nutoys-group/nuide` (`main`). 103 tests OK;
+Compilado y publicado: `gitlab.com/nutoys-group/nuide` (`main`). 105 tests OK;
 clon limpio genera `nuide.exe`. Las dos terminales son PTY reales (shell local y
 TUI de `opencode`) con **mouse reporting**, el proyecto se elige con diálogo
 nativo y se recuerda, el editor tiene buscar/reemplazar (con **regex**, **en

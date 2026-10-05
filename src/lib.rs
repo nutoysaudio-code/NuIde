@@ -16,6 +16,7 @@ pub mod lint;
 pub mod pty;
 pub mod search;
 pub mod spasm;
+pub mod templates;
 pub mod terminal;
 pub mod ui;
 pub mod vt;
