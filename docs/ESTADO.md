@@ -363,6 +363,24 @@ ui/*.slint          la ventana, paneles y tema
   generalizamos `ask` a un enum), aplica `replace_in_line` o la regex, recarga
   las pestañas abiertas afectadas (`reload_open_tab`) y refresca Git.
 
+### 3.21 Git avanzado
+
+- `git.rs`: `Status` ahora trae `ahead`/`behind` (se parsean del `## ...`
+  `[ahead N, behind M]`). Operaciones nuevas: `UnstageAll`, `Pull`,
+  `Amend(String)`, `Discard { path, untracked }`, `SwitchBranch`, `CreateBranch`.
+  Helpers `diff(root, path)` (unificado, `HEAD`→working tree; sintetiza el
+  archivo nuevo) y `branches(root) -> [(nombre, actual)]`.
+- **Panel**: encabezado con `↑ahead ↓behind` y la rama **clickeable** → menú
+  (`IdeMenu`) con las ramas locales (la actual con `●`) y «Nueva rama…»
+  (`PromptKind::NewBranch`). Pie en dos filas: **Preparar todo** / **Quitar
+  todo** y **Bajar** / **Ramas** / **Commit**. Clic en una fila abre el **diff**.
+- **Visor de diff** `ui/ide_diff.slint` (`IdeDiff`): líneas tipadas por
+  `parse_diff_lines` (contexto/agregada/borrada/hunk/metadatos), y botones
+  **Abrir archivo**, **Preparar/Quitar** y **Descartar cambios**
+  (`Ask::Discard`, con confirmación).
+- Comandos de paleta: `Git: bajar`, `Git: quitar todo del índice`,
+  `Git: enmendar…`, `Git: ver diff del archivo`.
+
 ---
 
 ## 4. Limitaciones conocidas
@@ -468,7 +486,7 @@ script de instalación.
 ## 6. Verificación
 
 - `cargo build` / `cargo check` sin warnings.
-- `cargo test`: **101 pruebas OK** (unitarias; las de PTY, el linter y el build
+- `cargo test`: **103 pruebas OK** (unitarias; las de PTY, el linter y el build
   lanzan `cmd`/`opencode`/Python/spasmc reales y se saltean si no están).
 - `cargo fmt --check` limpio.
 - `slint-viewer --check ui/nuide_ui.slint` OK.

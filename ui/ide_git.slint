@@ -123,6 +123,8 @@ export component IdeGit inherits Rectangle {
     in property <bool> busy: false;
     in property <string> note: "";
     in property <bool> error: false;
+    // "↑2 ↓1" o vacío.
+    in property <string> sync-info: "";
     in property <[IdeGitFile]> staged: [];
     in property <[IdeGitFile]> changes: [];
     // Mensaje del commit: en dos vías con la ventana (`<=>`).
@@ -131,10 +133,15 @@ export component IdeGit inherits Rectangle {
     callback refresh();
     callback init-repo();
     callback stage-all();
+    callback unstage-all();
     callback toggle(string, bool);
     callback commit();
+    callback amend();
+    callback pull();
     callback push();
+    callback branch-click();
     callback open-file(string);
+    callback diff(string, bool, bool);
 
     background: IdeTheme.panel;
     border-width: IdeTheme.hairline;
@@ -143,8 +150,12 @@ export component IdeGit inherits Rectangle {
     clip: true;
 
     private property <length> header-h: 32px;
-    private property <length> footer-h: self.is-repo ? 92px : 0px;
+    private property <length> footer-h: self.is-repo ? 120px : 0px;
     private property <length> body-h: max(0px, self.height - self.header-h - self.footer-h);
+
+    // Ancla local del menú de ramas (la ventana la vuelve absoluta).
+    out property <length> branch-menu-x: 12px;
+    out property <length> branch-menu-y: self.header-h;
 
     // --- encabezado ---
     Rectangle {
@@ -157,7 +168,7 @@ export component IdeGit inherits Rectangle {
         Text {
             x: 14px;
             y: (parent.height - self.height) / 2;
-            text: "CONTROL DE CÓDIGO";
+            text: "CÓDIGO";
             color: IdeTheme.text-dim;
             font-family: IdeTheme.sans;
             font-size: 10px;
@@ -166,14 +177,34 @@ export component IdeGit inherits Rectangle {
             vertical-alignment: center;
         }
 
-        Text {
+        // Rama (clickeable para cambiar) + ahead/behind.
+        branch-text := Text {
             x: parent.width - 34px - self.width - 8px;
             y: (parent.height - self.height) / 2;
             text: root.branch;
-            color: IdeTheme.mint;
+            color: branch-hit.has-hover ? IdeTheme.text : IdeTheme.mint;
             font-family: IdeTheme.mono;
             font-size: 11px;
             vertical-alignment: center;
+        }
+
+        if root.sync-info != "": Text {
+            x: branch-text.x - self.width - 8px;
+            y: (parent.height - self.height) / 2;
+            text: root.sync-info;
+            color: IdeTheme.text-dim;
+            font-family: IdeTheme.mono;
+            font-size: 11px;
+            vertical-alignment: center;
+        }
+
+        branch-hit := TouchArea {
+            x: branch-text.x - 4px;
+            y: (parent.height - 20px) / 2;
+            width: branch-text.width + 8px;
+            height: 20px;
+            mouse-cursor: MouseCursor.pointer;
+            clicked => { root.branch-click(); }
         }
 
         refresh-hit := TouchArea {
@@ -249,7 +280,7 @@ export component IdeGit inherits Rectangle {
                 status: c.status;
                 name: c.name;
                 staged: false;
-                activated => { root.open-file(c.path); }
+                activated => { root.diff(c.path, false, c.status == "??"); }
                 toggle => { root.toggle(c.path, false); }
             }
 
@@ -258,7 +289,7 @@ export component IdeGit inherits Rectangle {
                 status: s.status;
                 name: s.name;
                 staged: true;
-                activated => { root.open-file(s.path); }
+                activated => { root.diff(s.path, true, false); }
                 toggle => { root.toggle(s.path, true); }
             }
 
@@ -337,9 +368,30 @@ export component IdeGit inherits Rectangle {
                 activated => { root.stage-all(); }
             }
             GitButton {
-                label: "Push";
+                label: "Quitar todo";
                 enabled: !root.busy;
-                activated => { root.push(); }
+                activated => { root.unstage-all(); }
+            }
+        }
+
+        HorizontalLayout {
+            x: 8px;
+            y: 74px;
+            width: parent.width - 16px;
+            height: 26px;
+            spacing: 6px;
+            alignment: start;
+            cross-axis-alignment: center;
+
+            GitButton {
+                label: "Bajar";
+                enabled: !root.busy;
+                activated => { root.pull(); }
+            }
+            GitButton {
+                label: "Ramas";
+                enabled: !root.busy;
+                activated => { root.branch-click(); }
             }
             Rectangle { horizontal-stretch: 1; background: transparent; }
             GitButton {
@@ -352,7 +404,7 @@ export component IdeGit inherits Rectangle {
 
         Text {
             x: 10px;
-            y: 74px;
+            y: 104px;
             width: parent.width - 20px;
             text: root.note;
             color: root.error ? IdeTheme.del : IdeTheme.text-dim;

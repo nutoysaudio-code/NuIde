@@ -40,6 +40,10 @@ pub struct Status {
     /// La carpeta es un repositorio Git.
     pub is_repo: bool,
     pub branch: String,
+    /// Commits locales por delante del remoto.
+    pub ahead: u32,
+    /// Commits del remoto por delante.
+    pub behind: u32,
     pub changes: Vec<Change>,
 }
 
@@ -51,12 +55,24 @@ pub enum Op {
     Init,
     /// `git add -A`.
     StageAll,
+    /// `git reset` (quitar todo del índice).
+    UnstageAll,
     /// Preparar (`stage`) o quitar del índice (`!stage`) un archivo.
     Toggle { path: String, stage: bool },
+    /// Descartar los cambios de un archivo (`untracked` = borrarlo).
+    Discard { path: String, untracked: bool },
     /// `git commit -m <mensaje>`.
     Commit(String),
+    /// `git commit --amend` (con mensaje, o `--no-edit` si está vacío).
+    Amend(String),
+    /// `git pull`.
+    Pull,
     /// `git push`.
     Push,
+    /// Cambiar de rama.
+    SwitchBranch(String),
+    /// Crear y cambiar a una rama nueva.
+    CreateBranch(String),
 }
 
 /// Resultado de una operación, con el estado ya refrescado.
@@ -91,6 +107,19 @@ fn parse_status(text: &str) -> Status {
     for line in text.lines() {
         if let Some(rest) = line.strip_prefix("## ") {
             st.branch = branch_of(rest);
+            // `[ahead N]`, `[behind M]` o `[ahead N, behind M]`.
+            if let Some(open) = rest.find('[') {
+                if let Some(close) = rest[open..].find(']') {
+                    for part in rest[open + 1..open + close].split(',') {
+                        let part = part.trim();
+                        if let Some(n) = part.strip_prefix("ahead ") {
+                            st.ahead = n.trim().parse().unwrap_or(0);
+                        } else if let Some(n) = part.strip_prefix("behind ") {
+                            st.behind = n.trim().parse().unwrap_or(0);
+                        }
+                    }
+                }
+            }
             continue;
         }
         if line.len() < 4 {
@@ -161,6 +190,9 @@ pub fn perform(root: &Path, op: &Op) -> Result<String, String> {
         Op::Refresh => Ok(String::new()),
         Op::Init => run(root, &["init"]).map(|_| "Repositorio inicializado.".to_string()),
         Op::StageAll => run(root, &["add", "-A"]).map(|_| "Cambios preparados.".to_string()),
+        Op::UnstageAll => {
+            run(root, &["reset", "-q"]).map(|_| "Todo quitado del índice.".to_string())
+        }
         Op::Toggle { path, stage } => if *stage {
             run(root, &["add", "--", path])
         } else {
@@ -173,15 +205,73 @@ pub fn perform(root: &Path, op: &Op) -> Result<String, String> {
                 format!("Quitado del índice: {path}")
             }
         }),
+        Op::Discard { path, untracked } => {
+            if *untracked {
+                std::fs::remove_file(root.join(path))
+                    .map(|_| format!("Eliminado: {path}"))
+                    .map_err(|e| e.to_string())
+            } else {
+                run(root, &["checkout", "HEAD", "--", path]).map(|_| format!("Descartado: {path}"))
+            }
+        }
         Op::Commit(msg) => run(root, &["commit", "-m", msg]).map(|_| "Commit creado.".to_string()),
+        Op::Amend(msg) => {
+            let mut args = vec!["commit", "--amend"];
+            if msg.trim().is_empty() {
+                args.push("--no-edit");
+            } else {
+                args.push("-m");
+                args.push(msg);
+            }
+            run(root, &args).map(|_| "Commit enmendado.".to_string())
+        }
+        Op::Pull => run(root, &["pull"]).map(|_| "Pull realizado.".to_string()),
         Op::Push => run(root, &["push"]).map(|_| "Push realizado.".to_string()),
+        Op::SwitchBranch(name) => run(root, &["switch", name])
+            .or_else(|_| run(root, &["checkout", name]))
+            .map(|_| format!("Rama: {name}")),
+        Op::CreateBranch(name) => run(root, &["switch", "-c", name])
+            .or_else(|_| run(root, &["checkout", "-b", name]))
+            .map(|_| format!("Rama creada: {name}")),
     }
+}
+
+/// Diff unificado (`HEAD` → working tree) de un archivo, sin color. Si no hay
+/// diff (archivo nuevo), devuelve el contenido como líneas agregadas.
+pub fn diff(root: &Path, path: &str) -> String {
+    let out = run(root, &["diff", "--no-color", "HEAD", "--", path]).unwrap_or_default();
+    if !out.is_empty() {
+        return out;
+    }
+    match std::fs::read_to_string(root.join(path)) {
+        Ok(text) => {
+            let mut s = format!("archivo nuevo: {path}\n");
+            for line in text.lines() {
+                s.push('+');
+                s.push_str(line);
+                s.push('\n');
+            }
+            s
+        }
+        Err(_) => String::new(),
+    }
+}
+
+/// Ramas locales como `(nombre, es_actual)`, ordenadas por Git.
+pub fn branches(root: &Path) -> Vec<(String, bool)> {
+    let current = status(root).branch;
+    let out = run(root, &["branch", "--format=%(refname:short)"]).unwrap_or_default();
+    out.lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .map(|name| (name.to_string(), name == current))
+        .collect()
 }
 
 /// Corre la operación en un hilo y manda el resultado (con el estado nuevo).
 pub fn spawn(root: PathBuf, op: Op, tx: Sender<GitResult>) {
     thread::spawn(move || {
-        let committed = matches!(op, Op::Commit(_));
+        let committed = matches!(op, Op::Commit(_) | Op::Amend(_));
         let (note, error) = match perform(&root, &op) {
             Ok(msg) => (msg, false),
             Err(e) => (e, true),
@@ -295,6 +385,38 @@ mod tests {
         .unwrap();
         assert!(!status(&dir).changes[0].staged());
 
+        // Descartar restaura el archivo desde HEAD.
+        perform(
+            &dir,
+            &Op::Discard {
+                path: "a.txt".into(),
+                untracked: false,
+            },
+        )
+        .unwrap();
+        assert!(status(&dir).changes.is_empty());
+        // Git en Windows puede restaurar con CRLF; basta con que sea el original.
+        let restored = std::fs::read_to_string(dir.join("a.txt")).unwrap();
+        assert!(restored.starts_with("hola"));
+        assert!(!restored.contains("chau"));
+
+        // Crear y cambiar de rama.
+        perform(&dir, &Op::CreateBranch("feature".into())).unwrap();
+        assert_eq!(status(&dir).branch, "feature");
+        let branches = branches(&dir);
+        assert!(branches.iter().any(|(n, cur)| n == "feature" && *cur));
+        assert!(branches.iter().any(|(n, _)| n == "main" || n == "master"));
+
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn parsea_ahead_y_behind() {
+        let st = parse_status("## main...origin/main [ahead 2, behind 1]\n");
+        assert_eq!(st.ahead, 2);
+        assert_eq!(st.behind, 1);
+        let st = parse_status("## main...origin/main [behind 3]\n");
+        assert_eq!(st.ahead, 0);
+        assert_eq!(st.behind, 3);
     }
 }

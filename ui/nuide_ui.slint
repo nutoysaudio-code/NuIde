@@ -1,6 +1,6 @@
 import { IdeTheme } from "ide_theme.slint";
 export { IdeTheme }
-import { IdeTreeNode, IdeTab, IdeCodeLine, TermLine, IdeOutlineItem, IdeRecent, IdeGitFile, IdePaletteItem, IdeMenuEntry, IdeSearchHit } from "ide_types.slint";
+import { IdeTreeNode, IdeTab, IdeCodeLine, TermLine, IdeOutlineItem, IdeRecent, IdeGitFile, IdePaletteItem, IdeMenuEntry, IdeSearchHit, IdeDiffLine } from "ide_types.slint";
 import { IdeTopBar } from "ide_topbar.slint";
 import { IdeStatusBar } from "ide_statusbar.slint";
 import { IdeExplorer } from "ide_explorer.slint";
@@ -14,6 +14,7 @@ import { IdeMenu } from "ide_menu.slint";
 import { IdeConfirm, IdeAsk } from "ide_confirm.slint";
 import { IdePrompt } from "ide_prompt.slint";
 import { IdeSearch } from "ide_search.slint";
+import { IdeDiff } from "ide_diff.slint";
 
 // ---------------------------------------------------------------------------
 // NuIde — SpASM Studio (walking skeleton)
@@ -114,13 +115,26 @@ export component NuIdeWindow inherits Window {
     in-out property <[IdeRecent]> welcome-recent: [];
     // Git (control de código).
     in-out property <bool> git-repo: false;
-    in-out property <string> git-branch: "";
+    in-out property <string> git-branch: "main";
     in-out property <string> git-note: "";
     in-out property <bool> git-error: false;
     in-out property <bool> git-busy: false;
     in-out property <string> git-message: "";
     in-out property <[IdeGitFile]> git-staged: [];
     in-out property <[IdeGitFile]> git-changes: [];
+    // Git: "↑2 ↓1".
+    in-out property <string> git-sync-info: "";
+    // Menú de ramas.
+    in-out property <bool> branch-menu-open: false;
+    in-out property <[IdeMenuEntry]> branch-menu-items: [];
+    // Visor de diff.
+    in-out property <bool> diff-open: false;
+    in-out property <string> diff-title: "";
+    in-out property <string> diff-note: "";
+    in-out property <bool> diff-error: false;
+    in-out property <bool> diff-staged: false;
+    in-out property <bool> diff-busy: false;
+    in-out property <[IdeDiffLine]> diff-lines: [];
     // Paleta de comandos / buscador de archivos.
     in-out property <bool> palette-open: false;
     in-out property <string> palette-title: "";
@@ -179,6 +193,17 @@ export component NuIdeWindow inherits Window {
     callback git-commit();
     callback git-push();
     callback git-open(string);
+    callback git-unstage-all();
+    callback git-amend();
+    callback git-pull();
+    callback git-branch-click();
+    callback branch-menu-command(string);
+    callback branch-menu-close();
+    callback git-diff(string, bool, bool);
+    callback diff-close();
+    callback diff-open-file();
+    callback diff-toggle-stage();
+    callback diff-discard();
     callback palette-accept(int);
     callback palette-dismiss();
     callback terminal-key(string, bool, bool, bool);
@@ -596,13 +621,14 @@ export component NuIdeWindow inherits Window {
         }
 
         // --- panel: control de código (Git) (dock configurable) ---
-        IdeGit {
+        git-panel := IdeGit {
             x: root.panel-x(3);
             y: root.slot-y(root.dock-of(3), 3);
             width: root.panel-w(3);
             height: root.slot-h(root.dock-of(3));
             visible: root.panel-visible(3);
             branch: root.git-branch;
+            sync-info: root.git-sync-info;
             is-repo: root.git-repo;
             busy: root.git-busy;
             note: root.git-note;
@@ -613,10 +639,15 @@ export component NuIdeWindow inherits Window {
             refresh => { root.git-refresh(); }
             init-repo => { root.git-init(); }
             stage-all => { root.git-stage-all(); }
+            unstage-all => { root.git-unstage-all(); }
             toggle(path, staged) => { root.git-toggle(path, staged); }
             commit => { root.git-commit(); }
+            amend => { root.git-amend(); }
+            pull => { root.git-pull(); }
             push => { root.git-push(); }
+            branch-click => { root.git-branch-click(); }
             open-file(path) => { root.git-open(path); }
+            diff(path, staged, untracked) => { root.git-diff(path, staged, untracked); }
         }
     }
 
@@ -670,6 +701,44 @@ export component NuIdeWindow inherits Window {
         width: 220px;
         items: root.explorer-context-items;
         activated(id) => { root.explorer-context-command(id); }
+    }
+
+    // --- menú de ramas de Git ---
+    if root.branch-menu-open: Rectangle {
+        x: 0;
+        y: 0;
+        width: parent.width;
+        height: parent.height;
+        background: transparent;
+
+        TouchArea {
+            clicked => { root.branch-menu-close(); }
+        }
+    }
+    if root.branch-menu-open: IdeMenu {
+        x: root.panel-x(3) + git-panel.branch-menu-x;
+        y: IdeTheme.topbar-h + root.slot-y(root.dock-of(3), 3) + git-panel.branch-menu-y;
+        width: 200px;
+        items: root.branch-menu-items;
+        activated(id) => { root.branch-menu-command(id); }
+    }
+
+    // --- visor de diff de Git ---
+    if root.diff-open: IdeDiff {
+        x: 0;
+        y: 0;
+        width: parent.width;
+        height: parent.height;
+        title: root.diff-title;
+        note: root.diff-note;
+        error: root.diff-error;
+        lines: root.diff-lines;
+        staged: root.diff-staged;
+        busy: root.diff-busy;
+        close => { root.diff-close(); }
+        open-file => { root.diff-open-file(); }
+        toggle-stage => { root.diff-toggle-stage(); }
+        discard => { root.diff-discard(); }
     }
 
     // --- buscar en el proyecto (encima de los paneles) ---

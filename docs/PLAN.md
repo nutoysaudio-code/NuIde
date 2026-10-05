@@ -131,9 +131,11 @@ recupera cursor y scroll.
 
 ---
 
-## Fase 5 — Git avanzado  ·  M/L  ·  must + nice
+## Fase 5 — Git avanzado  ·  M/L  ·  must + nice  ·  ✅ hecha (3.21)
 
 **Objetivo:** pasar del "panel de stage/commit" a un flujo Git completo.
+(Hecho: diff, ramas, pull, ahead/behind, descartar, quitar todo y amend.
+Pendiente de esta fase: *log*/historial y *blame*.)
 
 - `M` **Diff** del archivo seleccionado (vista unificada; lado a lado `nice`).
 - `S` **Descartar cambios**, **unstage all** y **amend**.

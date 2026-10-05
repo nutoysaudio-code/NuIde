@@ -58,6 +58,7 @@ abiertos es una **página de bienvenida** real (accesos y atajos).
 | 26 | editor: regex, buscar en selección, historial, autocierre/autoindent y tab | ✅ |
 | 27 | terminal: mouse reporting + renombrar/reiniciar sesión | ✅ |
 | 28 | buscar y reemplazar en todo el proyecto | ✅ |
+| 29 | Git avanzado: diff, ramas, pull, ahead/behind, descartar/amend | ✅ |
 
 > El parte de estado detallado —qué se cambió en cada iteración, limitaciones y
 > pendientes con su enfoque— está en [`docs/ESTADO.md`](docs/ESTADO.md).
@@ -288,9 +289,8 @@ para no mezclar la salida con la terminal inferior.
 - El encabezado y el modelo son configurables con `NUIDE_AGENT_VERSION` y
   `NUIDE_AGENT_MODEL`.
 - El CLI se descubre como `opencode.cmd` (Windows), `opencode.exe` u `opencode`.
-
-**Limitación:** el mouse se usa para seleccionar texto, así que no se reenvía a
-la TUI (no hay *mouse reporting*). El teclado sí llega completo.
+- El **mouse reporting** funciona igual que en la terminal local: si la TUI lo
+  pide, los clics/rueda se reenvían; si no, el mouse selecciona/copia.
 
 ### El control de código (Git)
 
@@ -300,9 +300,15 @@ archivos con cambios, separados en **CAMBIOS** y **PREPARADOS**.
 
 - Cada fila: estado de dos columnas (`M `, ` M`, `??`, `A `…), la ruta, y un
   botón **+**/**−** para preparar o quitar del índice (`git add`/`git reset`).
-  Clic en la fila abre el archivo.
-- **Preparar todo** (`git add -A`), **Commit** (con el mensaje del campo; el
-  botón se activa cuando hay texto) y **Push**. **⟳** relee el estado.
+  **Clic en la fila abre el diff** del archivo.
+- **Preparar todo** (`git add -A`), **Quitar todo** (`git reset`), **Bajar**
+  (`git pull`), **Push** y **Commit**. **⟳** relee el estado. El campo de
+  mensaje alimenta Commit y **Enmendar** (`--amend`, desde la paleta).
+- El encabezado muestra **↑ahead ↓behind** y la **rama es clickeable**: abre un
+  menú con las ramas locales (la actual con `●`) y **Nueva rama…**.
+- **Visor de diff** (`ui/ide_diff.slint`): vista unificada con colores, y botones
+  **Abrir archivo**, **Preparar/Quitar** y **Descartar cambios** (con
+  confirmación).
 - Si la carpeta no es un repositorio, ofrece **Inicializar repositorio**
   (`git init`).
 - Las operaciones corren en un **hilo** (como el linter y el build) para no
@@ -310,8 +316,9 @@ archivos con cambios, separados en **CAMBIOS** y **PREPARADOS**.
   un proyecto, al guardar y al terminar cada operación.
 - La rama también se muestra en la barra de estado.
 
-**Limitación:** no hay *diff*, *stage* por hunks ni manejo de credenciales más
-allá de lo que haga `git` (si `push` pide credenciales, se comporta como la CLI).
+**Limitación:** no hay *stage* por hunks ni *blame*/*log*; el manejo de
+credenciales es el de `git` (si `push`/`pull` piden credenciales, se comporta
+como la CLI).
 
 ### La paleta de comandos y el buscador de archivos
 
@@ -386,6 +393,7 @@ nuide/
     ide_git.slint          panel de control de código (Git)
     ide_palette.slint      paleta de comandos / buscador de archivos
     ide_search.slint       buscar/reemplazar en el proyecto
+    ide_diff.slint         visor de diff de Git
     ide_menu.slint         menú desplegable (Archivo / Editar)
     ide_confirm.slint      diálogos de confirmación / eliminar
     ide_prompt.slint       diálogo de entrada de texto
@@ -453,14 +461,14 @@ Ordenados por impacto para usar el IDE día a día; el **plan en fases** complet
 
 ### Estado al 2026-10-04
 
-Compilado y publicado: `gitlab.com/nutoys-group/nuide` (`main`). 101 tests OK;
+Compilado y publicado: `gitlab.com/nutoys-group/nuide` (`main`). 103 tests OK;
 clon limpio genera `nuide.exe`. Las dos terminales son PTY reales (shell local y
 TUI de `opencode`) con **mouse reporting**, el proyecto se elige con diálogo
 nativo y se recuerda, el editor tiene buscar/reemplazar (con **regex**, **en
 selección** e historial), autocierre/autoindentación, resaltados, **resaltado
 por lenguaje y visores** (imagen y vista previa de Markdown), **diagnóstico con
-el parser de SpASM**, **control de código (Git)**, **paleta de comandos /
-buscador de archivos**, **buscar en todo el proyecto**, **menús Archivo/Editar**
+el parser de SpASM**, **control de código (Git)** con **diff, ramas, pull y ahead/behind**,
+**paleta de comandos / buscador de archivos**, **buscar en todo el proyecto**, **menús Archivo/Editar**
 con guardar como y cierre confirmado, y **explorador con operaciones de
 archivos**; los paneles se acoplan/apilan por lado. Falta local: los ítems de
 arriba.

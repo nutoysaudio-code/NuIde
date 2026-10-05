@@ -91,6 +91,13 @@ export struct IdeSearchHit {
     text: string,
 }
 
+// Línea de un diff. kind: 0 contexto, 1 agregada, 2 borrada, 3 encabezado de
+// hunk (`@@`), 4 metadatos (`diff --git`, `index`, `---`, `+++`).
+export struct IdeDiffLine {
+    text: string,
+    kind: int,
+}
+
 // Fila de un menú desplegable (Archivo/Editar). `id` vacío = separador.
 export struct IdeMenuEntry {
     id: string,

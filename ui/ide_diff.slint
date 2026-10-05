@@ -1,0 +1,191 @@
+import { IdeTheme } from "ide_theme.slint";
+import { IdeDiffLine } from "ide_types.slint";
+
+// Botón compacto del visor de diff.
+component DiffButton inherits Rectangle {
+    in property <string> label: "";
+    in property <bool> enabled: true;
+    in property <bool> danger: false;
+    callback activated();
+
+    height: 24px;
+    width: label-text.width + 18px;
+    border-radius: IdeTheme.radius-sm;
+    background: !root.enabled ? IdeTheme.control
+        : ta.has-hover ? (root.danger ? #d98c8c33 : IdeTheme.control-hi) : IdeTheme.control;
+    border-width: 1px;
+    border-color: IdeTheme.border-soft;
+
+    label-text := Text {
+        x: 9px;
+        y: (parent.height - self.height) / 2;
+        text: root.label;
+        color: root.enabled ? (root.danger ? IdeTheme.del : IdeTheme.text-soft) : IdeTheme.text-dim;
+        font-family: IdeTheme.sans;
+        font-size: 11px;
+        vertical-alignment: center;
+    }
+
+    ta := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: MouseCursor.pointer;
+        clicked => { root.activated(); }
+    }
+}
+
+// Una línea del diff con su color según el tipo.
+component DiffRow inherits Rectangle {
+    in property <string> text: "";
+    in property <int> kind: 0;
+
+    height: 16px;
+    background: root.kind == 1 ? #1b2f24
+        : root.kind == 2 ? #33201f
+        : root.kind == 3 ? #1a2325
+        : transparent;
+
+    Text {
+        x: 8px;
+        y: (parent.height - self.height) / 2;
+        text: root.text;
+        color: root.kind == 1 ? IdeTheme.add
+            : root.kind == 2 ? IdeTheme.del
+            : root.kind == 3 ? IdeTheme.mint
+            : root.kind == 4 ? IdeTheme.text-dim
+            : IdeTheme.text-soft;
+        font-family: IdeTheme.mono;
+        font-size: 11px;
+        vertical-alignment: center;
+        wrap: no-wrap;
+    }
+}
+
+// Visor de diff unificado de un archivo.
+export component IdeDiff inherits Rectangle {
+    in property <string> title: "";
+    in property <string> note: "";
+    in property <bool> error: false;
+    in property <[IdeDiffLine]> lines: [];
+    // El archivo está preparado (para el botón Preparar/Quitar).
+    in property <bool> staged: false;
+    in property <bool> busy: false;
+    callback close();
+    callback open-file();
+    callback toggle-stage();
+    callback discard();
+
+    Rectangle {
+        x: 0;
+        y: 0;
+        width: parent.width;
+        height: parent.height;
+        background: #000000aa;
+
+        backdrop := TouchArea {
+            clicked => { root.close(); }
+        }
+    }
+
+    box := Rectangle {
+        x: (parent.width - self.width) / 2;
+        y: 48px;
+        width: min(900px, parent.width - 40px);
+        height: min(560px, parent.height - 96px);
+        background: IdeTheme.panel;
+        border-width: 1px;
+        border-color: IdeTheme.border-soft;
+        border-radius: IdeTheme.radius;
+        clip: true;
+
+        Text {
+            x: 16px;
+            y: (34px - self.height) / 2;
+            width: parent.width - 32px;
+            text: root.title;
+            color: IdeTheme.text;
+            font-family: IdeTheme.mono;
+            font-size: 12px;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+
+        Rectangle {
+            y: 34px;
+            width: parent.width;
+            height: IdeTheme.hairline;
+            background: IdeTheme.border-faint;
+        }
+
+        // Líneas del diff.
+        Flickable {
+            x: 0;
+            y: 34px;
+            width: parent.width;
+            height: parent.height - 34px - 40px;
+            content-width: self.width;
+            content-height: diff-list.preferred-height + 8px;
+
+            diff-list := VerticalLayout {
+                x: 0;
+                y: 4px;
+                width: parent.width;
+                padding-left: 6px;
+                spacing: 0;
+
+                if root.lines.length == 0: Text {
+                    x: 10px;
+                    text: root.note;
+                    color: root.error ? IdeTheme.del : IdeTheme.text-dim;
+                    font-family: IdeTheme.sans;
+                    font-size: 12px;
+                }
+
+                for line in root.lines: DiffRow {
+                    text: line.text;
+                    kind: line.kind;
+                }
+            }
+        }
+
+        // Barra inferior con acciones.
+        Rectangle {
+            y: parent.height - 40px;
+            width: parent.width;
+            height: IdeTheme.hairline;
+            background: IdeTheme.border-faint;
+        }
+
+        HorizontalLayout {
+            x: 14px;
+            y: parent.height - 34px;
+            width: parent.width - 28px;
+            height: 24px;
+            spacing: 8px;
+            alignment: start;
+            cross-axis-alignment: center;
+
+            DiffButton { label: "Abrir archivo"; activated => { root.open-file(); } }
+            DiffButton {
+                label: root.staged ? "Quitar del índice" : "Preparar";
+                enabled: !root.busy;
+                activated => { root.toggle-stage(); }
+            }
+            DiffButton {
+                label: "Descartar cambios";
+                danger: true;
+                enabled: !root.busy;
+                activated => { root.discard(); }
+            }
+
+            Text {
+                text: root.note;
+                color: root.error ? IdeTheme.del : IdeTheme.text-dim;
+                font-family: IdeTheme.sans;
+                font-size: 11px;
+                vertical-alignment: center;
+                horizontal-stretch: 1;
+                overflow: elide;
+            }
+        }
+    }
+}

@@ -37,8 +37,8 @@ use crate::pty::{self, Pty, PtyEvent};
 use crate::search;
 use crate::spasm::Toolchain;
 use crate::ui::{
-    IdeCodeLine, IdeGitFile, IdeMenuEntry, IdeOutlineItem, IdePaletteItem, IdeRecent, IdeSearchHit,
-    IdeTab, IdeToken, IdeTreeNode, NuIdeWindow, TermLine, TermRun,
+    IdeCodeLine, IdeDiffLine, IdeGitFile, IdeMenuEntry, IdeOutlineItem, IdePaletteItem, IdeRecent,
+    IdeSearchHit, IdeTab, IdeToken, IdeTreeNode, NuIdeWindow, TermLine, TermRun,
 };
 use crate::vt::{Screen, Selection};
 
@@ -464,11 +464,15 @@ enum Command {
     RestartSession,
     RenameSession,
     ProjectSearch,
+    GitPull,
+    GitUnstageAll,
+    GitAmend,
+    GitDiff,
 }
 
 impl Command {
     /// Todos, en el orden en que se muestran.
-    const ALL: [Command; 37] = [
+    const ALL: [Command; 41] = [
         Command::Run,
         Command::Build,
         Command::Lint,
@@ -506,6 +510,10 @@ impl Command {
         Command::RestartSession,
         Command::RenameSession,
         Command::ProjectSearch,
+        Command::GitPull,
+        Command::GitUnstageAll,
+        Command::GitAmend,
+        Command::GitDiff,
     ];
 
     fn label(self) -> &'static str {
@@ -547,6 +555,10 @@ impl Command {
             Command::RestartSession => "Terminal: reiniciar sesión",
             Command::RenameSession => "Terminal: renombrar sesión…",
             Command::ProjectSearch => "Buscar en el proyecto",
+            Command::GitPull => "Git: bajar (pull)",
+            Command::GitUnstageAll => "Git: quitar todo del índice",
+            Command::GitAmend => "Git: enmendar el último commit",
+            Command::GitDiff => "Git: ver diff del archivo",
         }
     }
 
@@ -581,6 +593,9 @@ impl Command {
             Command::ToggleInsertSpaces => "espacios",
             Command::RestartSession | Command::RenameSession => "terminal",
             Command::ProjectSearch => "Ctrl+Shift+F",
+            Command::GitPull | Command::GitUnstageAll | Command::GitAmend | Command::GitDiff => {
+                "git"
+            }
             _ => "",
         }
     }
@@ -618,6 +633,40 @@ fn menu_sep() -> IdeMenuEntry {
         detail: "".into(),
         enabled: false,
     }
+}
+
+/// Convierte un diff unificado en líneas tipadas para la UI.
+/// kind: 0 contexto, 1 agregada, 2 borrada, 3 hunk (`@@`), 4 metadatos.
+fn parse_diff_lines(text: &str) -> Vec<IdeDiffLine> {
+    text.lines()
+        .filter(|l| !l.is_empty())
+        .map(|line| {
+            let kind = if line.starts_with("@@") {
+                3
+            } else if line.starts_with("+++")
+                || line.starts_with("---")
+                || line.starts_with("diff ")
+                || line.starts_with("index ")
+                || line.starts_with("new file")
+                || line.starts_with("deleted file")
+                || line.starts_with("similarity ")
+                || line.starts_with("rename ")
+                || line.starts_with("archivo nuevo")
+            {
+                4
+            } else if line.starts_with('+') {
+                1
+            } else if line.starts_with('-') {
+                2
+            } else {
+                0
+            };
+            IdeDiffLine {
+                text: line.to_string().into(),
+                kind,
+            }
+        })
+        .collect()
 }
 
 /// Carpeta donde crear algo a partir de un nodo: la suya si es carpeta, si no
@@ -715,6 +764,19 @@ enum Ask {
     Delete(PathBuf),
     /// Reemplazar en todo el proyecto.
     ReplaceInProject,
+    /// Descartar los cambios de un archivo de Git.
+    Discard { path: String, untracked: bool },
+}
+
+/// Visor de diff abierto.
+struct DiffState {
+    /// Ruta relativa a la raíz.
+    path: String,
+    staged: bool,
+    untracked: bool,
+    lines: Vec<IdeDiffLine>,
+    note: String,
+    error: bool,
 }
 
 /// Qué pide el diálogo de entrada de texto.
@@ -725,6 +787,8 @@ enum PromptKind {
     Rename,
     /// Renombrar la sesión de terminal activa.
     SessionName,
+    /// Crear una rama nueva en Git.
+    NewBranch,
 }
 
 /// Diálogo de entrada de texto pendiente.
@@ -836,6 +900,11 @@ pub struct Ide {
     git_busy: bool,
     git_tx: Sender<git::GitResult>,
     git_rx: Receiver<git::GitResult>,
+    /// Visor de diff abierto.
+    diff: Option<DiffState>,
+    /// Menú de ramas abierto y sus filas.
+    branch_menu: bool,
+    branch_items: Vec<IdeMenuEntry>,
     /// Panel del agente: `opencode` en un PTY con su propia pantalla. Canal
     /// aparte para no mezclar la salida con la terminal local.
     agent: Option<LocalSession>,
@@ -945,6 +1014,9 @@ impl Ide {
             git_busy: false,
             git_tx,
             git_rx,
+            diff: None,
+            branch_menu: false,
+            branch_items: Vec::new(),
             agent: None,
             agent_tx,
             agent_rx,
@@ -1247,6 +1319,141 @@ impl Ide {
     /// Abre en el editor un archivo del panel de Git (ruta relativa a la raíz).
     fn git_open(&mut self, path: &str) {
         self.open_file(self.explorer.root().join(path));
+    }
+
+    /// Sube/quita del índice todos los cambios.
+    fn git_unstage_all(&mut self) {
+        self.git_spawn(git::Op::UnstageAll);
+    }
+
+    /// `git pull`.
+    fn git_pull(&mut self) {
+        self.git_spawn(git::Op::Pull);
+    }
+
+    /// `git commit --amend` con el mensaje actual (o `--no-edit` si está vacío).
+    fn git_amend(&mut self, message: String) {
+        self.git_spawn(git::Op::Amend(message.trim().to_string()));
+    }
+
+    /// Abre el visor de diff de un archivo del panel de Git.
+    fn git_diff(&mut self, path: &str, staged: bool, untracked: bool) {
+        let lines = parse_diff_lines(&git::diff(self.explorer.root(), path));
+        let note = if lines.is_empty() {
+            "Sin cambios respecto de HEAD.".to_string()
+        } else {
+            String::new()
+        };
+        self.diff = Some(DiffState {
+            path: path.to_string(),
+            staged,
+            untracked,
+            lines,
+            note,
+            error: false,
+        });
+    }
+
+    /// Cierra el visor de diff.
+    fn git_close_diff(&mut self) {
+        self.diff = None;
+    }
+
+    /// `git diff` del archivo activo (si está dentro del repo). Comando de paleta.
+    fn git_diff_active(&mut self) {
+        let Some(active) = self.active_file.clone() else {
+            return;
+        };
+        let Ok(rel) = active.strip_prefix(self.explorer.root()) else {
+            return;
+        };
+        let path = rel.to_string_lossy().replace('\\', "/");
+        let change = self
+            .git_status
+            .changes
+            .iter()
+            .find(|c| c.path == path)
+            .cloned();
+        let (staged, untracked) = match change {
+            Some(c) => (c.staged(), c.index == '?'),
+            None => (false, false),
+        };
+        self.git_diff(&path, staged, untracked);
+    }
+
+    /// Preparar o quitar del índice el archivo del diff abierto.
+    fn git_diff_toggle_stage(&mut self) {
+        let Some(d) = self.diff.as_ref() else {
+            return;
+        };
+        let (path, staged, untracked) = (d.path.clone(), d.staged, d.untracked);
+        if untracked {
+            // Un archivo nuevo no tiene nada que quitar del índice.
+            if staged {
+                self.git_spawn(git::Op::Toggle {
+                    path: path.clone(),
+                    stage: false,
+                });
+            } else {
+                self.git_spawn(git::Op::Toggle {
+                    path: path.clone(),
+                    stage: true,
+                });
+            }
+        } else {
+            self.git_spawn(git::Op::Toggle {
+                path: path.clone(),
+                stage: !staged,
+            });
+        }
+    }
+
+    /// Pide confirmación para descartar los cambios del archivo del diff.
+    fn git_diff_discard(&mut self) {
+        let Some(d) = self.diff.as_ref() else {
+            return;
+        };
+        self.ask = Some(Ask::Discard {
+            path: d.path.clone(),
+            untracked: d.untracked,
+        });
+    }
+
+    /// Abre el menú de ramas (locales + "Nueva rama…").
+    fn git_branch_menu(&mut self) {
+        let branches = git::branches(self.explorer.root());
+        let mut items: Vec<IdeMenuEntry> = branches
+            .iter()
+            .map(|(name, current)| {
+                let label = if *current {
+                    format!("● {name}")
+                } else {
+                    format!("  {name}")
+                };
+                menu_entry(&format!("branch.switch:{name}"), &label, "", true)
+            })
+            .collect();
+        items.push(menu_sep());
+        items.push(menu_entry("branch.new", "Nueva rama…", "", true));
+        self.branch_items = items;
+        self.branch_menu = true;
+    }
+
+    /// Ejecuta una acción del menú de ramas.
+    fn git_branch_command(&mut self, id: &str) {
+        self.branch_menu = false;
+        if id == "branch.new" {
+            self.prompt = Some(Prompt {
+                kind: PromptKind::NewBranch,
+                target: PathBuf::new(),
+                text: String::new(),
+            });
+        } else if let Some(name) = id.strip_prefix("branch.switch:") {
+            let current = self.git_status.branch.clone();
+            if name != current {
+                self.git_spawn(git::Op::SwitchBranch(name.to_string()));
+            }
+        }
     }
 
     /// Fija `dir` como raíz: reconstruye el explorador, reinicia el agente en la
@@ -1979,6 +2186,10 @@ impl Ide {
             Command::RestartSession => self.restart_session(),
             Command::RenameSession => self.prompt_rename_session(),
             Command::ProjectSearch => self.search_open(),
+            Command::GitPull => self.git_pull(),
+            Command::GitUnstageAll => self.git_unstage_all(),
+            Command::GitAmend => self.git_amend(String::new()),
+            Command::GitDiff => self.git_diff_active(),
         }
     }
 
@@ -2427,6 +2638,9 @@ impl Ide {
                     s.name = name;
                 }
             }
+            PromptKind::NewBranch => {
+                self.git_spawn(git::Op::CreateBranch(name));
+            }
         }
     }
 
@@ -2438,6 +2652,10 @@ impl Ide {
         match ask {
             Ask::Delete(path) => self.delete_path(&path),
             Ask::ReplaceInProject => self.replace_in_project(),
+            Ask::Discard { path, untracked } => {
+                self.diff = None;
+                self.git_spawn(git::Op::Discard { path, untracked });
+            }
         }
     }
 
@@ -4599,6 +4817,7 @@ impl Ide {
                 PromptKind::NewFolder => ("Nueva carpeta", "nombre"),
                 PromptKind::Rename => ("Renombrar", ""),
                 PromptKind::SessionName => ("Renombrar terminal", "sesión"),
+                PromptKind::NewBranch => ("Nueva rama", "nombre-rama"),
             };
             w.set_prompt_title(title.into());
             w.set_prompt_placeholder(placeholder.into());
@@ -4636,6 +4855,14 @@ impl Ide {
                 );
                 w.set_ask_accept_label("Reemplazar".into());
                 w.set_ask_danger(false);
+            }
+            Some(Ask::Discard { path, .. }) => {
+                w.set_ask_title("Descartar cambios".into());
+                w.set_ask_message(
+                    format!("¿Descartar los cambios de «{path}»? No se puede deshacer.").into(),
+                );
+                w.set_ask_accept_label("Descartar".into());
+                w.set_ask_danger(true);
             }
             None => {}
         }
@@ -4683,6 +4910,13 @@ impl Ide {
         // --- Git ---
         w.set_git_repo(self.git_status.is_repo);
         w.set_git_branch(self.git_status.branch.clone().into());
+        let sync = match (self.git_status.ahead, self.git_status.behind) {
+            (0, 0) => String::new(),
+            (a, 0) => format!("↑{a}"),
+            (0, b) => format!("↓{b}"),
+            (a, b) => format!("↑{a} ↓{b}"),
+        };
+        w.set_git_sync_info(sync.into());
         w.set_git_note(self.git_note.clone().into());
         w.set_git_error(self.git_error);
         w.set_git_busy(self.git_busy);
@@ -4702,6 +4936,23 @@ impl Ide {
         }
         w.set_git_staged(ModelRc::from(Rc::new(VecModel::from(staged))));
         w.set_git_changes(ModelRc::from(Rc::new(VecModel::from(changes))));
+
+        // --- visor de diff ---
+        w.set_diff_open(self.diff.is_some());
+        if let Some(d) = self.diff.as_ref() {
+            w.set_diff_title(format!("diff · {}", d.path).into());
+            w.set_diff_note(d.note.clone().into());
+            w.set_diff_error(d.error);
+            w.set_diff_staged(d.staged);
+            w.set_diff_busy(self.git_busy);
+            w.set_diff_lines(ModelRc::from(Rc::new(VecModel::from(d.lines.clone()))));
+        }
+
+        // --- menú de ramas ---
+        w.set_branch_menu_open(self.branch_menu);
+        w.set_branch_menu_items(ModelRc::from(Rc::new(VecModel::from(
+            self.branch_items.clone(),
+        ))));
 
         // --- paleta de comandos / buscador de archivos ---
         w.set_palette_open(self.palette.open);
@@ -5667,6 +5918,133 @@ pub fn attach(window: &NuIdeWindow, ide: Rc<RefCell<Ide>>) {
             if let Some(w) = weak.upgrade() {
                 let mut e = ide.borrow_mut();
                 e.git_open(&path);
+                e.sync(&w);
+            }
+        });
+    }
+    // Git avanzado: quitar todo, bajar, enmendar, ramas y diff.
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_git_unstage_all(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.git_unstage_all();
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_git_pull(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.git_pull();
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_git_amend(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                let message = w.get_git_message().to_string();
+                e.git_amend(message);
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_git_branch_click(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.git_branch_menu();
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_branch_menu_command(move |id| {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.git_branch_command(&id);
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_branch_menu_close(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.branch_menu = false;
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_git_diff(move |path, staged, untracked| {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.git_diff(&path, staged, untracked);
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_diff_close(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.git_close_diff();
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_diff_open_file(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                if let Some(d) = e.diff.as_ref() {
+                    let path = d.path.clone();
+                    e.git_open(&path);
+                }
+                e.git_close_diff();
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_diff_toggle_stage(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.git_diff_toggle_stage();
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_diff_discard(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.git_diff_discard();
                 e.sync(&w);
             }
         });
@@ -7092,10 +7470,9 @@ mod tests {
 
         let git = filter_commands("git");
         assert!(git.contains(&Command::GitPush));
-        assert!(git.iter().all(|c| matches!(
-            c,
-            Command::GitRefresh | Command::GitStageAll | Command::GitPush
-        )));
+        assert!(git
+            .iter()
+            .all(|c| c.label().to_lowercase().contains("git") || c.hint() == "git"));
 
         // El atajo también cuenta como match.
         assert!(filter_commands("F5").contains(&Command::Run));
@@ -7142,10 +7519,10 @@ mod tests {
         ide.palette_key("g", false);
         ide.palette_key("i", false);
         ide.palette_key("t", false);
-        assert!(ide.palette.rows.iter().all(|r| matches!(
-            r.action,
-            PaletteAction::Command(Command::GitRefresh | Command::GitStageAll | Command::GitPush)
-        )));
+        assert!(ide.palette.rows.iter().all(|r| match &r.action {
+            PaletteAction::Command(c) => c.label().to_lowercase().contains("git"),
+            _ => false,
+        }));
 
         // Esc cierra.
         ide.palette_key("\u{1b}", false);
@@ -7586,5 +7963,14 @@ mod tests {
         ide.replace_in_project();
         assert_eq!(std::fs::read_to_string(&a).unwrap(), "baz\nbar\nbaz\n");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn clasifica_lineas_de_diff() {
+        let d = parse_diff_lines(
+            "diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n-viejo\n+nuevo\n mismo\n",
+        );
+        let kinds: Vec<i32> = d.iter().map(|l| l.kind).collect();
+        assert_eq!(kinds, vec![4, 4, 4, 3, 2, 1, 0]);
     }
 }
