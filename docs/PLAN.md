@@ -212,7 +212,7 @@ i18n y reasignar todos los atajos.)
 
 ---
 
-## Fase 9 — Empaquetado y distribución  ·  M  ·  must
+## Fase 9 — Empaquetado y distribución  ·  M  ·  must  ·  ✅ hecha (3.24)
 
 **Objetivo:** entregar un instalable confiable.
 

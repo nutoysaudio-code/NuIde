@@ -5599,7 +5599,7 @@ impl Ide {
         let mut got = false;
         // Medidor de sistema cada ~1.5 s (25 ticks de 60 ms).
         self.drain_tick = self.drain_tick.wrapping_add(1);
-        if self.drain_tick % 25 == 0 {
+        if self.drain_tick.is_multiple_of(25) {
             self.metrics = self.monitor.sample();
             got = true;
         }

@@ -417,6 +417,23 @@ ui/*.slint          la ventana, paneles y tema
   `keys.*`.
 - **Pendiente:** i18n y permitir reasignar *todos* los atajos (hoy los globales).
 
+### 3.24 Icono, instalador y extras
+
+- **Menú Ayuda** + **Acerca de** (`ui/ide_about.slint`): versión
+  (`CARGO_PKG_VERSION`), créditos y enlace; `menu_command` resuelve `help.*` y
+  `open_url` abre el navegador.
+- **Medidor de sistema** (`src/sysinfo.rs`): FFI de `kernel32`
+  (`GetSystemTimes`, `GlobalMemoryStatusEx`) en Windows y `/proc` en el resto;
+  el pie muestra `CPU n% RAM n%` discreto (muestreo cada ~1,5 s en `drain`).
+- **Icono y versión del `.exe`**: `res/nuide.ico` + `res/nuide.rc`; `build.rs`
+  compila el `.rc` con `rc.exe` (Windows Kits, o `RC`) y lo enlaza; sin `rc.exe`
+  avisa y sigue.
+- **Instalador Inno Setup** (`packaging/NuIde.iss`) + `packaging/postinstall.ps1`:
+  instala la app, accesos directos, asociación `.spasm` opcional, y ofrece
+  **Node.js** (winget) y las **CLI de IA** (npm).
+- **CI** (`.gitlab-ci.yml`): `fmt`/`clippy -D warnings`/`test` en Linux y `.exe`
+  release como artefacto en Windows. Perfil `release` optimizado.
+
 ---
 
 ## 4. Limitaciones conocidas
@@ -522,7 +539,7 @@ script de instalación.
 ## 6. Verificación
 
 - `cargo build` / `cargo check` sin warnings.
-- `cargo test`: **107 pruebas OK** (unitarias; las de PTY, el linter y el build
+- `cargo test`: **108 pruebas OK** (unitarias; las de PTY, el linter y el build
   lanzan `cmd`/`opencode`/Python/spasmc reales y se saltean si no están).
 - `cargo fmt --check` limpio.
 - `slint-viewer --check ui/nuide_ui.slint` OK.

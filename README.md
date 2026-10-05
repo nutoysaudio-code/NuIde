@@ -61,6 +61,7 @@ abiertos es una **página de bienvenida** real (accesos y atajos).
 | 29 | Git avanzado: diff, ramas, pull, ahead/behind, descartar/amend | ✅ |
 | 30 | flujo SpASM: config de ejecución, plantillas y ayuda de sintaxis | ✅ |
 | 31 | preferencias (fuente/tamaño/acento) y atajos configurables | ✅ |
+| 32 | calidad/CI + icono + instalador Inno Setup (Node/CLI) + pie CPU/RAM | ✅ |
 
 > El parte de estado detallado —qué se cambió en cada iteración, limitaciones y
 > pendientes con su enfoque— está en [`docs/ESTADO.md`](docs/ESTADO.md).
@@ -433,15 +434,19 @@ nuide/
     ide_search.slint       buscar/reemplazar en el proyecto
     ide_diff.slint         visor de diff de Git
     ide_prefs.slint        preferencias y atajos
-    ide_menu.slint         menú desplegable (Archivo / Editar)
+    ide_about.slint        diálogo "Acerca de"
+    ide_menu.slint         menú desplegable (Archivo / Editar / Ayuda)
     ide_confirm.slint      diálogos de confirmación / eliminar
     ide_prompt.slint       diálogo de entrada de texto
     ide_viewmenu.slint     desplegable del menú Ver (paneles)
     ide_welcome.slint      bienvenida del editor (accesos + atajos)
     nuide_ui.slint         la ventana: layout, divisores y datos demo
+  res/                     nuide.ico + nuide.rc (icono y versión de Windows)
+  packaging/               NuIde.iss (Inno Setup) + postinstall.ps1 + make_icon.ps1
   docs/NUIDE_IDEA.md       especificación visual/funcional
   docs/ESTADO.md           parte de estado (hecho, limitaciones, pendientes)
   docs/PLAN.md             plan en fases para llegar a v1.0
+  docs/GUIA.md             guía de usuario
 ```
 
 ## Compilar y correr
@@ -458,6 +463,27 @@ slint-viewer ui/nuide_ui.slint
 slint-viewer --check ui/nuide_ui.slint
 slint-viewer --screenshot ui.png ui/nuide_ui.slint
 ```
+
+### Empaquetado (Windows)
+
+- El `.exe` de release lleva **icono y metadatos de versión**. `build.rs` compila
+  `res/nuide.rc` con `rc.exe` (de los Windows Kits; se puede forzar con `RC`). Si
+  no está, avisa y compila igual, sin recursos.
+- El icono se regenera con:
+  `powershell -ExecutionPolicy Bypass -File packaging/make_icon.ps1`.
+- **Instalador** (`packaging/NuIde.iss`, Inno Setup 6):
+
+  ```sh
+  cargo build --release
+  iscc packaging\NuIde.iss      # deja releases\NuIde-<version>-setup.exe
+  ```
+
+  Instala NuIde, crea accesos directos y puede **asociar `.spasm`**, **instalar
+  Node.js** (vía `winget`) y **las CLI de IA** (`packaging/postinstall.ps1`; hoy
+  `opencode-ai`, ampliable a kilo code / mimo). Las CLI son de Node, por eso Node
+  es una dependencia.
+- La **CI** (`.gitlab-ci.yml`) corre `fmt`/`clippy -D warnings`/`test` en Linux y
+  publica el `.exe` de release como artefacto en Windows.
 
 ## Interacción
 
