@@ -17,15 +17,15 @@ fn main() -> Result<(), slint::PlatformError> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.iter().any(|a| a == "--version" || a == "-v") {
         attach_console();
-        println!("NuIde {}", env!("CARGO_PKG_VERSION"));
+        print(&format!("NuIde {}\n", env!("CARGO_PKG_VERSION")));
         return Ok(());
     }
     if args.iter().any(|a| a == "--help" || a == "-h") {
         attach_console();
-        println!(
-            "NuIde {} — IDE para SpASM con terminales y OpenCode CLI\n\nUso: nuide [--version] [--help]",
+        print(&format!(
+            "NuIde {} — IDE para SpASM con terminales y OpenCode CLI\n\nUso: nuide [--version] [--help]\n",
             env!("CARGO_PKG_VERSION")
-        );
+        ));
         return Ok(());
     }
 
@@ -35,9 +35,24 @@ fn main() -> Result<(), slint::PlatformError> {
     window.run()
 }
 
+/// Escribe en stdout sin pifiarla si no hay nadie del otro lado: con el
+/// subsistema de ventanas el handle puede no existir (app lanzada desde el
+/// Explorador) y `println!` entraría en panic.
+fn print(text: &str) {
+    use std::io::Write;
+
+    let stdout = std::io::stdout();
+    let mut lock = stdout.lock();
+    let _ = lock.write_all(text.as_bytes()).and_then(|()| lock.flush());
+}
+
 /// Con el subsistema de ventanas (release) no hay consola: para `--version` /
-/// `--help` se engancha la consola del proceso padre (si la hay) y se redirige
-/// la salida, así el comando sigue imprimiendo al correrlo desde una terminal.
+/// `--help` se engancha la consola del proceso padre, así el comando sigue
+/// imprimiendo al correrlo desde una terminal.
+///
+/// Sólo cuando los handles estándar *no* existen: si ya vienen puestos
+/// (redirección a archivo o caño, como en la CI), son la salida real y
+/// enganchan `CONOUT$` se perdería esa salida.
 fn attach_console() {
     #[cfg(windows)]
     unsafe {
@@ -47,6 +62,7 @@ fn attach_console() {
         #[link(name = "kernel32")]
         extern "system" {
             fn AttachConsole(dw_process_id: u32) -> i32;
+            fn GetStdHandle(n_std_handle: u32) -> *mut c_void;
             fn SetStdHandle(n_std_handle: u32, handle: *mut c_void) -> i32;
             fn CreateFileW(
                 name: *const u16,
@@ -67,6 +83,11 @@ fn attach_console() {
         const STD_OUTPUT_HANDLE: u32 = -11i32 as u32;
         const STD_ERROR_HANDLE: u32 = -12i32 as u32;
 
+        let invalid = |h: *mut c_void| h.is_null() || h == (-1isize as *mut c_void);
+        if !invalid(GetStdHandle(STD_OUTPUT_HANDLE)) {
+            return; // ya hay salida asignada (consola heredada o redirección)
+        }
+
         if AttachConsole(ATTACH_PARENT_PROCESS) != 0 {
             let name: Vec<u16> = std::ffi::OsStr::new("CONOUT$")
                 .encode_wide()
@@ -81,7 +102,7 @@ fn attach_console() {
                 0,
                 std::ptr::null_mut(),
             );
-            if handle as isize != -1 {
+            if !invalid(handle) {
                 SetStdHandle(STD_OUTPUT_HANDLE, handle);
                 SetStdHandle(STD_ERROR_HANDLE, handle);
             }

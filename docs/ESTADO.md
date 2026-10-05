@@ -553,6 +553,22 @@ apps del ecosistema.
 **Enfoque:** recursos de Windows (`winres`/`build.rs`), perfil `release` y un
 script de instalación.
 
+**Resuelto (arranque sin consola):** el `.exe` de release era de subsistema de
+*consola*, así que al abrirlo desde el Explorador / el menú Inicio aparecía una
+terminal vacía antes de la ventana. `src/main.rs` ahora declara
+`#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]` (ventanas en
+release, consola en debug). Como `--version` / `--help` siguen necesitando
+imprimir, `attach_console()` engancha la consola del padre con `AttachConsole`
+**sólo si los handles estándar no existen**: si ya vienen con una redirección
+(archivo, caño, logs de la CI) se respeta y no se pisa con `CONOUT$`. La escritura
+es con `write_all` + `let _ =` para no entrar en panic cuando no hay nadie del
+otro lado.
+
+`packaging/make_installer.ps1` hace el ciclo completo: `cargo build --release`,
+verifica el subsistema del `.exe`, busca `ISCC.exe` (no está en el `PATH` cuando
+Inno Setup se instala por usuario: `%LOCALAPPDATA%\Programs\Inno Setup 6`) y
+compila `NuIde.iss`. Con `-SkipBuild` sólo recompila el instalador.
+
 ---
 
 ## 6. Verificación
@@ -563,8 +579,10 @@ script de instalación.
   lanzan `cmd`/`opencode`/Python/spasmc reales y se saltean si no están).
 - `cargo fmt --check` limpio.
 - `slint-viewer --check ui/nuide_ui.slint` OK.
-- `nuide.exe --version` (smoke test sin display, lo usa la CI).
-- Arranque real del `.exe` sin panics.
+- `nuide.exe --version` (smoke test sin display, lo usa la CI: imprime aunque el
+  `.exe` sea de ventanas, y respeta la salida redirigida).
+- Arranque real del `.exe` sin panics y **sin terminal vacía** (subsistema de
+  ventanas en release; se verifica leyendo el campo Subsystem del encabezado PE).
 - Guía de usuario en [`GUIA.md`](GUIA.md).
 
 ### Cómo probar a mano

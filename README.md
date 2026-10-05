@@ -481,15 +481,11 @@ slint-viewer --screenshot ui.png ui/nuide_ui.slint
 - El binario de release es de **subsistema ventanas** (sin consola): al abrirlo
   desde el Explorador o el menú Inicio **no aparece una terminal vacía**. En
   `debug` se deja la consola; en release, `--version`/`--help` se enganchan a la
-  consola del proceso padre para seguir imprimiendo.
+  consola del proceso padre (`AttachConsole`) para seguir imprimiendo, pero sólo
+  cuando no hay salida asignada: si la salida ya está redirigida (archivo, caño,
+  logs de la CI) se respeta y no se pisa con `CONOUT$`.
 - El icono se regenera con:
   `powershell -ExecutionPolicy Bypass -File packaging/make_icon.ps1`.
-- **Sin consola en release**: `src/main.rs` declara
-  `#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]`, así al
-  abrir la app desde el Explorador / el menú Inicio **no aparece una terminal
-  vacía** antes de la ventana (en `debug` la consola se conserva para ver la
-  salida). `--version` / `--help` enganchan la consola del proceso padre con
-  `AttachConsole`, así que siguen imprimiendo cuando se corren desde una terminal.
 - **Instalador** (`packaging/NuIde.iss`, Inno Setup 6):
 
   ```sh
