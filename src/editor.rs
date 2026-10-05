@@ -38,8 +38,8 @@ use crate::search;
 use crate::spasm::Toolchain;
 use crate::templates;
 use crate::ui::{
-    IdeCodeLine, IdeDiffLine, IdeGitFile, IdeMenuEntry, IdeOutlineItem, IdePaletteItem, IdeRecent,
-    IdeSearchHit, IdeTab, IdeToken, IdeTreeNode, NuIdeWindow, TermLine, TermRun,
+    IdeCodeLine, IdeDiffLine, IdeGitFile, IdeMenuEntry, IdeOutlineItem, IdePaletteItem, IdePrefRow,
+    IdeRecent, IdeSearchHit, IdeTab, IdeToken, IdeTreeNode, NuIdeWindow, TermLine, TermRun,
 };
 use crate::vt::{Screen, Selection};
 
@@ -88,6 +88,23 @@ const MONO_FONTS: &[(&str, &str)] = &[
     ("JetBrains Mono", "JetBrainsMono-Regular.ttf"),
     ("Cascadia Mono", "CascadiaMono.ttf"),
     ("Consolas", "consola.ttf"),
+];
+
+/// Acentos disponibles en Preferencias (nombre, RGB).
+const ACCENTS: &[(&str, (u8, u8, u8))] = &[
+    ("menta", (0x83, 0xd9, 0xcb)),
+    ("ámbar", (0xe7, 0xba, 0x70)),
+    ("celeste", (0x8f, 0xc7, 0xe8)),
+    ("violeta", (0xc9, 0xa5, 0xe0)),
+    ("verde", (0x9f, 0xd9, 0x9f)),
+];
+
+/// Acciones globales con atajo configurable: (id, etiqueta, por defecto).
+const KEY_ACTIONS: &[(&str, &str, &str)] = &[
+    ("palette", "Paleta de comandos", "Ctrl+Shift+P"),
+    ("files", "Buscar archivos", "Ctrl+P"),
+    ("search", "Buscar en el proyecto", "Ctrl+Shift+F"),
+    ("help", "Ayuda SpASM", "F1"),
 ];
 
 /// Posición del cursor dentro de un buffer: línea y columna **en caracteres**.
@@ -478,11 +495,12 @@ enum Command {
     TemplateCompiled,
     TemplateInterpreter,
     TemplateEmpty,
+    Preferences,
 }
 
 impl Command {
     /// Todos, en el orden en que se muestran.
-    const ALL: [Command; 50] = [
+    const ALL: [Command; 51] = [
         Command::Run,
         Command::Build,
         Command::Lint,
@@ -533,6 +551,7 @@ impl Command {
         Command::TemplateCompiled,
         Command::TemplateInterpreter,
         Command::TemplateEmpty,
+        Command::Preferences,
     ];
 
     fn label(self) -> &'static str {
@@ -587,6 +606,7 @@ impl Command {
             Command::TemplateCompiled => "Plantilla: programa compilado…",
             Command::TemplateInterpreter => "Plantilla: hola mundo (intérprete)…",
             Command::TemplateEmpty => "Plantilla: archivo vacío…",
+            Command::Preferences => "Preferencias",
         }
     }
 
@@ -633,6 +653,7 @@ impl Command {
             Command::TemplateCompiled | Command::TemplateInterpreter | Command::TemplateEmpty => {
                 "plantilla"
             }
+            Command::Preferences => "Ctrl+,",
             _ => "",
         }
     }
@@ -953,6 +974,16 @@ pub struct Ide {
     run_entry: Option<PathBuf>,
     run_args: String,
     run_build_on_save: bool,
+    /// Preferencias: fuentes, tamaño del código y acento.
+    sans: String,
+    mono: String,
+    editor_font_size: f32,
+    accent: usize,
+    prefs_open: bool,
+    /// Atajos globales: acción → combinación.
+    keymap: HashMap<String, String>,
+    /// Acción esperando una combinación nueva.
+    capturing_key: Option<String>,
     /// Estado de la búsqueda del editor (barra, coincidencias).
     find: Find,
     /// Buscar en el proyecto: estado y canal del hilo.
@@ -1023,6 +1054,31 @@ impl Ide {
             .filter(|p| p.is_file());
         let run_args = config.get("run.args").unwrap_or("").to_string();
         let run_build_on_save = config.bool("run.build-on-save", false);
+        let sans = config
+            .get("font.sans")
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+            .unwrap_or_else(|| pick_font(SANS_FONTS, "Segoe UI"));
+        let mono = config
+            .get("font.mono")
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+            .unwrap_or_else(|| pick_font(MONO_FONTS, "Consolas"));
+        let editor_font_size = config.f32("font.editor-size", 12.0).clamp(9.0, 24.0);
+        let accent = config
+            .usize("theme.accent", 0)
+            .min(ACCENTS.len().saturating_sub(1));
+        let mut keymap: HashMap<String, String> = KEY_ACTIONS
+            .iter()
+            .map(|(id, _, d)| (id.to_string(), d.to_string()))
+            .collect();
+        for (id, _, _) in KEY_ACTIONS {
+            if let Some(v) = config.get(&format!("keys.{id}")) {
+                if !v.trim().is_empty() {
+                    keymap.insert(id.to_string(), v.trim().to_string());
+                }
+            }
+        }
         let docks = [
             Dock::from_code(config.i32("panel.0.dock", 0)),
             Dock::from_code(config.i32("panel.1.dock", 1)),
@@ -1085,6 +1141,13 @@ impl Ide {
             run_entry,
             run_args,
             run_build_on_save,
+            sans,
+            mono,
+            editor_font_size,
+            accent,
+            prefs_open: false,
+            keymap,
+            capturing_key: None,
             find: Find::default(),
             search: Search::default(),
             search_tx,
@@ -1210,6 +1273,10 @@ impl Ide {
         self.config.set("run.args", &self.run_args);
         self.config
             .set("run.build-on-save", u8::from(self.run_build_on_save));
+        self.config.set("font.sans", &self.sans);
+        self.config.set("font.mono", &self.mono);
+        self.config.set("font.editor-size", self.editor_font_size);
+        self.config.set("theme.accent", self.accent);
         self.config.save();
     }
 
@@ -1643,14 +1710,22 @@ impl Ide {
     /// proceso: `Ctrl+Shift+C/V` copian/pegan la selección y `Shift+PageUp/Down`
     /// recorren el scrollback. Cualquier otra tecla vuelve la vista al final.
     fn pty_key(&mut self, target: Target, text: &str, control: bool, shift: bool, alt: bool) {
-        // Diálogo de entrada (modal), búsqueda en el proyecto y paleta (global).
+        // Diálogo de entrada (modal), paleta/búsqueda abiertas, captura de atajo
+        // y atajos globales configurables; después, las teclas del proceso.
         if self.prompt_intercept(text, control) {
+            return;
+        }
+        if self.palette_intercept(text, control, shift) {
             return;
         }
         if self.search_intercept(text, control, shift) {
             return;
         }
-        if self.palette_intercept(text, control, shift) {
+        if self.capture_key(text, control, shift, alt) {
+            return;
+        }
+        if let Some(action) = self.keymap_action(text, control, shift, alt) {
+            self.run_key_action(&action);
             return;
         }
         if control && shift {
@@ -2302,14 +2377,7 @@ impl Ide {
         if self.palette.open {
             return self.palette_key(text, control);
         }
-        if control && text.eq_ignore_ascii_case("p") {
-            self.palette_open(if shift {
-                PaletteKind::Commands
-            } else {
-                PaletteKind::Files
-            });
-            return true;
-        }
+        let _ = shift;
         false
     }
 
@@ -2409,6 +2477,7 @@ impl Ide {
                 let body = templates::by_id("vacio").map(|t| t.body).unwrap_or("");
                 self.new_file_with(body);
             }
+            Command::Preferences => self.prefs_toggle(),
         }
     }
 
@@ -3169,10 +3238,6 @@ impl Ide {
             self.search_key(text, control, shift);
             return true;
         }
-        if control && shift && text.eq_ignore_ascii_case("f") {
-            self.search_open();
-            return true;
-        }
         false
     }
 
@@ -3182,6 +3247,142 @@ impl Ide {
             return;
         }
         self.ask = Some(Ask::ReplaceInProject);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Preferencias y atajos
+// ---------------------------------------------------------------------------
+
+impl Ide {
+    /// Abre o cierra el panel de Preferencias.
+    fn prefs_toggle(&mut self) {
+        self.prefs_open = !self.prefs_open;
+        if !self.prefs_open {
+            self.capturing_key = None;
+        }
+    }
+
+    /// Cierra Preferencias.
+    fn prefs_close(&mut self) {
+        self.prefs_open = false;
+        self.capturing_key = None;
+    }
+
+    fn prefs_cycle_mono(&mut self) {
+        self.mono = next_family(MONO_FONTS, &self.mono);
+        self.save_prefs();
+    }
+
+    fn prefs_cycle_sans(&mut self) {
+        self.sans = next_family(SANS_FONTS, &self.sans);
+        self.save_prefs();
+    }
+
+    fn prefs_font_delta(&mut self, delta: f32) {
+        self.editor_font_size = (self.editor_font_size + delta).clamp(9.0, 24.0);
+        self.save_prefs();
+    }
+
+    fn prefs_cycle_accent(&mut self) {
+        if !ACCENTS.is_empty() {
+            self.accent = (self.accent + 1) % ACCENTS.len();
+            self.save_prefs();
+        }
+    }
+
+    /// Empieza (o cancela) la captura de una combinación para `action`.
+    fn prefs_capture(&mut self, action: &str) {
+        if self.capturing_key.as_deref() == Some(action) {
+            self.capturing_key = None;
+        } else {
+            self.capturing_key = Some(action.to_string());
+        }
+    }
+
+    /// Color del acento actual.
+    fn accent_rgb(&self) -> (u8, u8, u8) {
+        ACCENTS
+            .get(self.accent)
+            .map(|(_, c)| *c)
+            .unwrap_or((0x83, 0xd9, 0xcb))
+    }
+
+    /// Nombre del acento actual.
+    fn accent_name(&self) -> String {
+        ACCENTS
+            .get(self.accent)
+            .map(|(n, _)| (*n).to_string())
+            .unwrap_or_default()
+    }
+
+    /// Aplica las preferencias visuales a los globales de Slint.
+    fn apply_theme(&self, window: &NuIdeWindow) {
+        let theme = window.global::<crate::ui::IdeTheme>();
+        theme.set_sans(self.sans.clone().into());
+        theme.set_mono(self.mono.clone().into());
+        theme.set_editor_font_size(self.editor_font_size);
+        let (r, g, b) = self.accent_rgb();
+        theme.set_mint(slint::Color::from_rgb_u8(r, g, b));
+    }
+
+    /// Persiste fuentes, tamaño y acento.
+    fn save_prefs(&mut self) {
+        self.config.set("font.sans", &self.sans);
+        self.config.set("font.mono", &self.mono);
+        self.config.set("font.editor-size", self.editor_font_size);
+        self.config.set("theme.accent", self.accent);
+        self.config.save();
+    }
+
+    /// Acción global cuyo atajo coincide con la tecla (si hay).
+    fn keymap_action(&self, text: &str, control: bool, shift: bool, alt: bool) -> Option<String> {
+        let chord = chord_of(text, control, shift, alt)?;
+        self.keymap
+            .iter()
+            .find(|(_, c)| **c == chord)
+            .map(|(a, _)| a.clone())
+    }
+
+    /// Ejecuta una acción global.
+    fn run_key_action(&mut self, action: &str) {
+        match action {
+            "palette" => self.palette_open(PaletteKind::Commands),
+            "files" => self.palette_open(PaletteKind::Files),
+            "search" => self.search_open(),
+            "help" => self.spasm_help(),
+            _ => {}
+        }
+    }
+
+    /// Si se está capturando un atajo, lo asigna. Devuelve si consumió la tecla.
+    fn capture_key(&mut self, text: &str, control: bool, shift: bool, alt: bool) -> bool {
+        let Some(action) = self.capturing_key.clone() else {
+            return false;
+        };
+        if text == "\u{1b}" {
+            self.capturing_key = None;
+            return true;
+        }
+        if let Some(chord) = chord_of(text, control, shift, alt) {
+            self.keymap.insert(action.clone(), chord.clone());
+            self.config.set(&format!("keys.{action}"), &chord);
+            self.config.save();
+            self.capturing_key = None;
+        }
+        true
+    }
+
+    /// Filas de atajos para Preferencias.
+    fn prefs_keys(&self) -> Vec<IdePrefRow> {
+        KEY_ACTIONS
+            .iter()
+            .map(|(id, label, _)| IdePrefRow {
+                id: (*id).into(),
+                label: (*label).into(),
+                value: self.keymap.get(*id).cloned().unwrap_or_default().into(),
+            })
+            .collect()
     }
 }
 
@@ -3517,14 +3718,22 @@ impl Ide {
     /// caracteres: Backspace es `\u{8}`, Enter `\n` y las flechas son caracteres
     /// de uso privado (`\u{F700}`–`\u{F703}`).
     fn editor_key(&mut self, text: &str, control: bool, shift: bool) {
-        // Diálogo de entrada (modal), búsqueda en el proyecto y paleta (global).
+        // Diálogo de entrada, paleta/búsqueda abiertas, captura de atajo y
+        // atajos globales configurables; después, la edición normal.
         if self.prompt_intercept(text, control) {
+            return;
+        }
+        if self.palette_intercept(text, control, shift) {
             return;
         }
         if self.search_intercept(text, control, shift) {
             return;
         }
-        if self.palette_intercept(text, control, shift) {
+        if self.capture_key(text, control, shift, false) {
+            return;
+        }
+        if let Some(action) = self.keymap_action(text, control, shift, false) {
+            self.run_key_action(&action);
             return;
         }
         if self.tabs.is_empty() {
@@ -3535,11 +3744,6 @@ impl Ide {
             return;
         }
         // Atajos globales del IDE, aun con la búsqueda abierta.
-        if text == "\u{F704}" {
-            // F1: ayuda de sintaxis de SpASM.
-            self.spasm_help();
-            return;
-        }
         if text == "\u{F708}" {
             self.run(None);
             return;
@@ -5145,6 +5349,20 @@ impl Ide {
             .collect();
         w.set_search_hits(ModelRc::from(Rc::new(VecModel::from(hits))));
 
+        // --- preferencias ---
+        w.set_prefs_open(self.prefs_open);
+        w.set_prefs_mono(self.mono.clone().into());
+        w.set_prefs_sans(self.sans.clone().into());
+        w.set_prefs_editor_size(format!("{}", self.editor_font_size as i32).into());
+        w.set_prefs_accent(self.accent_name().into());
+        let (ar, ag, ab) = self.accent_rgb();
+        w.set_prefs_accent_color(slint::Color::from_rgb_u8(ar, ag, ab));
+        w.set_prefs_tab_size(self.tab_size.to_string().into());
+        w.set_prefs_insert_spaces(self.insert_spaces);
+        w.set_prefs_build_on_save(self.run_build_on_save);
+        w.set_prefs_capturing(self.capturing_key.clone().unwrap_or_default().into());
+        w.set_prefs_keys(ModelRc::from(Rc::new(VecModel::from(self.prefs_keys()))));
+
         // --- Git ---
         w.set_git_repo(self.git_status.is_repo);
         w.set_git_branch(self.git_status.branch.clone().into());
@@ -5982,6 +6200,100 @@ fn encode_key(text: &str, control: bool, shift: bool, alt: bool) -> Option<Vec<u
 
 /// Devuelve la primera familia cuyo archivo de fuente exista; si ninguna, el
 /// valor por defecto. Slint necesita un **único** nombre de familia.
+/// Familias instaladas de la lista de candidatos (para poder ciclar en
+/// Preferencias). En otras plataformas devuelve todas: Slint usa su fallback.
+fn installed_families(candidates: &[(&str, &str)]) -> Vec<String> {
+    #[cfg(windows)]
+    {
+        let dirs: Vec<PathBuf> = [
+            std::env::var_os("WINDIR").map(|w| PathBuf::from(w).join("Fonts")),
+            std::env::var_os("LOCALAPPDATA").map(|l| {
+                PathBuf::from(l)
+                    .join("Microsoft")
+                    .join("Windows")
+                    .join("Fonts")
+            }),
+        ]
+        .into_iter()
+        .flatten()
+        .collect();
+        let found: Vec<String> = candidates
+            .iter()
+            .filter(|(_, file)| dirs.iter().any(|d| d.join(file).is_file()))
+            .map(|(n, _)| (*n).to_string())
+            .collect();
+        if !found.is_empty() {
+            return found;
+        }
+    }
+    candidates.iter().map(|(n, _)| (*n).to_string()).collect()
+}
+
+/// Siguiente familia instalada respecto de `current`.
+fn next_family(candidates: &[(&str, &str)], current: &str) -> String {
+    let list = installed_families(candidates);
+    if list.is_empty() {
+        return current.to_string();
+    }
+    let idx = list
+        .iter()
+        .position(|f| f == current)
+        .map(|i| (i + 1) % list.len())
+        .unwrap_or(0);
+    list[idx].clone()
+}
+
+/// Combinación de teclas (`"Ctrl+Shift+P"`) a partir del evento del editor.
+/// `None` si la tecla no sirve como atajo.
+fn chord_of(text: &str, control: bool, shift: bool, alt: bool) -> Option<String> {
+    let key: String = match text {
+        "\u{F704}" => "F1".to_string(),
+        "\u{F705}" => "F2".to_string(),
+        "\u{F706}" => "F3".to_string(),
+        "\u{F707}" => "F4".to_string(),
+        "\u{F708}" => "F5".to_string(),
+        "\u{F709}" => "F6".to_string(),
+        "\u{F70a}" => "F7".to_string(),
+        "\u{F70b}" => "F8".to_string(),
+        "\u{F70c}" => "F9".to_string(),
+        "\u{F70d}" => "F10".to_string(),
+        "\u{F70e}" => "F11".to_string(),
+        "\u{F70f}" => "F12".to_string(),
+        "\u{F700}" => "Up".to_string(),
+        "\u{F701}" => "Down".to_string(),
+        "\u{F702}" => "Left".to_string(),
+        "\u{F703}" => "Right".to_string(),
+        "\u{F729}" => "Home".to_string(),
+        "\u{F72b}" => "End".to_string(),
+        "\u{F72c}" => "PageUp".to_string(),
+        "\u{F72d}" => "PageDown".to_string(),
+        _ => {
+            let mut chars = text.chars();
+            let c = chars.next()?;
+            if chars.next().is_some() || !c.is_ascii_graphic() {
+                return None;
+            }
+            if c.is_ascii_alphabetic() {
+                c.to_ascii_uppercase().to_string()
+            } else {
+                c.to_string()
+            }
+        }
+    };
+    let mut chord = String::new();
+    if control {
+        chord.push_str("Ctrl+");
+    }
+    if shift {
+        chord.push_str("Shift+");
+    }
+    if alt {
+        chord.push_str("Alt+");
+    }
+    chord.push_str(&key);
+    Some(chord)
+}
+
 fn pick_font(candidates: &[(&str, &str)], default: &str) -> String {
     #[cfg(windows)]
     {
@@ -6009,13 +6321,8 @@ fn pick_font(candidates: &[(&str, &str)], default: &str) -> String {
 
 /// Engancha los callbacks de la ventana y arranca el bucle de drenado.
 pub fn attach(window: &NuIdeWindow, ide: Rc<RefCell<Ide>>) {
-    // Slint no soporta listas de fuentes separadas por comas: `font-family` es un
-    // único nombre. Se elige la mejor familia instalada.
-    {
-        let theme = window.global::<crate::ui::IdeTheme>();
-        theme.set_sans(pick_font(SANS_FONTS, "Segoe UI").into());
-        theme.set_mono(pick_font(MONO_FONTS, "Consolas").into());
-    }
+    // Fuentes, tamaño y acento (desde Preferencias).
+    ide.borrow().apply_theme(window);
 
     ide.borrow_mut().sync(window);
     // Restaura el tamaño/posición recordados (si los hay).
@@ -6392,6 +6699,123 @@ pub fn attach(window: &NuIdeWindow, ide: Rc<RefCell<Ide>>) {
                 } else {
                     e.search.query_cursor = e.search.query.chars().count();
                 }
+                e.sync(&w);
+            }
+        });
+    }
+
+    // Preferencias.
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_prefs_dismiss(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.prefs_close();
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_prefs_cycle_mono(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.prefs_cycle_mono();
+                e.apply_theme(&w);
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_prefs_cycle_sans(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.prefs_cycle_sans();
+                e.apply_theme(&w);
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_prefs_font_smaller(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.prefs_font_delta(-1.0);
+                e.apply_theme(&w);
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_prefs_font_bigger(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.prefs_font_delta(1.0);
+                e.apply_theme(&w);
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_prefs_cycle_accent(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.prefs_cycle_accent();
+                e.apply_theme(&w);
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_prefs_cycle_tab(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.cycle_tab_size();
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_prefs_toggle_spaces(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.toggle_insert_spaces();
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_prefs_toggle_build(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.run_toggle_build_on_save();
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_prefs_capture(move |id| {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.prefs_capture(&id);
                 e.sync(&w);
             }
         });
@@ -7748,8 +8172,9 @@ mod tests {
         std::fs::write(dir.join("a.spasm"), "end;").unwrap();
         ide.explorer = Explorer::new(dir.clone());
 
-        // Ctrl+Shift+P: paleta de comandos.
-        assert!(ide.palette_intercept("P", true, true));
+        // Ctrl+Shift+P: paleta de comandos (vía el atajo configurable).
+        let action = ide.keymap_action("P", true, true, false).unwrap();
+        ide.run_key_action(&action);
         assert!(ide.palette.open);
         assert_eq!(ide.palette.kind, PaletteKind::Commands);
         assert_eq!(ide.palette.rows.len(), Command::ALL.len());
@@ -7768,7 +8193,8 @@ mod tests {
         assert!(!ide.palette.open);
 
         // Ctrl+P: buscador de archivos.
-        assert!(ide.palette_intercept("p", true, false));
+        let action = ide.keymap_action("p", true, false, false).unwrap();
+        ide.run_key_action(&action);
         assert_eq!(ide.palette.kind, PaletteKind::Files);
         assert_eq!(ide.palette.rows.len(), 1);
 
@@ -8142,7 +8568,8 @@ mod tests {
         ide.explorer = Explorer::new(dir.clone());
 
         assert!(!ide.search.open);
-        assert!(ide.search_intercept("F", true, true));
+        let action = ide.keymap_action("F", true, true, false).unwrap();
+        ide.run_key_action(&action);
         assert!(ide.search.open);
         ide.search_key("x", false, false);
         assert_eq!(ide.search.query, "x");
@@ -8224,5 +8651,42 @@ mod tests {
             vec!["--x".to_string(), "a b".to_string(), "--y".to_string()]
         );
         assert!(shell_split("   ").is_empty());
+    }
+
+    #[test]
+    fn arma_combinaciones_de_teclas() {
+        assert_eq!(chord_of("p", true, false, false).as_deref(), Some("Ctrl+P"));
+        assert_eq!(
+            chord_of("P", true, true, false).as_deref(),
+            Some("Ctrl+Shift+P")
+        );
+        assert_eq!(
+            chord_of("\u{F704}", false, false, false).as_deref(),
+            Some("F1")
+        );
+        assert_eq!(chord_of("a", false, false, false).as_deref(), Some("A"));
+        assert!(chord_of("\u{1b}", false, false, false).is_none());
+    }
+
+    #[test]
+    fn reasigna_un_atajo_global() {
+        let mut ide = Ide::new();
+        // Por defecto, Ctrl+Shift+P abre la paleta.
+        assert_eq!(
+            ide.keymap_action("P", true, true, false).as_deref(),
+            Some("palette")
+        );
+
+        ide.prefs_capture("palette");
+        ide.capture_key("k", true, true, false); // Ctrl+Shift+K
+        assert_eq!(
+            ide.keymap.get("palette").map(String::as_str),
+            Some("Ctrl+Shift+K")
+        );
+        assert_eq!(
+            ide.keymap_action("K", true, true, false).as_deref(),
+            Some("palette")
+        );
+        assert!(ide.keymap_action("P", true, true, false).is_none());
     }
 }

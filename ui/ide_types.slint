@@ -98,6 +98,13 @@ export struct IdeDiffLine {
     kind: int,
 }
 
+// Fila de Preferencias (ajuste o atajo).
+export struct IdePrefRow {
+    id: string,
+    label: string,
+    value: string,
+}
+
 // Fila de un menú desplegable (Archivo/Editar). `id` vacío = separador.
 export struct IdeMenuEntry {
     id: string,

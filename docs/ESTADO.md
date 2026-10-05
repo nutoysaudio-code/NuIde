@@ -400,6 +400,23 @@ ui/*.slint          la ventana, paneles y tema
   breakpoints ni inspección de registros (`--help` no los lista), así que un
   depurador interactivo requiere extender el intérprete; queda documentado.
 
+### 3.23 Preferencias y atajos
+
+- Panel `ui/ide_prefs.slint` (`IdePrefs`), abierto con `Ctrl+,`/comando:
+  Apariencia (fuente del código y de la interfaz, tamaño del código con `−`/`+`,
+  acento), Editor (tab, insertar espacios), Ejecutar (compilar al guardar) y
+  Atajos.
+- **En caliente**: `apply_theme` toca los globales `IdeTheme` (sans, mono,
+  `editor-font-size`, `mint`). El tamaño del código se aplica al editor vía
+  `IdeTheme.editor-font-size` (también cambia el alto de fila).
+- **Atajos configurables**: `KEY_ACTIONS` (paleta, archivos, búsqueda, ayuda) da
+  los `chord_of(text, ctrl, shift, alt)` → `keymap`; `capture_key` captura la
+  combinación nueva (Esc cancela) y la guarda en `keys.*`. `keymap_action` +
+  `run_key_action` los despachan al inicio de `editor_key`/`pty_key`.
+- Persistencia: `font.sans`, `font.mono`, `font.editor-size`, `theme.accent`,
+  `keys.*`.
+- **Pendiente:** i18n y permitir reasignar *todos* los atajos (hoy los globales).
+
 ---
 
 ## 4. Limitaciones conocidas
@@ -505,7 +522,7 @@ script de instalación.
 ## 6. Verificación
 
 - `cargo build` / `cargo check` sin warnings.
-- `cargo test`: **105 pruebas OK** (unitarias; las de PTY, el linter y el build
+- `cargo test`: **107 pruebas OK** (unitarias; las de PTY, el linter y el build
   lanzan `cmd`/`opencode`/Python/spasmc reales y se saltean si no están).
 - `cargo fmt --check` limpio.
 - `slint-viewer --check ui/nuide_ui.slint` OK.

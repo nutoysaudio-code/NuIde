@@ -77,7 +77,7 @@ component IdeCodeRow inherits Rectangle {
     in property <IdeCodeLine> line;
     in property <bool> active: false;
 
-    height: 20px;
+    height: IdeTheme.editor-font-size + 8px;
     background: root.active ? IdeTheme.active-line : transparent;
 
     // Barra de la línea activa o con error (el error gana).
@@ -100,7 +100,7 @@ component IdeCodeRow inherits Rectangle {
             : root.active ? IdeTheme.text-soft
             : IdeTheme.text-dim;
         font-family: IdeTheme.mono;
-        font-size: 12px;
+        font-size: IdeTheme.editor-font-size;
         horizontal-alignment: right;
         vertical-alignment: center;
     }
@@ -136,7 +136,7 @@ component IdeCodeRow inherits Rectangle {
                     : tok.kind == 6 ? IdeTheme.mint
                     : IdeTheme.code-text;
                 font-family: IdeTheme.mono;
-                font-size: 12px;
+                font-size: IdeTheme.editor-font-size;
                 height: parent.height;
                 vertical-alignment: center;
             }
@@ -258,7 +258,7 @@ export component IdeEditor inherits FocusScope {
     }
 
     // Geometría del área de código (debe coincidir con `IdeCodeRow`).
-    private property <length> row-h: 20px;
+    private property <length> row-h: IdeTheme.editor-font-size + 8px;
     // Alto de la barra de búsqueda cuando está abierta.
     private property <length> find-h: root.find-open ? (root.find-replace-open ? 64px : 34px) : 0px;
     private property <length> canvas-y: 60px + root.find-h;

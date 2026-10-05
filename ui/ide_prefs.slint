@@ -1,0 +1,253 @@
+import { IdeTheme } from "ide_theme.slint";
+import { IdePrefRow } from "ide_types.slint";
+
+// Botón pequeño de Preferencias.
+component PrefButton inherits Rectangle {
+    in property <string> label: "";
+    in property <bool> active: false;
+    callback activated();
+
+    width: 22px;
+    height: 22px;
+    border-radius: IdeTheme.radius-sm;
+    background: ta.has-hover ? IdeTheme.control-hi : IdeTheme.control;
+    border-width: 1px;
+    border-color: IdeTheme.border-soft;
+
+    Text {
+        width: parent.width;
+        height: parent.height;
+        text: root.label;
+        color: root.active ? IdeTheme.mint : IdeTheme.text-soft;
+        font-family: IdeTheme.sans;
+        font-size: 12px;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+
+    ta := TouchArea {
+        mouse-cursor: MouseCursor.pointer;
+        clicked => { root.activated(); }
+    }
+}
+
+// Fila ajuste: etiqueta + valor clickeable.
+component PrefRow inherits Rectangle {
+    in property <string> label: "";
+    in property <string> value: "";
+    callback activated();
+
+    height: 28px;
+    border-radius: IdeTheme.radius-sm;
+    background: ta.has-hover ? IdeTheme.control : transparent;
+
+    Text {
+        x: 10px;
+        y: (parent.height - self.height) / 2;
+        text: root.label;
+        color: IdeTheme.text-soft;
+        font-family: IdeTheme.sans;
+        font-size: 12px;
+        vertical-alignment: center;
+    }
+
+    Text {
+        x: parent.width - 10px - self.width;
+        y: (parent.height - self.height) / 2;
+        text: root.value;
+        color: ta.has-hover ? IdeTheme.text : IdeTheme.mint;
+        font-family: IdeTheme.mono;
+        font-size: 11px;
+        vertical-alignment: center;
+    }
+
+    ta := TouchArea {
+        mouse-cursor: MouseCursor.pointer;
+        clicked => { root.activated(); }
+    }
+}
+
+// Encabezado de sección.
+component PrefSection inherits Text {
+    in property <string> title: "";
+    text: root.title;
+    color: IdeTheme.text-dim;
+    font-family: IdeTheme.sans;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 1.4px;
+    height: 22px;
+    vertical-alignment: center;
+}
+
+// Panel de Preferencias.
+export component IdePrefs inherits Rectangle {
+    in property <string> mono: "";
+    in property <string> sans: "";
+    in property <string> editor-size: "12";
+    in property <string> accent: "";
+    in property <color> accent-color: #83d9cb;
+    in property <string> tab-size: "4";
+    in property <bool> insert-spaces: true;
+    in property <bool> build-on-save: false;
+    in property <[IdePrefRow]> keys: [];
+    // Acción que está esperando una combinación de teclas ("" = ninguna).
+    in property <string> capturing: "";
+
+    callback dismiss();
+    callback cycle-mono();
+    callback cycle-sans();
+    callback font-smaller();
+    callback font-bigger();
+    callback cycle-accent();
+    callback cycle-tab();
+    callback toggle-spaces();
+    callback toggle-build();
+    callback capture(string);
+
+    Rectangle {
+        x: 0;
+        y: 0;
+        width: parent.width;
+        height: parent.height;
+        background: #000000aa;
+
+        backdrop := TouchArea {
+            clicked => { root.dismiss(); }
+        }
+    }
+
+    box := Rectangle {
+        x: (parent.width - self.width) / 2;
+        y: 48px;
+        width: 560px;
+        height: min(560px, parent.height - 80px);
+        background: IdeTheme.panel;
+        border-width: 1px;
+        border-color: IdeTheme.border-soft;
+        border-radius: IdeTheme.radius;
+        clip: true;
+
+        Text {
+            x: 18px;
+            y: (36px - self.height) / 2;
+            text: "Preferencias";
+            color: IdeTheme.text;
+            font-family: IdeTheme.sans;
+            font-size: 14px;
+            font-weight: 600;
+            vertical-alignment: center;
+        }
+
+        Rectangle {
+            y: 36px;
+            width: parent.width;
+            height: IdeTheme.hairline;
+            background: IdeTheme.border-faint;
+        }
+
+        Flickable {
+            x: 0;
+            y: 36px;
+            width: parent.width;
+            height: parent.height - 36px;
+            content-width: self.width;
+            content-height: prefs-list.preferred-height + 16px;
+
+            prefs-list := VerticalLayout {
+                x: 12px;
+                y: 8px;
+                width: parent.width - 24px;
+                spacing: 2px;
+                alignment: start;
+
+                PrefSection { title: "APARIENCIA"; }
+                PrefRow { label: "Fuente del código"; value: root.mono; activated => { root.cycle-mono(); } }
+                PrefRow { label: "Fuente de la interfaz"; value: root.sans; activated => { root.cycle-sans(); } }
+                HorizontalLayout {
+                    height: 28px;
+                    spacing: 6px;
+                    alignment: start;
+                    cross-axis-alignment: center;
+                    Text {
+                        text: "Tamaño del código";
+                        color: IdeTheme.text-soft;
+                        font-family: IdeTheme.sans;
+                        font-size: 12px;
+                        vertical-alignment: center;
+                        horizontal-stretch: 1;
+                    }
+                    PrefButton { label: "−"; activated => { root.font-smaller(); } }
+                    Text {
+                        text: root.editor-size;
+                        color: IdeTheme.mint;
+                        font-family: IdeTheme.mono;
+                        font-size: 11px;
+                        vertical-alignment: center;
+                        width: 28px;
+                        horizontal-alignment: center;
+                    }
+                    PrefButton { label: "+"; activated => { root.font-bigger(); } }
+                }
+                HorizontalLayout {
+                    height: 28px;
+                    spacing: 6px;
+                    alignment: start;
+                    cross-axis-alignment: center;
+                    Text {
+                        text: "Acento";
+                        color: IdeTheme.text-soft;
+                        font-family: IdeTheme.sans;
+                        font-size: 12px;
+                        vertical-alignment: center;
+                        horizontal-stretch: 1;
+                    }
+                    Rectangle {
+                        width: 28px;
+                        height: 16px;
+                        border-radius: 3px;
+                        background: root.accent-color;
+                    }
+                    Text {
+                        text: root.accent;
+                        color: IdeTheme.mint;
+                        font-family: IdeTheme.mono;
+                        font-size: 11px;
+                        vertical-alignment: center;
+                    }
+                }
+
+                PrefSection { title: "EDITOR"; }
+                PrefRow { label: "Tamaño de tab"; value: root.tab-size; activated => { root.cycle-tab(); } }
+                PrefRow { label: "Insertar espacios"; value: root.insert-spaces ? "Sí" : "No"; activated => { root.toggle-spaces(); } }
+
+                PrefSection { title: "EJECUTAR"; }
+                PrefRow { label: "Compilar al guardar"; value: root.build-on-save ? "Sí" : "No"; activated => { root.toggle-build(); } }
+
+                PrefSection { title: "ATAJOS (clic para reasignar)"; }
+                for key in root.keys: PrefRow {
+                    label: key.label;
+                    value: root.capturing == key.id ? "…" : key.value;
+                    activated => { root.capture(key.id); }
+                }
+            }
+        }
+
+        // Aviso cuando se está capturando una combinación.
+        if root.capturing != "": Rectangle {
+            y: parent.height - 26px;
+            width: parent.width;
+            height: 26px;
+            background: IdeTheme.control;
+            Text {
+                x: 12px;
+                y: (parent.height - self.height) / 2;
+                text: "Presioná la combinación nueva (Esc para cancelar)";
+                color: IdeTheme.amber;
+                font-family: IdeTheme.sans;
+                font-size: 11px;
+                vertical-alignment: center;
+            }
+        }
+    }
+}

@@ -60,6 +60,7 @@ abiertos es una **página de bienvenida** real (accesos y atajos).
 | 28 | buscar y reemplazar en todo el proyecto | ✅ |
 | 29 | Git avanzado: diff, ramas, pull, ahead/behind, descartar/amend | ✅ |
 | 30 | flujo SpASM: config de ejecución, plantillas y ayuda de sintaxis | ✅ |
+| 31 | preferencias (fuente/tamaño/acento) y atajos configurables | ✅ |
 
 > El parte de estado detallado —qué se cambió en cada iteración, limitaciones y
 > pendientes con su enfoque— está en [`docs/ESTADO.md`](docs/ESTADO.md).
@@ -237,10 +238,10 @@ invirtiendo la celda (sin calcular píxeles).
 - El teclado se traduce a los bytes del terminal (flechas, Backspace, Delete,
   Home/End, PageUp/Down, Ctrl+letra, Shift+flechas).
 - **Grilla exacta**: Slint no admite listas de fuentes, así que la IDE elige una
-  familia monoespaciada instalada (JetBrains Mono / Cascadia Mono / Consolas) al
-  arrancar, **mide** el ancho real de una celda y cada tramo se ubica por su
-  columna (no por el ancho del texto). Así las TUI con glifos de caja/bloque (la
-  de `opencode`) quedan alineadas.
+  familia monoespaciada instalada (JetBrains Mono / Cascadia Mono / Consolas;
+  configurable en **Preferencias**) al arrancar, **mide** el ancho real de una
+  celda y cada tramo se ubica por su columna (no por el ancho del texto). Así las
+  TUI con glifos de caja/bloque (la de `opencode`) quedan alineadas.
 
 Los menús **Ejecutar** y **Compilar** de la barra superior actúan sobre el
 archivo activo: corren el intérprete (`spasm.exe`) o el compilador (`spasmc.py`)
@@ -378,6 +379,22 @@ las filas que arma Rust:
 Ir a línea reusa la paleta en modo numérico. Todo esto también está en la paleta
 de comandos (`Ctrl+Shift+P`).
 
+### Preferencias y atajos
+
+`Ctrl+,` (o el comando *Preferencias*) abre `ui/ide_prefs.slint`:
+
+- **Apariencia**: fuente del código y de la interfaz (cicla entre las familias
+  instaladas), **tamaño del código** (`−`/`+`) y **acento** (5 colores).
+- **Editor**: tamaño de tab (2/4/8) e insertar espacios.
+- **Ejecutar**: compilar al guardar.
+- **Atajos**: clic en una fila y **presioná la combinación nueva** (`Esc`
+  cancela). Hoy son configurables los globales: paleta, buscar archivos, buscar
+  en el proyecto y ayuda.
+
+Todo se aplica **en caliente** (se tocan los globales de `IdeTheme`) y se guarda
+en la config (`font.*`, `theme.accent`, `keys.*`). El tamaño del código llega al
+editor vía `IdeTheme.editor-font-size`.
+
 ## Estructura
 
 ```
@@ -415,6 +432,7 @@ nuide/
     ide_palette.slint      paleta de comandos / buscador de archivos
     ide_search.slint       buscar/reemplazar en el proyecto
     ide_diff.slint         visor de diff de Git
+    ide_prefs.slint        preferencias y atajos
     ide_menu.slint         menú desplegable (Archivo / Editar)
     ide_confirm.slint      diálogos de confirmación / eliminar
     ide_prompt.slint       diálogo de entrada de texto
@@ -482,7 +500,7 @@ Ordenados por impacto para usar el IDE día a día; el **plan en fases** complet
 
 ### Estado al 2026-10-04
 
-Compilado y publicado: `gitlab.com/nutoys-group/nuide` (`main`). 105 tests OK;
+Compilado y publicado: `gitlab.com/nutoys-group/nuide` (`main`). 107 tests OK;
 clon limpio genera `nuide.exe`. Las dos terminales son PTY reales (shell local y
 TUI de `opencode`) con **mouse reporting**, el proyecto se elige con diálogo
 nativo y se recuerda, el editor tiene buscar/reemplazar (con **regex**, **en

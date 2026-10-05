@@ -194,9 +194,12 @@ visible.
 
 ---
 
-## Fase 8 — Ajustes y personalización  ·  M  ·  must + nice
+## Fase 8 — Ajustes y personalización  ·  M  ·  must + nice  ·  ✅ hecha (3.23)
 
 **Objetivo:** adaptar el IDE al gusto sin editar el archivo de config a mano.
+(Hecho: Preferencias de fuente/tamaño/acento/tab/compilar-al-guardar y atajos
+configurables para los comandos globales, aplicados en caliente. Pendiente:
+i18n y reasignar todos los atajos.)
 
 - `M` UI de **Preferencias**: fuente y tamaño (editor y terminal), tema/acento,
   tamaño de tab, wrap, líneas del editor.
