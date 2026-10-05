@@ -314,7 +314,8 @@ ui/*.slint          la ventana, paneles y tema
 
 ## 5. Pendientes (hoja de ruta)
 
-Ordenados por impacto para el uso diario.
+Ordenados por impacto para el uso diario. El **plan en fases** para llegar a
+v1.0 (tamaño, archivos y criterio de terminado) está en [`PLAN.md`](PLAN.md).
 
 ### 5.1 Persistencia de estado
 

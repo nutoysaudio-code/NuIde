@@ -325,6 +325,7 @@ nuide/
     nuide_ui.slint         la ventana: layout, divisores y datos demo
   docs/NUIDE_IDEA.md       especificación visual/funcional
   docs/ESTADO.md           parte de estado (hecho, limitaciones, pendientes)
+  docs/PLAN.md             plan en fases para llegar a v1.0
 ```
 
 ## Compilar y correr
@@ -370,9 +371,9 @@ slint-viewer --screenshot ui.png ui/nuide_ui.slint
 
 ## Próximos pasos
 
-Ordenados por impacto para usar el IDE día a día. (Nada de esto está hecho; es
-la hoja de ruta acordada. El enfoque de cada uno está en
-[`docs/ESTADO.md`](docs/ESTADO.md#5-pendientes-hoja-de-ruta).)
+Ordenados por impacto para usar el IDE día a día; el **plan en fases** completo
+(con tamaño, archivos y criterio de terminado de cada una) está en
+[`docs/PLAN.md`](docs/PLAN.md).
 
 1. **Mouse reporting en las terminales.** Reenviar el mouse a los procesos que lo
    pidan (la TUI de OpenCode, `vim`…) sin perder la selección/copia.
