@@ -40,12 +40,13 @@ component IdeViewItem inherits Rectangle {
 }
 
 // Menú desplegable del ítem "Ver": controla dónde vive cada panel. `kind`:
-// 0 explorador, 1 OpenCode, 2 terminal. El dock: 0 izquierda, 1 derecha,
-// 2 abajo, 3 oculto.
+// 0 explorador, 1 OpenCode, 2 terminal, 3 control de código. El dock: 0
+// izquierda, 1 derecha, 2 abajo, 3 oculto.
 export component IdeViewMenu inherits Rectangle {
     in property <int> dock-explorer: 0;
     in property <int> dock-agent: 1;
     in property <int> dock-terminal: 2;
+    in property <int> dock-git: 0;
     callback cycle-dock(int);
 
     function dock-label(value: int) -> string {
@@ -89,6 +90,13 @@ export component IdeViewMenu inherits Rectangle {
             detail: root.dock-label(root.dock-terminal);
             hidden: root.dock-terminal == 3;
             kind: 2;
+            activated(k) => { root.cycle-dock(k); }
+        }
+        IdeViewItem {
+            label: "Control de código";
+            detail: root.dock-label(root.dock-git);
+            hidden: root.dock-git == 3;
+            kind: 3;
             activated(k) => { root.cycle-dock(k); }
         }
     }

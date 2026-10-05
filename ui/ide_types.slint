@@ -64,3 +64,13 @@ export struct IdeRecent {
     detail: string,
     kind: int,
 }
+
+// Archivo con cambios para el panel de control de código.
+export struct IdeGitFile {
+    // Estado de dos columnas (`M `, ` M`, `??`, `A `, …).
+    status: string,
+    // Nombre o ruta relativa (lo que se muestra).
+    name: string,
+    // Ruta relativa a la raíz (lo que recibe el callback).
+    path: string,
+}

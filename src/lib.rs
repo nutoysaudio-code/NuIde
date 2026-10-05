@@ -10,6 +10,7 @@ pub mod build;
 pub mod config;
 pub mod editor;
 pub mod explorer;
+pub mod git;
 pub mod highlight;
 pub mod lint;
 pub mod pty;

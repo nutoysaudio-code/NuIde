@@ -1,12 +1,13 @@
 import { IdeTheme } from "ide_theme.slint";
 export { IdeTheme }
-import { IdeTreeNode, IdeTab, IdeCodeLine, TermLine, IdeOutlineItem, IdeRecent } from "ide_types.slint";
+import { IdeTreeNode, IdeTab, IdeCodeLine, TermLine, IdeOutlineItem, IdeRecent, IdeGitFile } from "ide_types.slint";
 import { IdeTopBar } from "ide_topbar.slint";
 import { IdeStatusBar } from "ide_statusbar.slint";
 import { IdeExplorer } from "ide_explorer.slint";
 import { IdeEditor } from "ide_editor.slint";
 import { IdeTerminal } from "ide_terminal.slint";
 import { IdeOpenCode } from "ide_opencode.slint";
+import { IdeGit } from "ide_git.slint";
 import { IdeViewMenu } from "ide_viewmenu.slint";
 
 // ---------------------------------------------------------------------------
@@ -44,6 +45,7 @@ export component NuIdeWindow inherits Window {
     in-out property <int> dock-explorer: 0;
     in-out property <int> dock-agent: 1;
     in-out property <int> dock-terminal: 2;
+    in-out property <int> dock-git: 0;
     in-out property <bool> view-open: false;
 
     // Selección de la UI (índices, no modelos reconstruidos).
@@ -70,6 +72,15 @@ export component NuIdeWindow inherits Window {
     in-out property <bool> welcome: false;
     // Recientes de la bienvenida (proyectos y archivos).
     in-out property <[IdeRecent]> welcome-recent: [];
+    // Git (control de código).
+    in-out property <bool> git-repo: false;
+    in-out property <string> git-branch: "";
+    in-out property <string> git-note: "";
+    in-out property <bool> git-error: false;
+    in-out property <bool> git-busy: false;
+    in-out property <string> git-message: "";
+    in-out property <[IdeGitFile]> git-staged: [];
+    in-out property <[IdeGitFile]> git-changes: [];
     // Diagnóstico de SpASM (vacío si no hay errores).
     in-out property <string> diagnostics: "";
 
@@ -109,6 +120,13 @@ export component NuIdeWindow inherits Window {
     callback open-file();
     callback new-file();
     callback open-recent(int);
+    callback git-refresh();
+    callback git-init();
+    callback git-stage-all();
+    callback git-toggle(string, bool);
+    callback git-commit();
+    callback git-push();
+    callback git-open(string);
     callback terminal-key(string, bool, bool, bool);
     callback terminal-resize(length, length);
     callback terminal-scroll(length);
@@ -184,18 +202,23 @@ export component NuIdeWindow inherits Window {
 
     // Cada panel tiene un dock (0 izquierda, 1 derecha, 2 abajo, 3 oculto) y los
     // que comparten región se apilan en el orden 0 Explorador, 1 OpenCode,
-    // 2 Terminal.
+    // 2 Terminal, 3 Git.
     function dock-of(panel: int) -> int {
-        return panel == 0 ? root.dock-explorer : panel == 1 ? root.dock-agent : root.dock-terminal;
+        return panel == 0 ? root.dock-explorer
+             : panel == 1 ? root.dock-agent
+             : panel == 2 ? root.dock-terminal
+             : root.dock-git;
     }
     function count-in(region: int) -> int {
         return (root.dock-explorer == region ? 1 : 0)
              + (root.dock-agent == region ? 1 : 0)
-             + (root.dock-terminal == region ? 1 : 0);
+             + (root.dock-terminal == region ? 1 : 0)
+             + (root.dock-git == region ? 1 : 0);
     }
     function index-in(region: int, panel: int) -> int {
         return (panel > 0 && root.dock-explorer == region ? 1 : 0)
-             + (panel > 1 && root.dock-agent == region ? 1 : 0);
+             + (panel > 1 && root.dock-agent == region ? 1 : 0)
+             + (panel > 2 && root.dock-terminal == region ? 1 : 0);
     }
     function region-shown(region: int) -> bool {
         return region == 0 ? root.show-left : region == 1 ? root.show-right : root.show-bottom;
@@ -284,7 +307,7 @@ export component NuIdeWindow inherits Window {
         x: 0;
         y: parent.height - IdeTheme.statusbar-h;
         width: parent.width;
-        branch: "main";
+        branch: root.git-branch;
         language: root.language;
         encoding: "UTF-8";
         line: root.active-line;
@@ -471,6 +494,30 @@ export component NuIdeWindow inherits Window {
             selection-update(y, x) => { root.agent-selection-update(y, x); }
             selection-end => { root.agent-selection-end(); }
         }
+
+        // --- panel: control de código (Git) (dock configurable) ---
+        IdeGit {
+            x: root.panel-x(3);
+            y: root.slot-y(root.dock-of(3), 3);
+            width: root.panel-w(3);
+            height: root.slot-h(root.dock-of(3));
+            visible: root.panel-visible(3);
+            branch: root.git-branch;
+            is-repo: root.git-repo;
+            busy: root.git-busy;
+            note: root.git-note;
+            error: root.git-error;
+            staged: root.git-staged;
+            changes: root.git-changes;
+            message <=> root.git-message;
+            refresh => { root.git-refresh(); }
+            init-repo => { root.git-init(); }
+            stage-all => { root.git-stage-all(); }
+            toggle(path, staged) => { root.git-toggle(path, staged); }
+            commit => { root.git-commit(); }
+            push => { root.git-push(); }
+            open-file(path) => { root.git-open(path); }
+        }
     }
 
     // --- capa que cierra el menú "Ver" al hacer clic fuera ---
@@ -493,6 +540,7 @@ export component NuIdeWindow inherits Window {
         dock-explorer: root.dock-explorer;
         dock-agent: root.dock-agent;
         dock-terminal: root.dock-terminal;
+        dock-git: root.dock-git;
         cycle-dock(kind) => { root.cycle-dock(kind); }
     }
 

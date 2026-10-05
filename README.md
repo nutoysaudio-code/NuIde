@@ -22,10 +22,10 @@ cargo run --bin nuide          # o `cargo build --release`
 
 ## Estado
 
-La terminal, el explorador, el editor (edición con resaltado y guardado) y el
-panel de **OpenCode CLI** ya son **reales**. La interfaz dejó de tener datos
-ilustrativos: la pantalla del editor sin archivos abiertos es una **página de
-bienvenida** real (accesos y atajos).
+La terminal, el explorador, el editor (edición con resaltado y guardado), el
+panel de **OpenCode CLI** y el **control de código (Git)** ya son **reales**. La
+interfaz dejó de tener datos ilustrativos: la pantalla del editor sin archivos
+abiertos es una **página de bienvenida** real (accesos y atajos).
 
 | Fase | Contenido | Estado |
 |---|---|---|
@@ -50,6 +50,7 @@ bienvenida** real (accesos y atajos).
 | 19 | terminal inferior dividida (dos vistas) | ✅ |
 | 20 | página de bienvenida del editor (accesos + atajos) | ✅ |
 | 21 | bienvenida: recientes (proyectos/archivos) + nuevo archivo | ✅ |
+| 22 | control de código (Git): rama, stage, commit y push | ✅ |
 
 > El parte de estado detallado —qué se cambió en cada iteración, limitaciones y
 > pendientes con su enfoque— está en [`docs/ESTADO.md`](docs/ESTADO.md).
@@ -244,6 +245,27 @@ para no mezclar la salida con la terminal inferior.
 **Limitación:** el mouse se usa para seleccionar texto, así que no se reenvía a
 la TUI (no hay *mouse reporting*). El teclado sí llega completo.
 
+### El control de código (Git)
+
+Panel **real** de Git por la línea de comandos (sin dependencias): al abrir un
+proyecto se lee `git status --porcelain=v1 -b` y se muestran la **rama** y los
+archivos con cambios, separados en **CAMBIOS** y **PREPARADOS**.
+
+- Cada fila: estado de dos columnas (`M `, ` M`, `??`, `A `…), la ruta, y un
+  botón **+**/**−** para preparar o quitar del índice (`git add`/`git reset`).
+  Clic en la fila abre el archivo.
+- **Preparar todo** (`git add -A`), **Commit** (con el mensaje del campo; el
+  botón se activa cuando hay texto) y **Push**. **⟳** relee el estado.
+- Si la carpeta no es un repositorio, ofrece **Inicializar repositorio**
+  (`git init`).
+- Las operaciones corren en un **hilo** (como el linter y el build) para no
+  congelar la UI; al volver, se refresca el estado. El panel se relee al abrir
+  un proyecto, al guardar y al terminar cada operación.
+- La rama también se muestra en la barra de estado.
+
+**Limitación:** no hay *diff*, *stage* por hunks ni manejo de credenciales más
+allá de lo que haga `git` (si `push` pide credenciales, se comporta como la CLI).
+
 ## Estructura
 
 ```
@@ -259,6 +281,7 @@ nuide/
     vt.rs                  emulador VT: pantalla → tramos con color
     lint.rs                diagnóstico de SpASM (corre el parser real)
     build.rs               ejecuta el toolchain y parsea la salida (build/run)
+    git.rs                 control de código por CLI (status, stage, commit, push)
     terminal.rs            consola lineal heredada (sólo pruebas de integración)
     explorer.rs            árbol de archivos plano con profundidad
     highlight.rs           tokenizador/resaltado de SpASM
@@ -274,6 +297,7 @@ nuide/
     ide_editor.slint       pestañas + ruta + área de código
     ide_terminal.slint     terminal local + `TerminalScreen` reutilizable
     ide_opencode.slint     panel de OpenCode CLI (TUI en PTY)
+    ide_git.slint          panel de control de código (Git)
     ide_viewmenu.slint     desplegable del menú Ver (paneles)
     ide_welcome.slint      bienvenida del editor (accesos + atajos)
     nuide_ui.slint         la ventana: layout, divisores y datos demo
@@ -342,7 +366,7 @@ la hoja de ruta acordada. El enfoque de cada uno está en
 
 ### Estado al 2026-10-04
 
-Compilado y publicado: `gitlab.com/nutoys-group/nuide` (`main`). 67 tests OK;
+Compilado y publicado: `gitlab.com/nutoys-group/nuide` (`main`). 72 tests OK;
 clon limpio genera `nuide.exe`. Las dos terminales son PTY reales (shell local y
 TUI de `opencode`), el proyecto se elige con diálogo nativo y se recuerda, el
 editor tiene buscar/reemplazar, resaltados, **resaltado por lenguaje y visores**

@@ -30,13 +30,14 @@ use slint::{ComponentHandle, Model, ModelRc, Timer, TimerMode, VecModel};
 use crate::build;
 use crate::config::Config;
 use crate::explorer::{Action, Explorer};
+use crate::git;
 use crate::highlight;
 use crate::lint;
 use crate::pty::{self, Pty, PtyEvent};
 use crate::spasm::Toolchain;
 use crate::ui::{
-    IdeCodeLine, IdeOutlineItem, IdeRecent, IdeTab, IdeToken, IdeTreeNode, NuIdeWindow, TermLine,
-    TermRun,
+    IdeCodeLine, IdeGitFile, IdeOutlineItem, IdeRecent, IdeTab, IdeToken, IdeTreeNode, NuIdeWindow,
+    TermLine, TermRun,
 };
 use crate::vt::{Screen, Selection};
 
@@ -402,9 +403,9 @@ pub struct Ide {
     show_left: bool,
     show_right: bool,
     show_bottom: bool,
-    /// Dónde vive cada panel (Explorador, OpenCode, Terminal). Los que comparten
-    /// región se apilan.
-    docks: [Dock; 3],
+    /// Dónde vive cada panel (Explorador, OpenCode, Terminal, Git). Los que
+    /// comparten región se apilan.
+    docks: [Dock; 4],
     /// El menú desplegable de "Ver" está abierto.
     view_menu_open: bool,
     /// Configuración persistida (proyecto, paneles, ventana, pestañas).
@@ -438,6 +439,13 @@ pub struct Ide {
     build_rx: Receiver<build::BuildResult>,
     /// Id de la sesión de terminal dedicada a la salida de build.
     build_session: Option<u64>,
+    /// Git del proyecto: estado, nota, hilo de operaciones.
+    git_status: git::Status,
+    git_note: String,
+    git_error: bool,
+    git_busy: bool,
+    git_tx: Sender<git::GitResult>,
+    git_rx: Receiver<git::GitResult>,
     /// Panel del agente: `opencode` en un PTY con su propia pantalla. Canal
     /// aparte para no mezclar la salida con la terminal local.
     agent: Option<LocalSession>,
@@ -470,11 +478,20 @@ impl Ide {
             Dock::from_code(config.i32("panel.0.dock", 0)),
             Dock::from_code(config.i32("panel.1.dock", 1)),
             Dock::from_code(config.i32("panel.2.dock", 2)),
+            Dock::from_code(config.i32("panel.3.dock", 0)),
         ];
         let (local_tx, local_rx) = mpsc::channel();
         let (agent_tx, agent_rx) = mpsc::channel();
         let (lint_tx, lint_rx) = mpsc::channel();
         let (build_tx, build_rx) = mpsc::channel();
+        let (git_tx, git_rx) = mpsc::channel();
+        // En las pruebas no se consulta Git (mantiene los tests rápidos y ajenos
+        // al estado del repo; el parseo se cubre en `git::tests`).
+        let git_status = if cfg!(test) {
+            git::Status::default()
+        } else {
+            git::status(&root)
+        };
 
         let mut ide = Self {
             toolchain: Toolchain::discover(),
@@ -515,6 +532,12 @@ impl Ide {
             build_tx,
             build_rx,
             build_session: None,
+            git_status,
+            git_note: String::new(),
+            git_error: false,
+            git_busy: false,
+            git_tx,
+            git_rx,
             agent: None,
             agent_tx,
             agent_rx,
@@ -735,6 +758,61 @@ impl Ide {
         }
     }
 
+    // --- Git -----------------------------------------------------------------
+
+    /// Lanza una operación de Git en segundo plano (una por vez).
+    fn git_spawn(&mut self, op: git::Op) {
+        if self.git_busy {
+            return;
+        }
+        self.git_busy = true;
+        self.git_error = false;
+        self.git_note = "…".to_string();
+        git::spawn(self.explorer.root().to_path_buf(), op, self.git_tx.clone());
+    }
+
+    /// Relee el estado del repositorio.
+    fn git_refresh(&mut self) {
+        self.git_spawn(git::Op::Refresh);
+    }
+
+    /// Crea el repositorio (`git init`) en la raíz del proyecto.
+    fn git_init(&mut self) {
+        self.git_spawn(git::Op::Init);
+    }
+
+    /// Prepara todos los cambios (`git add -A`).
+    fn git_stage_all(&mut self) {
+        self.git_spawn(git::Op::StageAll);
+    }
+
+    /// Prepara (`stage`) o quita del índice un archivo, según su estado actual.
+    fn git_toggle(&mut self, path: String, staged: bool) {
+        self.git_spawn(git::Op::Toggle {
+            path,
+            stage: !staged,
+        });
+    }
+
+    /// Crea un commit con el mensaje dado (si no está vacío).
+    fn git_commit(&mut self, message: String) {
+        let message = message.trim().to_string();
+        if message.is_empty() {
+            return;
+        }
+        self.git_spawn(git::Op::Commit(message));
+    }
+
+    /// Sube los commits al remoto (`git push`).
+    fn git_push(&mut self) {
+        self.git_spawn(git::Op::Push);
+    }
+
+    /// Abre en el editor un archivo del panel de Git (ruta relativa a la raíz).
+    fn git_open(&mut self, path: &str) {
+        self.open_file(self.explorer.root().join(path));
+    }
+
     /// Fija `dir` como raíz: reconstruye el explorador, reinicia el agente en la
     /// carpeta nueva y recuerda la elección.
     fn set_project(&mut self, dir: PathBuf) {
@@ -743,6 +821,10 @@ impl Ide {
         }
         push_recent(&mut self.recent_projects, dir.clone());
         self.explorer.set_root(dir.clone());
+        // El estado de Git es por proyecto: se relee al cambiar de carpeta.
+        self.git_status = git::status(&dir);
+        self.git_note.clear();
+        self.git_error = false;
         self.config.set("project", dir.display());
         self.config.save();
         // El agente corre en la raíz del proyecto: se le cambia la carpeta sin
@@ -1164,7 +1246,7 @@ impl Ide {
     }
 
     /// Cambia un panel de dock (izquierda → derecha → abajo → oculto). `kind`:
-    /// 0 Explorador, 1 OpenCode, 2 Terminal.
+    /// 0 Explorador, 1 OpenCode, 2 Terminal, 3 Control de código.
     fn cycle_dock(&mut self, kind: i32) {
         if let Some(dock) = self.docks.get_mut(kind as usize) {
             *dock = dock.next();
@@ -1609,6 +1691,10 @@ impl Ide {
             self.tabs[self.active_tab].dirty = false;
             // Al guardar, corre el analizador de SpASM.
             self.lint_active();
+            // El archivo cambió: se relee el estado de Git.
+            if !cfg!(test) {
+                self.git_refresh();
+            }
         }
     }
 
@@ -2594,6 +2680,7 @@ impl Ide {
         w.set_dock_explorer(self.docks[0].code());
         w.set_dock_agent(self.docks[1].code());
         w.set_dock_terminal(self.docks[2].code());
+        w.set_dock_git(self.docks[3].code());
         w.set_view_open(self.view_menu_open);
 
         // --- bienvenida del editor ---
@@ -2676,6 +2763,29 @@ impl Ide {
             .collect();
         w.set_tree_nodes(ModelRc::from(Rc::new(VecModel::from(nodes))));
         w.set_explorer_selected(self.explorer_selected);
+
+        // --- Git ---
+        w.set_git_repo(self.git_status.is_repo);
+        w.set_git_branch(self.git_status.branch.clone().into());
+        w.set_git_note(self.git_note.clone().into());
+        w.set_git_error(self.git_error);
+        w.set_git_busy(self.git_busy);
+        let mut staged: Vec<IdeGitFile> = Vec::new();
+        let mut changes: Vec<IdeGitFile> = Vec::new();
+        for c in &self.git_status.changes {
+            let file = IdeGitFile {
+                status: c.status().into(),
+                name: c.path.clone().into(),
+                path: c.path.clone().into(),
+            };
+            if c.staged() {
+                staged.push(file);
+            } else {
+                changes.push(file);
+            }
+        }
+        w.set_git_staged(ModelRc::from(Rc::new(VecModel::from(staged))));
+        w.set_git_changes(ModelRc::from(Rc::new(VecModel::from(changes))));
 
         // --- editor ---
         // Sin archivos abiertos (y sin haber abierto nunca) se deja el contenido
@@ -2802,6 +2912,17 @@ impl Ide {
             self.diagnostics = result.diagnostics;
             self.diagnostics_path = self.active_file.clone();
             self.editor_full = true;
+            got = true;
+        }
+        while let Ok(result) = self.git_rx.try_recv() {
+            self.git_busy = false;
+            self.git_error = result.error;
+            self.git_note = result.note;
+            self.git_status = result.status;
+            if result.committed {
+                // El commit se hizo: se limpia el campo de mensaje.
+                w.set_git_message("".into());
+            }
             got = true;
         }
         if got {
@@ -3393,6 +3514,86 @@ pub fn attach(window: &NuIdeWindow, ide: Rc<RefCell<Ide>>) {
             if let Some(w) = weak.upgrade() {
                 let mut e = ide.borrow_mut();
                 e.open_recent(i);
+                e.sync(&w);
+            }
+        });
+    }
+
+    // Git: refrescar, inicializar, preparar, commit, push y abrir archivos.
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_git_refresh(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.git_refresh();
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_git_init(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.git_init();
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_git_stage_all(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.git_stage_all();
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_git_toggle(move |path, staged| {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.git_toggle(path.to_string(), staged);
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_git_commit(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                let message = w.get_git_message().to_string();
+                e.git_commit(message);
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_git_push(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.git_push();
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_git_open(move |path| {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.git_open(&path);
                 e.sync(&w);
             }
         });
@@ -4270,8 +4471,11 @@ mod tests {
     fn el_dock_de_los_paneles_cicla_y_se_apila() {
         let mut ide = Ide::new();
         // Por defecto: explorador a la izquierda, agente a la derecha, terminal
-        // abajo.
-        assert_eq!(ide.docks, [Dock::Left, Dock::Right, Dock::Bottom]);
+        // abajo y Git apilado a la izquierda con el explorador.
+        assert_eq!(
+            ide.docks,
+            [Dock::Left, Dock::Right, Dock::Bottom, Dock::Left]
+        );
 
         // El explorador cicla izquierda → derecha → abajo → oculto → izquierda.
         ide.cycle_dock(0);
@@ -4288,6 +4492,10 @@ mod tests {
         ide.cycle_dock(1); // agente a oculto
         ide.cycle_dock(1); // agente a izquierda
         assert_eq!(ide.docks[1], Dock::Left);
+
+        // El panel de Git también cicla su dock.
+        ide.cycle_dock(3);
+        assert_eq!(ide.docks[3], Dock::Right);
     }
 
     #[test]

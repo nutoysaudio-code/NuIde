@@ -240,6 +240,23 @@ ui/*.slint          la ventana, paneles y tema
   `open_recent` abre el proyecto (`set_project`) o el archivo.
 - Se quitó el bloque de código demo del `.slint` (ya no hace falta).
 
+### 3.14 Control de código (Git)
+
+- Módulo `src/git.rs`: ejecuta la CLI de Git (sin dependencias). `status` parsea
+  `git status --porcelain=v1 -b` (rama + cambios); `perform` hace `init`,
+  `add -A`, `add`/`reset` por archivo, `commit -m` y `push`. `spawn` lo corre en
+  un hilo y avisa por el canal `git_tx`/`git_rx` (igual que `lint`/`build`).
+- Panel `ui/ide_git.slint` (`IdeGit`): rama, secciones **CAMBIOS** y
+  **PREPARADOS**, botón **+**/**−** por fila (stage/unstage), clic para abrir,
+  **Preparar todo**, **Commit** (activo con mensaje) y **Push**; **⟳** refresca.
+  Si no es repo, **Inicializar repositorio** (`git init`).
+- El panel es el 4.º dock (índice 3): `docks: [Dock; 4]`, `panel.3.dock` (por
+  defecto izquierda, apilado con el explorador). El menú Ver lista
+  «Control de código».
+- `git_busy` bloquea operaciones simultáneas; el estado se relee al abrir un
+  proyecto, al guardar y al terminar cada operación. La rama se muestra en la
+  barra de estado (`git-branch`).
+
 ---
 
 ## 4. Limitaciones conocidas
@@ -342,7 +359,7 @@ script de instalación.
 ## 6. Verificación
 
 - `cargo build` / `cargo check` sin warnings.
-- `cargo test`: **67 pruebas OK** (unitarias; las de PTY, el linter y el build
+- `cargo test`: **72 pruebas OK** (unitarias; las de PTY, el linter y el build
   lanzan `cmd`/`opencode`/Python/spasmc reales y se saltean si no están).
 - `cargo fmt --check` limpio.
 - `slint-viewer --check ui/nuide_ui.slint` OK.
