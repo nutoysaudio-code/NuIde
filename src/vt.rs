@@ -103,6 +103,16 @@ impl Screen {
         self.parser.screen_mut().set_scrollback(0);
     }
 
+    /// Modo de *mouse reporting* que pidió la aplicación (`None` = deshabilitado).
+    pub fn mouse_protocol_mode(&self) -> vt100::MouseProtocolMode {
+        self.parser.screen().mouse_protocol_mode()
+    }
+
+    /// Codificación del *mouse reporting* activo (SGR, UTF-8 o por defecto).
+    pub fn mouse_protocol_encoding(&self) -> vt100::MouseProtocolEncoding {
+        self.parser.screen().mouse_protocol_encoding()
+    }
+
     /// Texto entre dos celdas de la vista, para copiar. `vt100` maneja las
     /// líneas que envuelven (no mete un `\n` donde la línea se continuó).
     pub fn text_between(
@@ -252,6 +262,31 @@ mod tests {
         assert_eq!(idx_to_rgb(16), (0, 0, 0));
         assert_eq!(idx_to_rgb(231), (255, 255, 255));
         assert_eq!(idx_to_rgb(255), (238, 238, 238));
+    }
+
+    #[test]
+    fn detecta_el_mouse_reporting() {
+        let mut screen = Screen::new(24, 80);
+        assert_eq!(screen.mouse_protocol_mode(), vt100::MouseProtocolMode::None);
+        // `?1000h` habilita "press/release"; `?1002h` "button motion";
+        // `?1006h` SGR.
+        screen.process(b"\x1b[?1000h");
+        assert_eq!(
+            screen.mouse_protocol_mode(),
+            vt100::MouseProtocolMode::PressRelease
+        );
+        screen.process(b"\x1b[?1002h");
+        assert_eq!(
+            screen.mouse_protocol_mode(),
+            vt100::MouseProtocolMode::ButtonMotion
+        );
+        screen.process(b"\x1b[?1006h");
+        assert_eq!(
+            screen.mouse_protocol_encoding(),
+            vt100::MouseProtocolEncoding::Sgr
+        );
+        screen.process(b"\x1b[?1002l\x1b[?1000l");
+        assert_eq!(screen.mouse_protocol_mode(), vt100::MouseProtocolMode::None);
     }
 
     #[test]

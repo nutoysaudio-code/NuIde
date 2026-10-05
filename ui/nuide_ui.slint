@@ -146,6 +146,10 @@ export component NuIdeWindow inherits Window {
     // Vista dividida de la terminal.
     in-out property <bool> term-split: false;
     in-out property <[TermLine]> term-lines-2: [];
+    // Mouse reporting (lo habilita el proceso de cada terminal).
+    in-out property <bool> term-mouse: false;
+    in-out property <bool> term-mouse-2: false;
+    in-out property <bool> agent-mouse-tracking: false;
 
     callback menu-activated(string);
     callback close-requested();
@@ -168,6 +172,7 @@ export component NuIdeWindow inherits Window {
     callback terminal-selection-start(length, length);
     callback terminal-selection-update(length, length);
     callback terminal-selection-end();
+    callback terminal-mouse(int, int, length, length);
     callback session-selected(int);
     callback new-session();
     callback close-session();
@@ -228,6 +233,7 @@ export component NuIdeWindow inherits Window {
     callback agent-selection-start(length, length);
     callback agent-selection-update(length, length);
     callback agent-selection-end();
+    callback agent-mouse(int, int, length, length);
 
     // La terminal recibe el teclado apenas se abre la ventana: sólo hay un
     // elemento focusable y éste es el dueño natural del foco.
@@ -524,6 +530,9 @@ export component NuIdeWindow inherits Window {
             cell-width: root.cell-width;
             split-view: root.term-split;
             lines-2: root.term-lines-2;
+            mouse-tracking: root.term-mouse;
+            mouse-tracking-2: root.term-mouse-2;
+            mouse-report(k, b, y, x) => { root.terminal-mouse(k, b, y, x); }
             focus-pane(p) => { root.terminal-focus-pane(p); }
             session-selected(i) => { root.session-selected(i); }
             key-input(text, ctrl, shift, alt) => { root.terminal-key(text, ctrl, shift, alt); }
@@ -553,12 +562,14 @@ export component NuIdeWindow inherits Window {
             scroll-pos: root.agent-scroll-pos;
             scroll-thumb: root.agent-scroll-thumb;
             cell-width: root.cell-width;
+            mouse-tracking: root.agent-mouse-tracking;
             key-input(text, ctrl, shift, alt) => { root.agent-key(text, ctrl, shift, alt); }
             resized(w, h) => { root.agent-resize(w, h); }
             scrolled(dy) => { root.agent-scroll(dy); }
             selection-start(y, x) => { root.agent-selection-start(y, x); }
             selection-update(y, x) => { root.agent-selection-update(y, x); }
             selection-end => { root.agent-selection-end(); }
+            mouse-report(k, b, y, x) => { root.agent-mouse(k, b, y, x); }
         }
 
         // --- panel: control de código (Git) (dock configurable) ---

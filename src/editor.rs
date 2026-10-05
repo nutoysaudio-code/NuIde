@@ -239,6 +239,9 @@ struct LocalSession {
     alive: bool,
     /// Selección de texto en coordenadas de la vista, si la hay.
     sel: Option<TermSel>,
+    /// Último botón de mouse apretado (0/1/2) o 3 = ninguno (para el modo
+    /// "motion" del mouse reporting).
+    mouse_button: u8,
 }
 
 /// Ancla y extremo de una selección de terminal: dos celdas `(fila, columna)`
@@ -275,6 +278,31 @@ enum Target {
     Local,
     /// Panel derecho del agente (la TUI de `opencode`).
     Agent,
+}
+
+/// Evento de mouse reenviado al proceso cuando la terminal lo pide.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum MouseKind {
+    /// Botón apretado.
+    Press(u8),
+    /// Botón soltado.
+    Release(u8),
+    /// Movimiento (con o sin botón).
+    Move,
+    /// Rueda: `true` = arriba, `false` = abajo.
+    Wheel(bool),
+}
+
+/// Traduce el código que manda la UI (`kind`, `button`) al evento de mouse.
+/// `kind`: 0 apretar, 1 soltar, 2 mover, 3 rueda arriba, 4 rueda abajo.
+fn mouse_kind(kind: i32, button: i32) -> MouseKind {
+    match kind {
+        0 => MouseKind::Press(button.clamp(0, 2) as u8),
+        1 => MouseKind::Release(button.clamp(0, 2) as u8),
+        2 => MouseKind::Move,
+        3 => MouseKind::Wheel(true),
+        _ => MouseKind::Wheel(false),
+    }
 }
 
 /// Dónde vive un panel. Los que comparten región se apilan (hasta 3 por lado).
@@ -414,11 +442,13 @@ enum Command {
     GitPush,
     CycleTabSize,
     ToggleInsertSpaces,
+    RestartSession,
+    RenameSession,
 }
 
 impl Command {
     /// Todos, en el orden en que se muestran.
-    const ALL: [Command; 34] = [
+    const ALL: [Command; 36] = [
         Command::Run,
         Command::Build,
         Command::Lint,
@@ -453,6 +483,8 @@ impl Command {
         Command::GitPush,
         Command::CycleTabSize,
         Command::ToggleInsertSpaces,
+        Command::RestartSession,
+        Command::RenameSession,
     ];
 
     fn label(self) -> &'static str {
@@ -491,6 +523,8 @@ impl Command {
             Command::GitPush => "Git: push",
             Command::CycleTabSize => "Editor: tamaño de tab (2/4/8)",
             Command::ToggleInsertSpaces => "Editor: insertar espacios",
+            Command::RestartSession => "Terminal: reiniciar sesión",
+            Command::RenameSession => "Terminal: renombrar sesión…",
         }
     }
 
@@ -523,6 +557,7 @@ impl Command {
             Command::GitRefresh | Command::GitStageAll | Command::GitPush => "git",
             Command::CycleTabSize => "4",
             Command::ToggleInsertSpaces => "espacios",
+            Command::RestartSession | Command::RenameSession => "terminal",
             _ => "",
         }
     }
@@ -657,6 +692,8 @@ enum PromptKind {
     NewFile,
     NewFolder,
     Rename,
+    /// Renombrar la sesión de terminal activa.
+    SessionName,
 }
 
 /// Diálogo de entrada de texto pendiente.
@@ -1011,6 +1048,7 @@ impl Ide {
                 screen,
                 alive: false,
                 sel: None,
+                mouse_button: 3,
             });
             return;
         };
@@ -1040,6 +1078,7 @@ impl Ide {
             screen,
             alive,
             sel: None,
+            mouse_button: 3,
         });
     }
 
@@ -1245,6 +1284,7 @@ impl Ide {
             screen,
             alive: true,
             sel: None,
+            mouse_button: 3,
         });
         self.local_active = self.local.len() - 1;
     }
@@ -1357,6 +1397,65 @@ impl Ide {
         let row = ((y.max(0.0) / TERM_CELL_H).floor() as i64).clamp(0, rows - 1) as u16;
         let col = ((x.max(0.0) / self.cell_w.max(1.0)).floor() as i64).clamp(0, cols - 1) as u16;
         (row, col)
+    }
+
+    /// ¿La sesión `index` (de la terminal local) pide *mouse reporting*?
+    fn session_mouse(&self, index: usize) -> bool {
+        self.local
+            .get(index)
+            .map(|s| s.screen.mouse_protocol_mode() != vt100::MouseProtocolMode::None)
+            .unwrap_or(false)
+    }
+
+    /// Reenvía un evento de mouse al proceso si la app lo pidió (mouse
+    /// reporting). Si no, no hace nada (la UI ya usa el mouse para seleccionar).
+    fn forward_mouse(&mut self, target: Target, kind: MouseKind, y: f32, x: f32) {
+        let (mode, encoding, held) = {
+            let Some(s) = self.session(target) else {
+                return;
+            };
+            (
+                s.screen.mouse_protocol_mode(),
+                s.screen.mouse_protocol_encoding(),
+                s.mouse_button,
+            )
+        };
+        if mode == vt100::MouseProtocolMode::None {
+            return;
+        }
+        // ¿Corresponde reportar este evento según el modo activo?
+        let report = match (mode, kind) {
+            (vt100::MouseProtocolMode::None, _) => false,
+            (vt100::MouseProtocolMode::Press, MouseKind::Press(_) | MouseKind::Wheel(_)) => true,
+            (vt100::MouseProtocolMode::Press, _) => false,
+            (
+                vt100::MouseProtocolMode::PressRelease,
+                MouseKind::Press(_) | MouseKind::Release(_) | MouseKind::Wheel(_),
+            ) => true,
+            (vt100::MouseProtocolMode::PressRelease, MouseKind::Move) => false,
+            (vt100::MouseProtocolMode::ButtonMotion, MouseKind::Move) => held != 3,
+            (vt100::MouseProtocolMode::ButtonMotion, _) => true,
+            (vt100::MouseProtocolMode::AnyMotion, _) => true,
+        };
+        if !report {
+            return;
+        }
+        let (row, col) = self.term_cell(target, y, x);
+        let (code, release) = match kind {
+            MouseKind::Press(b) => (b as u32, false),
+            MouseKind::Release(b) => ((if b == 3 { held } else { b }) as u32, true),
+            MouseKind::Move => (32 + held as u32, false),
+            MouseKind::Wheel(up) => (if up { 64 } else { 65 }, false),
+        };
+        if let Some(s) = self.session_mut(target) {
+            match kind {
+                MouseKind::Press(b) => s.mouse_button = b,
+                MouseKind::Release(_) => s.mouse_button = 3,
+                _ => {}
+            }
+        }
+        let bytes = encode_mouse(encoding, code, col as u32, row as u32, release);
+        self.write_to(target, &bytes);
     }
 
     /// Empieza (o reinicia) una selección con el mouse.
@@ -1479,6 +1578,7 @@ impl Ide {
             screen,
             alive: true,
             sel: None,
+            mouse_button: 3,
         });
         self.build_session = Some(id);
         self.local.len() - 1
@@ -1832,6 +1932,8 @@ impl Ide {
             Command::GitPush => self.git_push(),
             Command::CycleTabSize => self.cycle_tab_size(),
             Command::ToggleInsertSpaces => self.toggle_insert_spaces(),
+            Command::RestartSession => self.restart_session(),
+            Command::RenameSession => self.prompt_rename_session(),
         }
     }
 
@@ -2241,7 +2343,10 @@ impl Ide {
             return;
         };
         let name = p.text.trim().to_string();
-        if !valid_name(&name) {
+        if name.is_empty() {
+            return;
+        }
+        if p.kind != PromptKind::SessionName && !valid_name(&name) {
             return;
         }
         match p.kind {
@@ -2270,6 +2375,11 @@ impl Ide {
                     if !cfg!(test) {
                         self.git_refresh();
                     }
+                }
+            }
+            PromptKind::SessionName => {
+                if let Some(s) = self.local.get_mut(self.local_active) {
+                    s.name = name;
                 }
             }
         }
@@ -2344,6 +2454,38 @@ impl Ide {
             self.local_active = self.local.len() - 1;
         }
         self.resize_local();
+    }
+
+    /// Reinicia la sesión activa: la reemplaza por una shell nueva en la raíz
+    /// del proyecto (conserva la posición en la barra de sesiones).
+    fn restart_session(&mut self) {
+        if self.local.is_empty() {
+            self.new_local_session();
+            return;
+        }
+        self.split = None;
+        let index = self.local_active;
+        self.local.remove(index);
+        self.new_local_session(); // agrega al final y la deja activa
+        let last = self.local.len() - 1;
+        let session = self.local.remove(last);
+        let at = index.min(self.local.len());
+        self.local.insert(at, session);
+        self.local_active = at;
+        self.resize_local();
+    }
+
+    /// Pide un nombre nuevo para la sesión de terminal activa.
+    fn prompt_rename_session(&mut self) {
+        if self.local.is_empty() {
+            return;
+        }
+        let current = self.local[self.local_active].name.clone();
+        self.prompt = Some(Prompt {
+            kind: PromptKind::SessionName,
+            target: PathBuf::new(),
+            text: current,
+        });
     }
 
     fn split_terminal(&mut self) {
@@ -4071,6 +4213,9 @@ impl Ide {
         w.set_term_scroll_total(scroll_total);
         w.set_term_scroll_pos(scroll_pos);
         w.set_term_scroll_thumb(scroll_thumb);
+        // Mouse reporting: sólo la vista que pidió el proceso lo recibe.
+        w.set_term_mouse(self.session_mouse(self.local_active));
+        w.set_term_mouse_2(self.split.map(|i| self.session_mouse(i)).unwrap_or(false));
 
         // Segunda vista de la terminal (si está dividida).
         let split_lines: Vec<TermLine> = match self.split {
@@ -4089,6 +4234,12 @@ impl Ide {
         w.set_agent_scroll_total(agent_total);
         w.set_agent_scroll_pos(agent_pos);
         w.set_agent_scroll_thumb(agent_thumb);
+        w.set_agent_mouse_tracking(
+            self.agent
+                .as_ref()
+                .map(|a| a.screen.mouse_protocol_mode() != vt100::MouseProtocolMode::None)
+                .unwrap_or(false),
+        );
         w.set_agent_connected(self.agent.as_ref().is_some_and(|a| a.alive));
         w.set_agent_version(self.agent_version.clone().into());
         w.set_agent_model(self.agent_model.clone().into());
@@ -4127,6 +4278,7 @@ impl Ide {
                 PromptKind::NewFile => ("Nuevo archivo", "nombre.spasm"),
                 PromptKind::NewFolder => ("Nueva carpeta", "nombre"),
                 PromptKind::Rename => ("Renombrar", ""),
+                PromptKind::SessionName => ("Renombrar terminal", "sesión"),
             };
             w.set_prompt_title(title.into());
             w.set_prompt_placeholder(placeholder.into());
@@ -4741,6 +4893,45 @@ fn replace_in_line(
     }
     out.extend(chars[last..].iter());
     (out, hits.len())
+}
+
+/// Codifica un evento de mouse para la app (SGR, UTF-8 o X10).
+fn encode_mouse(
+    encoding: vt100::MouseProtocolEncoding,
+    code: u32,
+    col: u32,
+    row: u32,
+    release: bool,
+) -> Vec<u8> {
+    match encoding {
+        vt100::MouseProtocolEncoding::Sgr => {
+            let end = if release { 'm' } else { 'M' };
+            format!("\x1b[<{code};{};{}{}", col + 1, row + 1, end).into_bytes()
+        }
+        vt100::MouseProtocolEncoding::Utf8 => {
+            let mut out = b"\x1b[M".to_vec();
+            push_utf8(&mut out, code + 32);
+            push_utf8(&mut out, col + 33);
+            push_utf8(&mut out, row + 33);
+            out
+        }
+        vt100::MouseProtocolEncoding::Default => vec![
+            0x1b,
+            b'[',
+            b'M',
+            (code + 32).min(255) as u8,
+            (col + 33).min(255) as u8,
+            (row + 33).min(255) as u8,
+        ],
+    }
+}
+
+/// Agrega `v` como un carácter UTF-8 a `out`.
+fn push_utf8(out: &mut Vec<u8>, v: u32) {
+    if let Some(c) = char::from_u32(v) {
+        let mut buf = [0u8; 4];
+        out.extend_from_slice(c.encode_utf8(&mut buf).as_bytes());
+    }
 }
 
 /// Escribe el portapapeles del sistema.
@@ -5445,6 +5636,18 @@ pub fn attach(window: &NuIdeWindow, ide: Rc<RefCell<Ide>>) {
             }
         });
     }
+    // Mouse reporting de la terminal local.
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_terminal_mouse(move |kind, button, y, x| {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.forward_mouse(Target::Local, mouse_kind(kind, button), y, x);
+                e.sync(&w);
+            }
+        });
+    }
 
     // Sesiones.
     {
@@ -5754,6 +5957,18 @@ pub fn attach(window: &NuIdeWindow, ide: Rc<RefCell<Ide>>) {
             if let Some(w) = weak.upgrade() {
                 let mut e = ide.borrow_mut();
                 e.select_end(Target::Agent);
+                e.sync(&w);
+            }
+        });
+    }
+    // Mouse reporting del panel del agente.
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_agent_mouse(move |kind, button, y, x| {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.forward_mouse(Target::Agent, mouse_kind(kind, button), y, x);
                 e.sync(&w);
             }
         });
@@ -6754,5 +6969,65 @@ mod tests {
         assert_eq!(ide.find.query, "dos");
         ide.find_history(-1);
         assert_eq!(ide.find.query, "uno");
+    }
+
+    #[test]
+    fn codifica_eventos_de_mouse() {
+        use vt100::MouseProtocolEncoding as E;
+        // SGR: `\x1b[<code;col;row` + M/m (1-based).
+        assert_eq!(
+            encode_mouse(E::Sgr, 0, 4, 2, false),
+            b"\x1b[<0;5;3M".to_vec()
+        );
+        assert_eq!(
+            encode_mouse(E::Sgr, 0, 4, 2, true),
+            b"\x1b[<0;5;3m".to_vec()
+        );
+        // Rueda arriba (64) y abajo (65).
+        assert_eq!(
+            encode_mouse(E::Sgr, 64, 0, 0, false),
+            b"\x1b[<64;1;1M".to_vec()
+        );
+        // X10 por defecto: 3 bytes con +32.
+        assert_eq!(
+            encode_mouse(E::Default, 0, 0, 0, false),
+            vec![0x1b, b'[', b'M', 32, 33, 33]
+        );
+    }
+
+    #[test]
+    fn mapea_eventos_de_mouse() {
+        assert_eq!(mouse_kind(0, 0), MouseKind::Press(0));
+        assert_eq!(mouse_kind(1, 2), MouseKind::Release(2));
+        assert_eq!(mouse_kind(2, 3), MouseKind::Move);
+        assert_eq!(mouse_kind(3, 0), MouseKind::Wheel(true));
+        assert_eq!(mouse_kind(4, 0), MouseKind::Wheel(false));
+    }
+
+    #[test]
+    fn reiniciar_la_sesion_conserva_la_posicion() {
+        let mut ide = Ide::new();
+        ide.new_session();
+        let total = ide.local.len();
+        ide.local_active = 0;
+        let old_id = ide.local[0].id;
+
+        ide.restart_session();
+        assert_eq!(ide.local.len(), total);
+        assert_eq!(ide.local_active, 0);
+        assert_ne!(ide.local[0].id, old_id);
+    }
+
+    #[test]
+    fn renombrar_la_sesion_de_terminal() {
+        let mut ide = Ide::new();
+        ide.prompt_rename_session();
+        assert!(matches!(
+            ide.prompt.as_ref().map(|p| p.kind),
+            Some(PromptKind::SessionName)
+        ));
+        ide.prompt.as_mut().unwrap().text = "servidor".to_string();
+        ide.prompt_accept();
+        assert_eq!(ide.local[ide.local_active].name, "servidor");
     }
 }

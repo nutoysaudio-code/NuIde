@@ -332,20 +332,36 @@ ui/*.slint          la ventana, paneles y tema
 - **Dependencia**: se sumó `regex-lite` (variante liviana de `regex`, sin tablas
   Unicode) — primera dependencia nueva justificada por la búsqueda.
 
+### 3.19 Terminal: mouse reporting y sesiones
+
+- `vt::Screen` expone `mouse_protocol_mode`/`mouse_protocol_encoding` (paso
+  directo a `vt100`). `Ide` guarda, por sesión, el último botón apretado
+  (`mouse_button`).
+- `forward_mouse` decide si reportar según el modo (`Press`, `PressRelease`,
+  `ButtonMotion`, `AnyMotion`) y codifica con `encode_mouse` en **SGR**
+  (`\x1b[<b;col;rowM/m`), **UTF-8** o **X10** (`\x1b[M` + 3 bytes).
+- En la UI, `TerminalScreen` tiene `mouse-tracking`: cuando está activo, los
+  eventos de la `TouchArea` van a `mouse-report(kind, button, y, x)` en vez de a
+  la selección/scrollback. `IdeTerminal` e `IdeOpenCode` lo reenvían; la ventana
+  llama `forward_mouse(Local|Agent, …)`.
+- **Sesiones**: comandos de paleta `Terminal: renombrar sesión…` (reusa
+  `IdePrompt` con `PromptKind::SessionName`) y `Terminal: reiniciar sesión`
+  (`restart_session`, conserva la posición y arranca en la raíz del proyecto).
+
 ---
 
 ## 4. Limitaciones conocidas
 
-- **Sin *mouse reporting*.** El mouse se usa para seleccionar/copiar, así que no
-  se reenvía a los procesos que lo piden (la TUI de OpenCode, `vim`, etc.).
 - **Persistencia parcial.** Se recuerda el proyecto, el dock/visibilidad de los
-  paneles, la geometría de la ventana y las pestañas abiertas. Las sesiones de
-  terminal, la posición del cursor y el estado de la búsqueda no.
+  paneles, la geometría de la ventana, las pestañas abiertas, el filtro de
+  generados y el cursor de cada archivo. Las **sesiones de terminal, el
+  scrollback** y el estado de la búsqueda no.
 - **Apilado básico.** Cada región apila hasta 3 paneles repartiendo la altura en
   partes iguales (sin divisor arrastrable entre los apilados), y un panel existe
   una sola vez: no se puede duplicar para llenar más de 3 por lado.
-- **La shell local no cambia de carpeta** al cambiar de proyecto (sí lo hacen las
-  sesiones nuevas y el agente, que se relanza).
+- **La shell local no cambia de carpeta** al cambiar de proyecto, pero las
+  sesiones nuevas y **reiniciar la sesión** arrancan en la raíz del proyecto (el
+  agente sí cambia sin reiniciarse).
 - **Búsqueda del editor.** Ya tiene expresiones regulares y acotar a la
   selección; falta "buscar en todo el proyecto" (Fase 4) y la paleta filtra por
   subcadena (sin *fuzzy*).
@@ -437,7 +453,7 @@ script de instalación.
 ## 6. Verificación
 
 - `cargo build` / `cargo check` sin warnings.
-- `cargo test`: **90 pruebas OK** (unitarias; las de PTY, el linter y el build
+- `cargo test`: **95 pruebas OK** (unitarias; las de PTY, el linter y el build
   lanzan `cmd`/`opencode`/Python/spasmc reales y se saltean si no están).
 - `cargo fmt --check` limpio.
 - `slint-viewer --check ui/nuide_ui.slint` OK.

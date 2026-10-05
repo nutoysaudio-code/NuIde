@@ -19,6 +19,8 @@ export component IdeOpenCode inherits FocusScope {
     in property <float> scroll-pos: 1.0;
     in property <float> scroll-thumb: 1.0;
     in property <length> cell-width: 7.2px;
+    // El proceso pidió mouse reporting.
+    in property <bool> mouse-tracking: false;
     callback key-input(string, bool, bool, bool);
     // Tamaño del área de pantalla en píxeles, para dimensionar el PTY.
     callback resized(length, length);
@@ -26,6 +28,8 @@ export component IdeOpenCode inherits FocusScope {
     callback selection-start(length, length);
     callback selection-update(length, length);
     callback selection-end();
+    // Evento de mouse reenviado al proceso (kind, button, y, x).
+    callback mouse-report(int, int, length, length);
 
     focus-on-click: true;
 
@@ -165,10 +169,12 @@ export component IdeOpenCode inherits FocusScope {
             scroll-pos: root.scroll-pos;
             scroll-thumb: root.scroll-thumb;
             cell-width: root.cell-width;
+            mouse-tracking: root.mouse-tracking;
             selection-start(y, x) => { root.focus(); root.selection-start(y, x); }
             selection-update(y, x) => { root.selection-update(y, x); }
             selection-end => { root.selection-end(); }
             scrolled(dy) => { root.scrolled(dy); }
+            mouse-report(k, b, y, x) => { root.focus(); root.mouse-report(k, b, y, x); }
         }
     }
 }

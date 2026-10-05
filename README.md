@@ -56,6 +56,7 @@ abiertos es una **página de bienvenida** real (accesos y atajos).
 | 24 | menús Archivo/Editar + guardar como / cerrar con confirmación | ✅ |
 | 25 | explorador: nuevo/renombrar/eliminar, contextual y filtro de generados | ✅ |
 | 26 | editor: regex, buscar en selección, historial, autocierre/autoindent y tab | ✅ |
+| 27 | terminal: mouse reporting + renombrar/reiniciar sesión | ✅ |
 
 > El parte de estado detallado —qué se cambió en cada iteración, limitaciones y
 > pendientes con su enfoque— está en [`docs/ESTADO.md`](docs/ESTADO.md).
@@ -206,6 +207,13 @@ invirtiendo la celda (sin calcular píxeles).
 - Varias sesiones (pestañas) con `+`, cerrar con `×`. Cada una es una shell
   propia. **«Dividir»** parte el panel en **dos vistas** lado a lado (la segunda
   usa otra sesión); clic en una vista le da el foco y el teclado va a esa shell.
+  Desde la paleta se **renombra** (`Terminal: renombrar sesión…`) y se
+  **reinicia** (`Terminal: reiniciar sesión`, arranca de nuevo en la raíz del
+  proyecto).
+- **Mouse reporting.** Si el proceso pide el mouse (`vt100` expone el modo), los
+  clics, el movimiento y la rueda se **codifican y se le mandan** (SGR, UTF-8 o
+  X10) en vez de seleccionar; si no, el mouse queda para selección/copia y
+  scrollback. Cada vista (local y agente) respeta su propio modo.
 - El teclado se traduce a los bytes del terminal (flechas, Backspace, Delete,
   Home/End, PageUp/Down, Ctrl+letra, Shift+flechas).
 - **Grilla exacta**: Slint no admite listas de fuentes, así que la IDE elige una
@@ -425,13 +433,13 @@ Ordenados por impacto para usar el IDE día a día; el **plan en fases** complet
 
 ### Estado al 2026-10-04
 
-Compilado y publicado: `gitlab.com/nutoys-group/nuide` (`main`). 90 tests OK;
+Compilado y publicado: `gitlab.com/nutoys-group/nuide` (`main`). 95 tests OK;
 clon limpio genera `nuide.exe`. Las dos terminales son PTY reales (shell local y
-TUI de `opencode`), el proyecto se elige con diálogo nativo y se recuerda, el
-editor tiene buscar/reemplazar (con **regex**, **en selección** e historial),
-autocierre/autoindentación, resaltados, **resaltado por lenguaje y visores**
-(imagen y vista previa de Markdown), **diagnóstico con el parser de SpASM**,
-**control de código (Git)**, **paleta de comandos / buscador de archivos**,
-**menús Archivo/Editar** con guardar como y cierre confirmado, y **explorador
-con operaciones de archivos**; los paneles se acoplan/apilan por lado. Falta
-local: los ítems de arriba.
+TUI de `opencode`) con **mouse reporting**, el proyecto se elige con diálogo
+nativo y se recuerda, el editor tiene buscar/reemplazar (con **regex**, **en
+selección** e historial), autocierre/autoindentación, resaltados, **resaltado
+por lenguaje y visores** (imagen y vista previa de Markdown), **diagnóstico con
+el parser de SpASM**, **control de código (Git)**, **paleta de comandos /
+buscador de archivos**, **menús Archivo/Editar** con guardar como y cierre
+confirmado, y **explorador con operaciones de archivos**; los paneles se
+acoplan/apilan por lado. Falta local: los ítems de arriba.

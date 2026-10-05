@@ -149,9 +149,11 @@ IDE sin romper el repo.
 
 ---
 
-## Fase 6 — Terminal completa  ·  M  ·  must (mouse) + nice
+## Fase 6 — Terminal completa  ·  M  ·  must (mouse) + nice  ·  ✅ hecha (3.19)
 
 **Objetivo:** terminal sin fricción para `vim`, la TUI de OpenCode, etc.
+(Hecho: mouse reporting y sesiones renombrables/reiniciables. Pendiente de esta
+fase: persistencia de sesiones/scrollback y buscar en el scrollback.)
 
 - `M` **Mouse reporting**: reenviar el mouse al proceso cuando lo pide (el parser
   `vt100` expone los modos) y reservar la selección cuando no.
