@@ -75,7 +75,7 @@ automáticos antes de sumar features grandes.
 
 ---
 
-## Fase 2 — Explorador: operaciones de archivos  ·  M/L  ·  must
+## Fase 2 — Explorador: operaciones de archivos  ·  M/L  ·  must  ·  ✅ hecha (3.17)
 
 **Objetivo:** administrar archivos sin salir de la IDE.
 

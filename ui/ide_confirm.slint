@@ -4,12 +4,13 @@ import { IdeTheme } from "ide_theme.slint";
 component ConfirmButton inherits Rectangle {
     in property <string> label: "";
     in property <bool> primary: false;
+    in property <bool> danger: false;
     callback activated();
 
     height: 28px;
     width: label-text.width + 24px;
     border-radius: IdeTheme.radius-sm;
-    background: ta.has-hover ? (root.primary ? #9fe6d8 : IdeTheme.control-hi)
+    background: ta.has-hover ? (root.primary ? #9fe6d8 : (root.danger ? #d98c8c33 : IdeTheme.control-hi))
         : (root.primary ? IdeTheme.mint : IdeTheme.control);
     border-width: 1px;
     border-color: root.primary ? transparent : IdeTheme.border-soft;
@@ -18,7 +19,7 @@ component ConfirmButton inherits Rectangle {
         x: 12px;
         y: (parent.height - self.height) / 2;
         text: root.label;
-        color: root.primary ? IdeTheme.bg : IdeTheme.text-soft;
+        color: root.primary ? IdeTheme.bg : (root.danger ? IdeTheme.del : IdeTheme.text-soft);
         font-family: IdeTheme.sans;
         font-size: 12px;
         vertical-alignment: center;
@@ -112,6 +113,89 @@ export component IdeConfirm inherits Rectangle {
                 label: "Guardar";
                 primary: true;
                 activated => { root.save(); }
+            }
+        }
+    }
+}
+
+// Diálogo modal de dos botones (aceptar / cancelar).
+export component IdeAsk inherits Rectangle {
+    in property <string> title: "";
+    in property <string> message: "";
+    in property <string> accept-label: "Aceptar";
+    in property <bool> danger: false;
+    callback accept();
+    callback cancel();
+
+    Rectangle {
+        x: 0;
+        y: 0;
+        width: parent.width;
+        height: parent.height;
+        background: #000000aa;
+
+        backdrop := TouchArea {
+            clicked => { root.cancel(); }
+        }
+    }
+
+    box := Rectangle {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        width: 440px;
+        height: 168px;
+        background: IdeTheme.panel;
+        border-width: 1px;
+        border-color: IdeTheme.border-soft;
+        border-radius: IdeTheme.radius;
+
+        Text {
+            x: 20px;
+            y: 18px;
+            width: parent.width - 40px;
+            text: root.title;
+            color: IdeTheme.text;
+            font-family: IdeTheme.sans;
+            font-size: 14px;
+            font-weight: 600;
+            vertical-alignment: center;
+        }
+
+        Text {
+            x: 20px;
+            y: 46px;
+            width: parent.width - 40px;
+            text: root.message;
+            color: IdeTheme.text-soft;
+            font-family: IdeTheme.sans;
+            font-size: 12px;
+            wrap: word-wrap;
+        }
+
+        Rectangle {
+            y: parent.height - 44px;
+            width: parent.width;
+            height: IdeTheme.hairline;
+            background: IdeTheme.border-faint;
+        }
+
+        HorizontalLayout {
+            x: 20px;
+            y: parent.height - 36px;
+            width: parent.width - 40px;
+            height: 28px;
+            spacing: 8px;
+            alignment: end;
+            cross-axis-alignment: center;
+
+            ConfirmButton {
+                label: "Cancelar";
+                activated => { root.cancel(); }
+            }
+            ConfirmButton {
+                label: root.accept-label;
+                danger: root.danger;
+                activated => { root.accept(); }
             }
         }
     }

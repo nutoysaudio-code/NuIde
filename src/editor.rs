@@ -543,6 +543,46 @@ fn menu_sep() -> IdeMenuEntry {
     }
 }
 
+/// Carpeta donde crear algo a partir de un nodo: la suya si es carpeta, si no
+/// la de su padre.
+fn target_dir_of(node: &crate::explorer::Node) -> PathBuf {
+    if node.is_dir {
+        node.path.clone()
+    } else {
+        node.path
+            .parent()
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(|| node.path.clone())
+    }
+}
+
+/// Nombre de archivo/carpeta válido (sin separadores ni caracteres reservados).
+fn valid_name(name: &str) -> bool {
+    !name.is_empty()
+        && name != "."
+        && name != ".."
+        && !name.contains(['/', '\\', ':', '*', '?', '"', '<', '>', '|'])
+}
+
+/// Abre el explorador del sistema con el archivo seleccionado.
+fn reveal_in_explorer(path: &Path) {
+    #[cfg(windows)]
+    {
+        let _ = std::process::Command::new("explorer")
+            .arg(format!("/select,{}", path.display()))
+            .spawn();
+    }
+    #[cfg(not(windows))]
+    {
+        let dir = if path.is_dir() {
+            path
+        } else {
+            path.parent().unwrap_or(path)
+        };
+        let _ = std::process::Command::new("xdg-open").arg(dir).spawn();
+    }
+}
+
 /// Tipo de paleta abierta.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 enum PaletteKind {
@@ -592,6 +632,22 @@ enum Confirm {
     Quit,
 }
 
+/// Qué pide el diálogo de entrada de texto.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum PromptKind {
+    NewFile,
+    NewFolder,
+    Rename,
+}
+
+/// Diálogo de entrada de texto pendiente.
+struct Prompt {
+    kind: PromptKind,
+    /// Carpeta destino (nuevo) o ruta a renombrar.
+    target: PathBuf,
+    text: String,
+}
+
 /// Estado completo de la IDE.
 pub struct Ide {
     toolchain: Toolchain,
@@ -617,6 +673,13 @@ pub struct Ide {
     explorer: Explorer,
     /// Índice seleccionado en el explorador (-1 = nada).
     explorer_selected: i32,
+    /// Menú contextual del explorador abierto y sus filas.
+    explorer_context_open: bool,
+    explorer_context_items: Vec<IdeMenuEntry>,
+    /// Diálogo de entrada de texto (nuevo archivo/carpeta, renombrar).
+    prompt: Option<Prompt>,
+    /// Confirmación de borrado pendiente (ruta objetivo).
+    ask: Option<PathBuf>,
     /// Archivos abiertos en el editor.
     tabs: Vec<OpenTab>,
     active_tab: usize,
@@ -706,6 +769,7 @@ impl Ide {
         let show_left = config.bool("show.left", true);
         let show_right = config.bool("show.right", true);
         let show_bottom = config.bool("show.bottom", true);
+        let show_generated = config.bool("explorer.generated", true);
         let docks = [
             Dock::from_code(config.i32("panel.0.dock", 0)),
             Dock::from_code(config.i32("panel.1.dock", 1)),
@@ -740,6 +804,10 @@ impl Ide {
             agent_px: (0.0, 0.0),
             explorer: Explorer::new(root),
             explorer_selected: -1,
+            explorer_context_open: false,
+            explorer_context_items: Vec::new(),
+            prompt: None,
+            ask: None,
             tabs: Vec::new(),
             active_tab: 0,
             recent_projects,
@@ -786,6 +854,7 @@ impl Ide {
             timer: None,
         };
         ide.new_local_session();
+        ide.explorer.set_show_generated(show_generated);
         // En las pruebas no se lanza la TUI real (abriría procesos de más); el
         // arranque de `opencode` en un PTY se cubre con `pty::tests`.
         if !cfg!(test) {
@@ -839,6 +908,10 @@ impl Ide {
             .set("recent.projects", save_recent(&self.recent_projects));
         self.config
             .set("recent.files", save_recent(&self.recent_files));
+        self.config.set(
+            "explorer.generated",
+            u8::from(self.explorer.shows_generated()),
+        );
         self.config.save();
     }
 
@@ -1150,7 +1223,10 @@ impl Ide {
     /// proceso: `Ctrl+Shift+C/V` copian/pegan la selección y `Shift+PageUp/Down`
     /// recorren el scrollback. Cualquier otra tecla vuelve la vista al final.
     fn pty_key(&mut self, target: Target, text: &str, control: bool, shift: bool, alt: bool) {
-        // Paleta de comandos / buscador de archivos (global).
+        // Diálogo de entrada (modal) y paleta de comandos / buscador (global).
+        if self.prompt_intercept(text, control) {
+            return;
+        }
         if self.palette_intercept(text, control, shift) {
             return;
         }
@@ -1991,6 +2067,206 @@ impl Ide {
 }
 
 // ---------------------------------------------------------------------------
+// Explorador: menú contextual y operaciones de archivos
+// ---------------------------------------------------------------------------
+
+impl Ide {
+    /// Abre el menú contextual sobre la fila `index`.
+    fn explorer_context(&mut self, index: i32) {
+        if index < 0 || index as usize >= self.explorer.nodes().len() {
+            return;
+        }
+        let idx = index as usize;
+        let (is_dir, is_root) = {
+            let n = &self.explorer.nodes()[idx];
+            (n.is_dir, idx == 0)
+        };
+        self.explorer_selected = index;
+        self.explorer_context_items = vec![
+            menu_entry("ctx.new-file", "Nuevo archivo…", "", true),
+            menu_entry("ctx.new-folder", "Nueva carpeta…", "", true),
+            menu_sep(),
+            menu_entry("ctx.rename", "Renombrar…", "", !is_root),
+            menu_entry("ctx.delete", "Eliminar", "", !is_root),
+            menu_sep(),
+            menu_entry("ctx.copy-path", "Copiar ruta", "", true),
+            menu_entry("ctx.reveal", "Mostrar en el explorador", "", true),
+            menu_entry("ctx.refresh", "Refrescar", "", true),
+        ];
+        // "Nuevo" va a la carpeta: la del nodo si es carpeta, si no la padre.
+        let _ = is_dir;
+        self.explorer_context_open = true;
+    }
+
+    /// Ejecuta una acción del menú contextual.
+    fn explorer_context_command(&mut self, id: &str) {
+        self.explorer_context_open = false;
+        let Some(node) = self
+            .explorer
+            .nodes()
+            .get(self.explorer_selected.max(0) as usize)
+            .cloned()
+        else {
+            return;
+        };
+        match id {
+            "ctx.new-file" => {
+                let dir = target_dir_of(&node);
+                self.prompt = Some(Prompt {
+                    kind: PromptKind::NewFile,
+                    target: dir,
+                    text: String::new(),
+                });
+            }
+            "ctx.new-folder" => {
+                let dir = target_dir_of(&node);
+                self.prompt = Some(Prompt {
+                    kind: PromptKind::NewFolder,
+                    target: dir,
+                    text: String::new(),
+                });
+            }
+            "ctx.rename" => {
+                self.prompt = Some(Prompt {
+                    kind: PromptKind::Rename,
+                    target: node.path.clone(),
+                    text: node.label.clone(),
+                });
+            }
+            "ctx.delete" => self.ask = Some(node.path.clone()),
+            "ctx.copy-path" => {
+                let _ = clipboard_write(&node.path.display().to_string());
+            }
+            "ctx.reveal" => reveal_in_explorer(&node.path),
+            "ctx.refresh" => self.explorer.rebuild(),
+            _ => {}
+        }
+    }
+
+    /// Reconstruye el árbol (botón ⟳ o `F5` en el explorador).
+    fn explorer_refresh(&mut self) {
+        self.explorer.rebuild();
+    }
+
+    /// Muestra u oculta los archivos generados.
+    fn explorer_toggle_generated(&mut self) {
+        let show = !self.explorer.shows_generated();
+        self.explorer.set_show_generated(show);
+        self.config.set("explorer.generated", u8::from(show));
+        self.config.save();
+    }
+
+    /// Tecla con el diálogo de entrada abierto. Devuelve si la consumió.
+    fn prompt_key(&mut self, text: &str, control: bool) {
+        match text {
+            "\u{1b}" => self.prompt = None,
+            "\n" | "\r" => self.prompt_accept(),
+            "\u{8}" => {
+                if let Some(p) = self.prompt.as_mut() {
+                    let _ = p.text.pop();
+                }
+            }
+            _ => {
+                if !control && !text.is_empty() && !text.starts_with('\u{F7}') {
+                    if let Some(p) = self.prompt.as_mut() {
+                        p.text.push_str(text);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Atajo de teclado del diálogo de entrada (modal).
+    fn prompt_intercept(&mut self, text: &str, control: bool) -> bool {
+        if self.prompt.is_some() {
+            self.prompt_key(text, control);
+            return true;
+        }
+        false
+    }
+
+    /// Acepta el diálogo de entrada: crea, renombra o no hace nada.
+    fn prompt_accept(&mut self) {
+        let Some(p) = self.prompt.take() else {
+            return;
+        };
+        let name = p.text.trim().to_string();
+        if !valid_name(&name) {
+            return;
+        }
+        match p.kind {
+            PromptKind::NewFile => {
+                let path = p.target.join(&name);
+                if !path.exists() && std::fs::write(&path, "").is_ok() {
+                    self.explorer.rebuild();
+                    self.open_file(path);
+                }
+            }
+            PromptKind::NewFolder => {
+                let path = p.target.join(&name);
+                if std::fs::create_dir(&path).is_ok() {
+                    self.explorer.rebuild();
+                }
+            }
+            PromptKind::Rename => {
+                let dest = p
+                    .target
+                    .parent()
+                    .map(|d| d.join(&name))
+                    .unwrap_or_else(|| p.target.clone());
+                if dest != p.target && std::fs::rename(&p.target, &dest).is_ok() {
+                    self.retarget_open_tabs(&p.target, &dest);
+                    self.explorer.rebuild();
+                    if !cfg!(test) {
+                        self.git_refresh();
+                    }
+                }
+            }
+        }
+    }
+
+    /// Confirma el borrado pendiente.
+    fn ask_accept(&mut self) {
+        let Some(path) = self.ask.take() else {
+            return;
+        };
+        let ok = if path.is_dir() {
+            std::fs::remove_dir_all(&path).is_ok()
+        } else {
+            std::fs::remove_file(&path).is_ok()
+        };
+        if ok {
+            // Cierra las pestañas que quedaron dentro de lo borrado.
+            self.tabs.retain(|t| !t.path.starts_with(&path));
+            if self.active_tab >= self.tabs.len() {
+                self.active_tab = self.tabs.len().saturating_sub(1);
+            }
+            self.active_file = self.tabs.get(self.active_tab).map(|t| t.path.clone());
+            self.editor_full = true;
+            self.explorer.rebuild();
+            if !cfg!(test) {
+                self.git_refresh();
+            }
+        }
+    }
+
+    /// Reapunta las pestañas abiertas al mover/renombrar una ruta.
+    fn retarget_open_tabs(&mut self, from: &Path, to: &Path) {
+        for tab in &mut self.tabs {
+            if let Ok(rel) = tab.path.strip_prefix(from) {
+                tab.path = to.join(rel);
+                tab.language = highlight::Language::from_path(&tab.path);
+            }
+        }
+        if let Some(active) = self.active_file.as_ref() {
+            if let Ok(rel) = active.strip_prefix(from) {
+                self.active_file = Some(to.join(rel));
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Sesiones
 // ---------------------------------------------------------------------------
 
@@ -2290,7 +2566,10 @@ impl Ide {
     /// caracteres: Backspace es `\u{8}`, Enter `\n` y las flechas son caracteres
     /// de uso privado (`\u{F700}`–`\u{F703}`).
     fn editor_key(&mut self, text: &str, control: bool, shift: bool) {
-        // Paleta de comandos / buscador de archivos (global).
+        // Diálogo de entrada (modal) y paleta de comandos / buscador (global).
+        if self.prompt_intercept(text, control) {
+            return;
+        }
         if self.palette_intercept(text, control, shift) {
             return;
         }
@@ -3533,6 +3812,37 @@ impl Ide {
             .collect();
         w.set_tree_nodes(ModelRc::from(Rc::new(VecModel::from(nodes))));
         w.set_explorer_selected(self.explorer_selected);
+        w.set_explorer_show_generated(self.explorer.shows_generated());
+        w.set_explorer_context_open(self.explorer_context_open);
+        w.set_explorer_context_items(ModelRc::from(Rc::new(VecModel::from(
+            self.explorer_context_items.clone(),
+        ))));
+
+        // --- diálogos de entrada / borrado ---
+        w.set_prompt_open(self.prompt.is_some());
+        if let Some(p) = self.prompt.as_ref() {
+            let (title, placeholder) = match p.kind {
+                PromptKind::NewFile => ("Nuevo archivo", "nombre.spasm"),
+                PromptKind::NewFolder => ("Nueva carpeta", "nombre"),
+                PromptKind::Rename => ("Renombrar", ""),
+            };
+            w.set_prompt_title(title.into());
+            w.set_prompt_placeholder(placeholder.into());
+            w.set_prompt_text(p.text.clone().into());
+        }
+        w.set_ask_open(self.ask.is_some());
+        if let Some(path) = self.ask.as_ref() {
+            w.set_ask_title("Eliminar".into());
+            w.set_ask_message(
+                format!(
+                    "¿Eliminar «{}»? Esta acción no se puede deshacer.",
+                    file_name(path)
+                )
+                .into(),
+            );
+            w.set_ask_accept_label("Eliminar".into());
+            w.set_ask_danger(true);
+        }
 
         // --- Git ---
         w.set_git_repo(self.git_status.is_repo);
@@ -4455,6 +4765,109 @@ pub fn attach(window: &NuIdeWindow, ide: Rc<RefCell<Ide>>) {
             if let Some(w) = weak.upgrade() {
                 let mut e = ide.borrow_mut();
                 e.palette_close();
+                e.sync(&w);
+            }
+        });
+    }
+
+    // Explorador: menú contextual, refrescar y filtro de generados.
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_explorer_context_opened(move |i| {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.explorer_context(i);
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_explorer_context_command(move |id| {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.explorer_context_command(&id);
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_explorer_context_close(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.explorer_context_open = false;
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_explorer_refresh(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.explorer_refresh();
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_explorer_toggle_generated(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.explorer_toggle_generated();
+                e.sync(&w);
+            }
+        });
+    }
+
+    // Diálogos de entrada y de borrado.
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_prompt_accept(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.prompt_accept();
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_prompt_cancel(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.prompt = None;
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_ask_accept(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.ask_accept();
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_ask_cancel(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.ask = None;
                 e.sync(&w);
             }
         });
@@ -5773,5 +6186,127 @@ mod tests {
         ide.menu_command("edit.find");
         assert!(ide.menu_open.is_empty());
         assert!(ide.find.open);
+    }
+
+    #[test]
+    fn valid_name_rechaza_separadores_y_vacios() {
+        assert!(valid_name("main.spasm"));
+        assert!(valid_name("con espacio.txt"));
+        assert!(!valid_name(""));
+        assert!(!valid_name("."));
+        assert!(!valid_name(".."));
+        assert!(!valid_name("a/b"));
+        assert!(!valid_name("a\\b"));
+        assert!(!valid_name("a:b"));
+        assert!(!valid_name("a*b"));
+    }
+
+    #[test]
+    fn el_menu_contextual_deshabilita_la_raiz() {
+        let dir = temp_dir("ctx");
+        std::fs::write(dir.join("a.spasm"), "end;").unwrap();
+        let mut ide = Ide::new();
+        ide.explorer = Explorer::new(dir.clone());
+
+        // La raíz no se puede renombrar ni eliminar.
+        ide.explorer_context(0);
+        assert!(ide.explorer_context_open);
+        let rename = ide
+            .explorer_context_items
+            .iter()
+            .find(|e| e.id == "ctx.rename")
+            .expect("hay renombrar");
+        assert!(!rename.enabled);
+
+        // Un archivo sí.
+        let idx = ide
+            .explorer
+            .nodes()
+            .iter()
+            .position(|n| n.label == "a.spasm")
+            .unwrap();
+        ide.explorer_context(idx as i32);
+        let rename = ide
+            .explorer_context_items
+            .iter()
+            .find(|e| e.id == "ctx.rename")
+            .unwrap();
+        assert!(rename.enabled);
+
+        ide.explorer_context_command("ctx.refresh");
+        assert!(!ide.explorer_context_open);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn el_prompt_crea_archivo_y_carpeta() {
+        let dir = temp_dir("prompt-new");
+        let mut ide = Ide::new();
+        ide.explorer = Explorer::new(dir.clone());
+        ide.explorer_selected = 0; // raíz
+
+        ide.explorer_context_command("ctx.new-folder");
+        ide.prompt.as_mut().unwrap().text = "sub".to_string();
+        ide.prompt_accept();
+        assert!(dir.join("sub").is_dir());
+
+        ide.explorer_selected = 0;
+        ide.explorer_context_command("ctx.new-file");
+        ide.prompt.as_mut().unwrap().text = "nuevo.spasm".to_string();
+        ide.prompt_accept();
+        assert!(dir.join("nuevo.spasm").is_file());
+        assert!(ide.tabs.iter().any(|t| t.path == dir.join("nuevo.spasm")));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn renombrar_actualiza_las_pestanas() {
+        let dir = temp_dir("prompt-rename");
+        let a = dir.join("a.spasm");
+        std::fs::write(&a, "end;").unwrap();
+        let mut ide = Ide::new();
+        ide.explorer = Explorer::new(dir.clone());
+        ide.open_file(a.clone());
+
+        let idx = ide
+            .explorer
+            .nodes()
+            .iter()
+            .position(|n| n.label == "a.spasm")
+            .unwrap();
+        ide.explorer_selected = idx as i32;
+        ide.explorer_context_command("ctx.rename");
+        ide.prompt.as_mut().unwrap().text = "b.spasm".to_string();
+        ide.prompt_accept();
+
+        assert!(dir.join("b.spasm").is_file());
+        assert!(!a.exists());
+        assert_eq!(ide.tabs[0].path, dir.join("b.spasm"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn eliminar_cierra_la_pestana() {
+        let dir = temp_dir("ask-delete");
+        let a = dir.join("a.spasm");
+        std::fs::write(&a, "end;").unwrap();
+        let mut ide = Ide::new();
+        ide.explorer = Explorer::new(dir.clone());
+        ide.open_file(a.clone());
+
+        let idx = ide
+            .explorer
+            .nodes()
+            .iter()
+            .position(|n| n.label == "a.spasm")
+            .unwrap();
+        ide.explorer_selected = idx as i32;
+        ide.explorer_context_command("ctx.delete");
+        assert_eq!(ide.ask.as_deref(), Some(a.as_path()));
+        ide.ask_accept();
+
+        assert!(!a.exists());
+        assert!(ide.tabs.is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -11,7 +11,8 @@ import { IdeGit } from "ide_git.slint";
 import { IdeViewMenu } from "ide_viewmenu.slint";
 import { IdePalette } from "ide_palette.slint";
 import { IdeMenu } from "ide_menu.slint";
-import { IdeConfirm } from "ide_confirm.slint";
+import { IdeConfirm, IdeAsk } from "ide_confirm.slint";
+import { IdePrompt } from "ide_prompt.slint";
 
 // ---------------------------------------------------------------------------
 // NuIde — SpASM Studio (walking skeleton)
@@ -56,6 +57,21 @@ export component NuIdeWindow inherits Window {
     in-out property <bool> confirm-open: false;
     in-out property <string> confirm-title: "";
     in-out property <string> confirm-message: "";
+    // Explorador: filtro de generados y menú contextual.
+    in-out property <bool> explorer-show-generated: true;
+    in-out property <bool> explorer-context-open: false;
+    in-out property <[IdeMenuEntry]> explorer-context-items: [];
+    // Diálogo de entrada de texto.
+    in-out property <bool> prompt-open: false;
+    in-out property <string> prompt-title: "";
+    in-out property <string> prompt-text: "";
+    in-out property <string> prompt-placeholder: "";
+    // Diálogo de dos botones (eliminar).
+    in-out property <bool> ask-open: false;
+    in-out property <string> ask-title: "";
+    in-out property <string> ask-message: "";
+    in-out property <string> ask-accept-label: "Aceptar";
+    in-out property <bool> ask-danger: false;
 
     // Selección de la UI (índices, no modelos reconstruidos).
     in-out property <int> explorer-selected: 2;
@@ -164,6 +180,18 @@ export component NuIdeWindow inherits Window {
     callback confirm-save();
     callback confirm-discard();
     callback confirm-cancel();
+    // Explorador: menú contextual y filtro.
+    callback explorer-context-opened(int);
+    callback explorer-context-command(string);
+    callback explorer-context-close();
+    callback explorer-refresh();
+    callback explorer-toggle-generated();
+    // Diálogo de entrada de texto.
+    callback prompt-accept();
+    callback prompt-cancel();
+    // Diálogo de dos botones (eliminar).
+    callback ask-accept();
+    callback ask-cancel();
     // Explorador y editor.
     callback node-activated(int);
     callback tab-activated(int);
@@ -400,7 +428,7 @@ export component NuIdeWindow inherits Window {
         }
 
         // --- panel: explorador (dock configurable) ---
-        IdeExplorer {
+        explorer := IdeExplorer {
             x: root.panel-x(0);
             y: root.slot-y(root.dock-of(0), 0);
             width: root.panel-w(0);
@@ -408,7 +436,11 @@ export component NuIdeWindow inherits Window {
             visible: root.panel-visible(0);
             nodes: root.tree-nodes;
             selected-index: root.explorer-selected;
+            show-generated: root.explorer-show-generated;
             node-clicked(i) => { root.explorer-selected = i; root.node-activated(i); editor.focus(); }
+            context-opened(i) => { root.explorer-context-opened(i); }
+            refresh => { root.explorer-refresh(); }
+            toggle-generated => { root.explorer-toggle-generated(); }
         }
 
         // --- columna central: editor ---
@@ -578,6 +610,26 @@ export component NuIdeWindow inherits Window {
         activated(id) => { root.menu-command(id); }
     }
 
+    // --- menú contextual del explorador ---
+    if root.explorer-context-open: Rectangle {
+        x: 0;
+        y: 0;
+        width: parent.width;
+        height: parent.height;
+        background: transparent;
+
+        TouchArea {
+            clicked => { root.explorer-context-close(); }
+        }
+    }
+    if root.explorer-context-open: IdeMenu {
+        x: root.panel-x(0) + explorer.context-x;
+        y: IdeTheme.topbar-h + root.slot-y(root.dock-of(0), 0) + explorer.context-y;
+        width: 220px;
+        items: root.explorer-context-items;
+        activated(id) => { root.explorer-context-command(id); }
+    }
+
     // --- diálogo de cambios sin guardar (encima de todo) ---
     if root.confirm-open: IdeConfirm {
         x: 0;
@@ -589,6 +641,33 @@ export component NuIdeWindow inherits Window {
         save => { root.confirm-save(); }
         discard => { root.confirm-discard(); }
         cancel => { root.confirm-cancel(); }
+    }
+
+    // --- diálogo de entrada de texto ---
+    if root.prompt-open: IdePrompt {
+        x: 0;
+        y: 0;
+        width: parent.width;
+        height: parent.height;
+        title: root.prompt-title;
+        text: root.prompt-text;
+        placeholder: root.prompt-placeholder;
+        accept => { root.prompt-accept(); }
+        cancel => { root.prompt-cancel(); }
+    }
+
+    // --- diálogo de dos botones (eliminar) ---
+    if root.ask-open: IdeAsk {
+        x: 0;
+        y: 0;
+        width: parent.width;
+        height: parent.height;
+        title: root.ask-title;
+        message: root.ask-message;
+        accept-label: root.ask-accept-label;
+        danger: root.ask-danger;
+        accept => { root.ask-accept(); }
+        cancel => { root.ask-cancel(); }
     }
 
     // --- paleta de comandos / buscador de archivos (encima de todo) ---

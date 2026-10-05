@@ -59,6 +59,34 @@ component IdeTreeIcon inherits Rectangle {
     }
 }
 
+// Botón compacto del encabezado del explorador.
+component ExplorerButton inherits Rectangle {
+    in property <string> glyph: "";
+    in property <bool> active: false;
+    callback activated();
+
+    width: 20px;
+    height: 20px;
+    border-radius: IdeTheme.radius-sm;
+    background: ta.has-hover ? IdeTheme.control : transparent;
+
+    Text {
+        width: parent.width;
+        height: parent.height;
+        text: root.glyph;
+        color: root.active ? IdeTheme.mint : (ta.has-hover ? IdeTheme.text : IdeTheme.text-dim);
+        font-family: IdeTheme.sans;
+        font-size: 12px;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+
+    ta := TouchArea {
+        mouse-cursor: MouseCursor.pointer;
+        clicked => { root.activated(); }
+    }
+}
+
 // Fila del árbol de archivos.
 component IdeTreeRow inherits Rectangle {
     in property <int> depth: 0;
@@ -66,6 +94,7 @@ component IdeTreeRow inherits Rectangle {
     in property <int> kind: 0;
     in property <bool> selected: false;
     callback clicked();
+    callback context-clicked();
 
     height: 24px;
     border-radius: IdeTheme.radius-sm;
@@ -99,6 +128,11 @@ component IdeTreeRow inherits Rectangle {
     ta := TouchArea {
         mouse-cursor: MouseCursor.pointer;
         clicked => { root.clicked(); }
+        pointer-event(event) => {
+            if (event.button == PointerEventButton.right && event.kind == PointerEventKind.down) {
+                root.context-clicked();
+            }
+        }
     }
 }
 
@@ -106,7 +140,17 @@ component IdeTreeRow inherits Rectangle {
 export component IdeExplorer inherits Rectangle {
     in property <[IdeTreeNode]> nodes: [];
     in property <int> selected-index: -1;
+    in property <bool> show-generated: true;
+    // Índice sobre el que se hizo clic derecho (para ubicar el menú).
+    in-out property <int> context-index: -1;
     callback node-clicked(int);
+    callback context-opened(int);
+    callback refresh();
+    callback toggle-generated();
+
+    // Posición local del menú contextual: la ventana la vuelve absoluta.
+    out property <length> context-x: 16px;
+    out property <length> context-y: 32px + 4px + root.context-index * 25px + flick.content-y;
 
     background: IdeTheme.panel;
     border-width: IdeTheme.hairline;
@@ -134,14 +178,24 @@ export component IdeExplorer inherits Rectangle {
             vertical-alignment: center;
         }
 
-        Text {
-            x: parent.width - 24px;
-            y: (parent.height - self.height) / 2;
-            text: "⇔";
-            color: IdeTheme.text-dim;
-            font-family: IdeTheme.sans;
-            font-size: 12px;
-            vertical-alignment: center;
+        // Ocultar/mostrar generados + refrescar.
+        HorizontalLayout {
+            x: parent.width - 52px;
+            y: (parent.height - 20px) / 2;
+            height: 20px;
+            spacing: 4px;
+            alignment: start;
+            cross-axis-alignment: center;
+
+            ExplorerButton {
+                glyph: "◍";
+                active: !root.show-generated;
+                activated => { root.toggle-generated(); }
+            }
+            ExplorerButton {
+                glyph: "⟳";
+                activated => { root.refresh(); }
+            }
         }
 
         Rectangle {
@@ -153,7 +207,7 @@ export component IdeExplorer inherits Rectangle {
     }
 
     // Árbol.
-    Flickable {
+    flick := Flickable {
         x: 0;
         y: 32px;
         width: parent.width;
@@ -174,6 +228,10 @@ export component IdeExplorer inherits Rectangle {
                 kind: node.kind;
                 selected: i == root.selected-index;
                 clicked => { root.node-clicked(i); }
+                context-clicked => {
+                    root.context-index = i;
+                    root.context-opened(i);
+                }
             }
         }
     }

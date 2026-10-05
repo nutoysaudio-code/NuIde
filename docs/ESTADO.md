@@ -293,6 +293,25 @@ ui/*.slint          la ventana, paneles y tema
   **Guardar / Descartar / Cancelar** (`Confirm`, `confirm_save/discard/cancel`,
   `save_tab`).
 
+### 3.17 Explorador: operaciones de archivos
+
+- **Menú contextual** (clic derecho en una fila, `PointerEventButton.right`):
+  Nuevo archivo/carpeta, Renombrar, Eliminar (deshabilitados en la raíz),
+  Copiar ruta, Mostrar en el explorador y Refrescar. Las filas las arma
+  `explorer_context`; el menú se dibuja a nivel de ventana usando las
+  coordenadas locales que publica `IdeExplorer` (`context-x`/`context-y`), así
+  no lo recorta el panel.
+- **Diálogo de entrada** `ui/ide_prompt.slint` (`IdePrompt`) para nuevo/renombrar;
+  el texto y el cursor los maneja Rust (`Prompt`, `prompt_key`, validación con
+  `valid_name`). Crear abre el archivo nuevo; renombrar reapunta las pestañas
+  (`retarget_open_tabs`).
+- **Eliminar** pide confirmación (`IdeAsk`, rojo) y cierra las pestañas que
+  quedaron dentro de lo borrado. Hoy borra de forma permanente (sin papelera).
+- **Encabezado**: **⟳** refresca y **◍** muestra/oculta generados
+  (`Explorer::set_show_generated`, filtro en `walk`); el estado se guarda en
+  `explorer.generated`.
+- El explorador se reconstruye al crear/renombrar/borrar y al guardar como.
+
 ---
 
 ## 4. Limitaciones conocidas
@@ -307,11 +326,11 @@ ui/*.slint          la ventana, paneles y tema
   una sola vez: no se puede duplicar para llenar más de 3 por lado.
 - **La shell local no cambia de carpeta** al cambiar de proyecto (sí lo hacen las
   sesiones nuevas y el agente, que se relanza).
-- **Git decorativo.** La barra inferior muestra `main` fijo; no hay estado real ni
-  acciones.
-- **Sin atajos globales.** `F5`/`Ctrl+B` funcionan con el foco en el editor, pero
-  no son globales, y no hay paleta de comandos ni búsqueda de archivos. La
-  búsqueda del editor no soporta expresiones regulares ni acotar a la selección.
+- **Búsqueda del editor.** No soporta expresiones regulares ni acotar a la
+  selección, y todavía no hay "buscar en todo el proyecto". La paleta filtra por
+  subcadena (sin *fuzzy*).
+- **Eliminar no usa la papelera.** El explorador borra de forma permanente (con
+  confirmación previa); mandar a la papelera requeriría una API del SO.
 - **Diagnóstico acotado.** Corre el parser al abrir/guardar/`F6` (no en cada
   tecla), reporta sólo el **primer** error, no hay subrayado por columna ni
   panel de problemas, y el parser es el del **dialecto compilado** (no el de
@@ -395,7 +414,7 @@ script de instalación.
 ## 6. Verificación
 
 - `cargo build` / `cargo check` sin warnings.
-- `cargo test`: **79 pruebas OK** (unitarias; las de PTY, el linter y el build
+- `cargo test`: **85 pruebas OK** (unitarias; las de PTY, el linter y el build
   lanzan `cmd`/`opencode`/Python/spasmc reales y se saltean si no están).
 - `cargo fmt --check` limpio.
 - `slint-viewer --check ui/nuide_ui.slint` OK.

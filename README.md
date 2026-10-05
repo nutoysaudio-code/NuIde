@@ -53,6 +53,7 @@ abiertos es una **página de bienvenida** real (accesos y atajos).
 | 22 | control de código (Git): rama, stage, commit y push | ✅ |
 | 23 | paleta de comandos (`Ctrl+Shift+P`) + buscar archivos (`Ctrl+P`) | ✅ |
 | 24 | menús Archivo/Editar + guardar como / cerrar con confirmación | ✅ |
+| 25 | explorador: nuevo/renombrar/eliminar, contextual y filtro de generados | ✅ |
 
 > El parte de estado detallado —qué se cambió en cada iteración, limitaciones y
 > pendientes con su enfoque— está en [`docs/ESTADO.md`](docs/ESTADO.md).
@@ -70,6 +71,13 @@ UI.
   activo para los menús Ejecutar/Compilar.
 - Las extensiones de configuración (`.toml`, `.json`, `.yaml`, …) llevan el
   icono de engranaje.
+- **Clic derecho** abre el menú contextual: Nuevo archivo/carpeta, Renombrar,
+  Eliminar, Copiar ruta, Mostrar en el explorador y Refrescar. Nuevo/renombrar
+  usan el diálogo de entrada (`ui/ide_prompt.slint`); Eliminar pide confirmación
+  (`IdeAsk`) y cierra las pestañas de lo borrado. Renombrar reapunta las
+  pestañas abiertas.
+- En el encabezado, **⟳** refresca y **◍** oculta/muestra los generados
+  (`target`, `node_modules`, `dist`, `.git`, …); el filtro se recuerda.
 
 La **raíz** es la carpeta del proyecto: la última elegida o la carpeta de
 lanzamiento. Se cambia con **clic en el nombre del proyecto** en la barra
@@ -340,7 +348,8 @@ nuide/
     ide_git.slint          panel de control de código (Git)
     ide_palette.slint      paleta de comandos / buscador de archivos
     ide_menu.slint         menú desplegable (Archivo / Editar)
-    ide_confirm.slint      diálogo de cambios sin guardar
+    ide_confirm.slint      diálogos de confirmación / eliminar
+    ide_prompt.slint       diálogo de entrada de texto
     ide_viewmenu.slint     desplegable del menú Ver (paneles)
     ide_welcome.slint      bienvenida del editor (accesos + atajos)
     nuide_ui.slint         la ventana: layout, divisores y datos demo
@@ -405,11 +414,12 @@ Ordenados por impacto para usar el IDE día a día; el **plan en fases** complet
 
 ### Estado al 2026-10-04
 
-Compilado y publicado: `gitlab.com/nutoys-group/nuide` (`main`). 79 tests OK;
+Compilado y publicado: `gitlab.com/nutoys-group/nuide` (`main`). 85 tests OK;
 clon limpio genera `nuide.exe`. Las dos terminales son PTY reales (shell local y
 TUI de `opencode`), el proyecto se elige con diálogo nativo y se recuerda, el
 editor tiene buscar/reemplazar, resaltados, **resaltado por lenguaje y visores**
 (imagen y vista previa de Markdown), **diagnóstico con el parser de SpASM**,
-**control de código (Git)**, **paleta de comandos / buscador de archivos** y
-**menús Archivo/Editar** con guardar como y cierre confirmado; los paneles se
-acoplan/apilan por lado. Falta local: los ítems de arriba.
+**control de código (Git)**, **paleta de comandos / buscador de archivos**,
+**menús Archivo/Editar** con guardar como y cierre confirmado, y **explorador
+con operaciones de archivos**; los paneles se acoplan/apilan por lado. Falta
+local: los ítems de arriba.

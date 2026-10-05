@@ -18,6 +18,22 @@ const MAX_PER_DIR: usize = 500;
 /// Tope de nodos en el árbol completo.
 const MAX_NODES: usize = 4000;
 
+/// Carpetas generadas que se pueden ocultar del árbol.
+const GENERATED: &[&str] = &[
+    "target",
+    "node_modules",
+    "dist",
+    "build",
+    "out",
+    "bin",
+    "vendor",
+];
+
+/// ¿Es una entrada "generada" (se oculta cuando el filtro está activo)?
+fn is_generated(name: &str) -> bool {
+    name.starts_with('.') || GENERATED.contains(&name)
+}
+
 /// Un nodo ya aplanado, en el orden en que se dibuja.
 #[derive(Debug, Clone)]
 pub struct Node {
@@ -41,6 +57,8 @@ pub struct Explorer {
     root: PathBuf,
     expanded: HashSet<PathBuf>,
     nodes: Vec<Node>,
+    /// Mostrar carpetas/archivos generados (`.`-ocultos, `target`, …).
+    show_generated: bool,
 }
 
 impl Explorer {
@@ -52,6 +70,7 @@ impl Explorer {
             root,
             expanded,
             nodes: Vec::new(),
+            show_generated: true,
         };
         e.rebuild();
         e
@@ -63,6 +82,20 @@ impl Explorer {
 
     pub fn nodes(&self) -> &[Node] {
         &self.nodes
+    }
+
+    /// ¿Se muestran los archivos/carpetas generadas?
+    pub fn shows_generated(&self) -> bool {
+        self.show_generated
+    }
+
+    /// Cambia el filtro de generados y reconstruye.
+    pub fn set_show_generated(&mut self, show: bool) {
+        if self.show_generated == show {
+            return;
+        }
+        self.show_generated = show;
+        self.rebuild();
     }
 
     /// Cambia la raíz. Si es la misma, no toca nada.
@@ -111,12 +144,17 @@ impl Explorer {
             return;
         };
 
+        let show_generated = self.show_generated;
         let mut entries: Vec<(PathBuf, String, bool)> = rd
             .flatten()
-            .map(|e| {
+            .filter_map(|e| {
                 let path = e.path();
+                let name = e.file_name().to_string_lossy().into_owned();
+                if !show_generated && is_generated(&name) {
+                    return None;
+                }
                 let is_dir = e.file_type().map(|t| t.is_dir()).unwrap_or(false);
-                (path, e.file_name().to_string_lossy().into_owned(), is_dir)
+                Some((path, name, is_dir))
             })
             .collect();
 
@@ -278,5 +316,27 @@ mod tests {
     fn las_extensiones_conocidas_van_con_engranaje() {
         assert_eq!(file_kind(Path::new("a.toml")), 3);
         assert_eq!(file_kind(Path::new("a.spasm")), 0);
+    }
+
+    #[test]
+    fn oculta_generados_cuando_el_filtro_esta_activo() {
+        let dir = temp_dir("generated");
+        std::fs::create_dir(dir.join("target")).unwrap();
+        std::fs::create_dir(dir.join(".git")).unwrap();
+        std::fs::create_dir(dir.join("src")).unwrap();
+
+        let mut e = Explorer::new(dir.clone());
+        let labels =
+            |e: &Explorer| -> Vec<String> { e.nodes().iter().map(|n| n.label.clone()).collect() };
+        assert!(labels(&e).iter().any(|l| l == "target"));
+        assert!(labels(&e).iter().any(|l| l == "src"));
+        assert!(e.shows_generated());
+
+        e.set_show_generated(false);
+        let names = labels(&e);
+        assert!(!names.iter().any(|l| l == "target"));
+        assert!(!names.iter().any(|l| l == ".git"));
+        assert!(names.iter().any(|l| l == "src"));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
