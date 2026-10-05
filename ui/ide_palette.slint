@@ -1,0 +1,181 @@
+import { IdeTheme } from "ide_theme.slint";
+import { IdePaletteItem } from "ide_types.slint";
+
+// Fila de resultado de la paleta.
+component PaletteRow inherits Rectangle {
+    in property <string> label: "";
+    in property <string> detail: "";
+    in property <bool> selected: false;
+    callback activated();
+
+    height: 26px;
+    border-radius: IdeTheme.radius-sm;
+    background: root.selected ? IdeTheme.selection : (ta.has-hover ? IdeTheme.control : transparent);
+
+    Text {
+        x: 12px;
+        y: (parent.height - self.height) / 2;
+        width: parent.width - 24px - 180px;
+        text: root.label;
+        color: root.selected ? IdeTheme.text : IdeTheme.text-soft;
+        font-family: IdeTheme.sans;
+        font-size: 12px;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+
+    Text {
+        x: parent.width - 12px - self.width;
+        y: (parent.height - self.height) / 2;
+        text: root.detail;
+        color: IdeTheme.mint;
+        font-family: IdeTheme.mono;
+        font-size: 11px;
+        vertical-alignment: center;
+    }
+
+    ta := TouchArea {
+        mouse-cursor: MouseCursor.pointer;
+        clicked => { root.activated(); }
+    }
+}
+
+// Paleta de comandos / buscador de archivos. Overlay centrado arriba.
+//
+// El teclado lo maneja Rust (igual que el resto de las vistas): esta capa solo
+// dibuja el estado (`query`, `items`, `selected`) y avisa los clics.
+export component IdePalette inherits Rectangle {
+    in property <string> title: "";
+    in property <string> query: "";
+    in property <[IdePaletteItem]> items: [];
+    in property <int> selected: -1;
+    callback accept(int);
+    callback dismiss();
+
+    // Fondo oscurecido; un clic fuera cierra la paleta.
+    Rectangle {
+        x: 0;
+        y: 0;
+        width: parent.width;
+        height: parent.height;
+        background: #000000aa;
+
+        backdrop := TouchArea {
+            clicked => { root.dismiss(); }
+        }
+    }
+
+    private property <length> list-h: min(root.items.length * 26px + 8px, 320px);
+
+    box := Rectangle {
+        x: (parent.width - self.width) / 2;
+        y: 72px;
+        width: 600px;
+        height: 40px + root.list-h + 24px;
+        background: IdeTheme.panel;
+        border-width: 1px;
+        border-color: IdeTheme.border-soft;
+        border-radius: IdeTheme.radius;
+        clip: true;
+
+        // --- entrada ---
+        Text {
+            x: 14px;
+            y: (40px - self.height) / 2;
+            text: root.title;
+            color: IdeTheme.text-dim;
+            font-family: IdeTheme.sans;
+            font-size: 12px;
+            vertical-alignment: center;
+        }
+
+        query-text := Text {
+            x: 14px + 84px;
+            y: (40px - self.height) / 2;
+            text: root.query == "" ? "Escribí para filtrar…" : root.query;
+            color: root.query == "" ? IdeTheme.text-dim : IdeTheme.text;
+            font-family: IdeTheme.mono;
+            font-size: 13px;
+            vertical-alignment: center;
+        }
+
+        // Cursor (solo cuando hay texto, para no confundir con el placeholder).
+        if root.query != "": Rectangle {
+            x: query-text.x + query-text.width + 1px;
+            y: (40px - 16px) / 2;
+            width: 1px;
+            height: 16px;
+            background: IdeTheme.mint;
+        }
+
+        Rectangle {
+            y: 40px;
+            width: parent.width;
+            height: IdeTheme.hairline;
+            background: IdeTheme.border-faint;
+        }
+
+        // --- resultados ---
+        list := Flickable {
+            x: 0;
+            y: 40px;
+            width: parent.width;
+            height: root.list-h;
+            content-width: self.width;
+            content-height: content.preferred-height + 8px;
+
+            content := VerticalLayout {
+                x: 6px;
+                y: 4px;
+                width: parent.width - 12px;
+                spacing: 1px;
+
+                if root.items.length == 0: Text {
+                    x: 6px;
+                    text: "Sin resultados";
+                    color: IdeTheme.text-dim;
+                    font-family: IdeTheme.sans;
+                    font-size: 12px;
+                    vertical-alignment: center;
+                }
+
+                for item[i] in root.items: PaletteRow {
+                    label: item.label;
+                    detail: item.detail;
+                    selected: i == root.selected;
+                    activated => { root.accept(i); }
+                }
+            }
+        }
+
+        // --- pie ---
+        Rectangle {
+            y: parent.height - 24px;
+            width: parent.width;
+            height: IdeTheme.hairline;
+            background: IdeTheme.border-faint;
+        }
+
+        Text {
+            x: 14px;
+            y: parent.height - 24px;
+            width: parent.width - 28px;
+            height: 24px;
+            text: "↑↓ moverse   ·   Enter abrir   ·   Esc cerrar";
+            color: IdeTheme.text-dim;
+            font-family: IdeTheme.sans;
+            font-size: 11px;
+            vertical-alignment: center;
+        }
+    }
+
+    // Mantiene visible la fila seleccionada al moverse con el teclado.
+    changed selected => {
+        let y = root.selected * 26px + 8px;
+        if (y < -list.content-y) {
+            list.content-y = max(list.height - list.content-height, min(0px, -y));
+        } else if (y + 26px > -list.content-y + list.height) {
+            list.content-y = max(list.height - list.content-height, min(0px, -(y + 26px - list.height)));
+        }
+    }
+}

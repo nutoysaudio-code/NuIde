@@ -1,6 +1,6 @@
 import { IdeTheme } from "ide_theme.slint";
 export { IdeTheme }
-import { IdeTreeNode, IdeTab, IdeCodeLine, TermLine, IdeOutlineItem, IdeRecent, IdeGitFile } from "ide_types.slint";
+import { IdeTreeNode, IdeTab, IdeCodeLine, TermLine, IdeOutlineItem, IdeRecent, IdeGitFile, IdePaletteItem } from "ide_types.slint";
 import { IdeTopBar } from "ide_topbar.slint";
 import { IdeStatusBar } from "ide_statusbar.slint";
 import { IdeExplorer } from "ide_explorer.slint";
@@ -9,6 +9,7 @@ import { IdeTerminal } from "ide_terminal.slint";
 import { IdeOpenCode } from "ide_opencode.slint";
 import { IdeGit } from "ide_git.slint";
 import { IdeViewMenu } from "ide_viewmenu.slint";
+import { IdePalette } from "ide_palette.slint";
 
 // ---------------------------------------------------------------------------
 // NuIde — SpASM Studio (walking skeleton)
@@ -81,6 +82,12 @@ export component NuIdeWindow inherits Window {
     in-out property <string> git-message: "";
     in-out property <[IdeGitFile]> git-staged: [];
     in-out property <[IdeGitFile]> git-changes: [];
+    // Paleta de comandos / buscador de archivos.
+    in-out property <bool> palette-open: false;
+    in-out property <string> palette-title: "";
+    in-out property <string> palette-query: "";
+    in-out property <[IdePaletteItem]> palette-items: [];
+    in-out property <int> palette-selected: -1;
     // Diagnóstico de SpASM (vacío si no hay errores).
     in-out property <string> diagnostics: "";
 
@@ -127,6 +134,8 @@ export component NuIdeWindow inherits Window {
     callback git-commit();
     callback git-push();
     callback git-open(string);
+    callback palette-accept(int);
+    callback palette-dismiss();
     callback terminal-key(string, bool, bool, bool);
     callback terminal-resize(length, length);
     callback terminal-scroll(length);
@@ -542,6 +551,20 @@ export component NuIdeWindow inherits Window {
         dock-terminal: root.dock-terminal;
         dock-git: root.dock-git;
         cycle-dock(kind) => { root.cycle-dock(kind); }
+    }
+
+    // --- paleta de comandos / buscador de archivos (encima de todo) ---
+    if root.palette-open: IdePalette {
+        x: 0;
+        y: 0;
+        width: parent.width;
+        height: parent.height;
+        title: root.palette-title;
+        query: root.palette-query;
+        items: root.palette-items;
+        selected: root.palette-selected;
+        accept(i) => { root.palette-accept(i); }
+        dismiss => { root.palette-dismiss(); }
     }
 
     // =======================================================================

@@ -36,8 +36,8 @@ use crate::lint;
 use crate::pty::{self, Pty, PtyEvent};
 use crate::spasm::Toolchain;
 use crate::ui::{
-    IdeCodeLine, IdeGitFile, IdeOutlineItem, IdeRecent, IdeTab, IdeToken, IdeTreeNode, NuIdeWindow,
-    TermLine, TermRun,
+    IdeCodeLine, IdeGitFile, IdeOutlineItem, IdePaletteItem, IdeRecent, IdeTab, IdeToken,
+    IdeTreeNode, NuIdeWindow, TermLine, TermRun,
 };
 use crate::vt::{Screen, Selection};
 
@@ -366,6 +366,159 @@ enum RecentEntry {
     File(PathBuf),
 }
 
+/// Comandos que ofrece la paleta (`Ctrl+Shift+P`).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Command {
+    Run,
+    Build,
+    Lint,
+    NextError,
+    Find,
+    Replace,
+    GotoDef,
+    Preview,
+    Save,
+    OpenProject,
+    OpenFile,
+    NewFile,
+    FindFiles,
+    NewTerminal,
+    SplitTerminal,
+    ToggleExplorer,
+    ToggleAgent,
+    ToggleTerminal,
+    ToggleGit,
+    GitRefresh,
+    GitStageAll,
+    GitPush,
+}
+
+impl Command {
+    /// Todos, en el orden en que se muestran.
+    const ALL: [Command; 22] = [
+        Command::Run,
+        Command::Build,
+        Command::Lint,
+        Command::NextError,
+        Command::Find,
+        Command::Replace,
+        Command::GotoDef,
+        Command::Preview,
+        Command::Save,
+        Command::FindFiles,
+        Command::OpenProject,
+        Command::OpenFile,
+        Command::NewFile,
+        Command::NewTerminal,
+        Command::SplitTerminal,
+        Command::ToggleExplorer,
+        Command::ToggleAgent,
+        Command::ToggleTerminal,
+        Command::ToggleGit,
+        Command::GitRefresh,
+        Command::GitStageAll,
+        Command::GitPush,
+    ];
+
+    fn label(self) -> &'static str {
+        match self {
+            Command::Run => "Ejecutar el programa",
+            Command::Build => "Compilar (spasmc)",
+            Command::Lint => "Analizar / diagnóstico",
+            Command::NextError => "Siguiente error",
+            Command::Find => "Buscar",
+            Command::Replace => "Buscar y reemplazar",
+            Command::GotoDef => "Ir a definición",
+            Command::Preview => "Vista previa de Markdown",
+            Command::Save => "Guardar",
+            Command::FindFiles => "Buscar archivos",
+            Command::OpenProject => "Abrir carpeta del proyecto…",
+            Command::OpenFile => "Abrir archivo…",
+            Command::NewFile => "Nuevo archivo…",
+            Command::NewTerminal => "Nueva terminal",
+            Command::SplitTerminal => "Dividir la terminal",
+            Command::ToggleExplorer => "Ver: Explorador",
+            Command::ToggleAgent => "Ver: OpenCode CLI",
+            Command::ToggleTerminal => "Ver: Terminal",
+            Command::ToggleGit => "Ver: Control de código",
+            Command::GitRefresh => "Git: refrescar",
+            Command::GitStageAll => "Git: preparar todo",
+            Command::GitPush => "Git: push",
+        }
+    }
+
+    fn hint(self) -> &'static str {
+        match self {
+            Command::Run => "F5",
+            Command::Build => "Ctrl+B",
+            Command::Lint => "F6",
+            Command::NextError => "F8",
+            Command::Find => "Ctrl+F",
+            Command::Replace => "Ctrl+H",
+            Command::GotoDef => "F12",
+            Command::Preview => "Ctrl+Shift+M",
+            Command::Save => "Ctrl+S",
+            Command::FindFiles => "Ctrl+P",
+            Command::NewTerminal | Command::SplitTerminal => "terminal",
+            Command::ToggleExplorer
+            | Command::ToggleAgent
+            | Command::ToggleTerminal
+            | Command::ToggleGit => "panel",
+            Command::GitRefresh | Command::GitStageAll | Command::GitPush => "git",
+            _ => "",
+        }
+    }
+}
+
+/// Comandos que matchean `query` (etiqueta o atajo). Vacío = todos.
+fn filter_commands(query: &str) -> Vec<Command> {
+    let q = query.to_lowercase();
+    Command::ALL
+        .iter()
+        .copied()
+        .filter(|c| {
+            q.is_empty()
+                || c.label().to_lowercase().contains(&q)
+                || c.hint().to_lowercase().contains(&q)
+        })
+        .collect()
+}
+
+/// Tipo de paleta abierta.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+enum PaletteKind {
+    #[default]
+    Commands,
+    Files,
+}
+
+/// Acción de una fila de la paleta.
+#[derive(Clone)]
+enum PaletteAction {
+    Command(Command),
+    File(PathBuf),
+}
+
+/// Una fila ya resuelta para dibujar (texto + acción).
+#[derive(Clone)]
+struct PaletteRow {
+    label: String,
+    detail: String,
+    action: PaletteAction,
+}
+
+/// Estado de la paleta de comandos / buscador de archivos.
+#[derive(Default)]
+struct Palette {
+    open: bool,
+    kind: PaletteKind,
+    query: String,
+    rows: Vec<PaletteRow>,
+    selected: usize,
+    /// Archivos del proyecto, juntados al abrir el buscador.
+    files: Vec<PathBuf>,
+}
+
 /// Estado completo de la IDE.
 pub struct Ide {
     toolchain: Toolchain,
@@ -408,6 +561,8 @@ pub struct Ide {
     docks: [Dock; 4],
     /// El menú desplegable de "Ver" está abierto.
     view_menu_open: bool,
+    /// Paleta de comandos / buscador de archivos.
+    palette: Palette,
     /// Configuración persistida (proyecto, paneles, ventana, pestañas).
     config: Config,
     /// Modelo de líneas del editor. Se muta por fila para no reconstruir todo en
@@ -517,6 +672,7 @@ impl Ide {
             show_bottom,
             docks,
             view_menu_open: false,
+            palette: Palette::default(),
             config,
             code_model: Rc::new(VecModel::default()),
             model_attached: false,
@@ -915,6 +1071,10 @@ impl Ide {
     /// proceso: `Ctrl+Shift+C/V` copian/pegan la selección y `Shift+PageUp/Down`
     /// recorren el scrollback. Cualquier otra tecla vuelve la vista al final.
     fn pty_key(&mut self, target: Target, text: &str, control: bool, shift: bool, alt: bool) {
+        // Paleta de comandos / buscador de archivos (global).
+        if self.palette_intercept(text, control, shift) {
+            return;
+        }
         if control && shift {
             match text.to_ascii_lowercase().as_str() {
                 "c" => {
@@ -1260,6 +1420,206 @@ impl Ide {
 }
 
 // ---------------------------------------------------------------------------
+// Paleta de comandos / buscador de archivos
+// ---------------------------------------------------------------------------
+
+impl Ide {
+    /// Abre la paleta (comandos o archivos) y recalcula sus filas.
+    fn palette_open(&mut self, kind: PaletteKind) {
+        self.palette.open = true;
+        self.palette.kind = kind;
+        self.palette.query.clear();
+        self.palette.selected = 0;
+        if kind == PaletteKind::Files {
+            self.palette.files = collect_files(self.explorer.root());
+        }
+        self.palette_recompute();
+    }
+
+    /// Cierra la paleta.
+    fn palette_close(&mut self) {
+        self.palette.open = false;
+    }
+
+    /// Recalcula las filas según el tipo y la consulta.
+    fn palette_recompute(&mut self) {
+        let root = self.explorer.root().to_path_buf();
+        let q = self.palette.query.to_lowercase();
+        self.palette.rows = match self.palette.kind {
+            PaletteKind::Commands => filter_commands(&self.palette.query)
+                .into_iter()
+                .map(|c| PaletteRow {
+                    label: c.label().to_string(),
+                    detail: c.hint().to_string(),
+                    action: PaletteAction::Command(c),
+                })
+                .collect(),
+            PaletteKind::Files => {
+                let mut matches: Vec<(usize, usize, PathBuf)> = self
+                    .palette
+                    .files
+                    .iter()
+                    .filter_map(|p| {
+                        let rel = p.strip_prefix(&root).unwrap_or(p);
+                        let rel_low = rel.to_string_lossy().to_lowercase();
+                        if q.is_empty() {
+                            Some((usize::MAX, rel_low.len(), p.clone()))
+                        } else {
+                            rel_low.find(&q).map(|pos| (pos, rel_low.len(), p.clone()))
+                        }
+                    })
+                    .collect();
+                // Primero por dónde aparece el match, después por ruta más corta.
+                matches.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(&b.1)));
+                matches
+                    .into_iter()
+                    .take(50)
+                    .map(|(_, _, p)| {
+                        let rel = p.strip_prefix(&root).unwrap_or(&p);
+                        let detail = rel
+                            .parent()
+                            .map(|d| d.to_string_lossy().into_owned())
+                            .filter(|d| !d.is_empty())
+                            .unwrap_or_else(|| ".".to_string());
+                        PaletteRow {
+                            label: file_name(&p),
+                            detail,
+                            action: PaletteAction::File(p),
+                        }
+                    })
+                    .collect()
+            }
+        };
+        let len = self.palette.rows.len();
+        self.palette.selected = if len == 0 {
+            0
+        } else {
+            self.palette.selected.min(len - 1)
+        };
+    }
+
+    /// Mueve la selección `delta` filas (con tope en los extremos).
+    fn palette_move(&mut self, delta: i32) {
+        let len = self.palette.rows.len() as i32;
+        if len == 0 {
+            return;
+        }
+        let next = (self.palette.selected as i32 + delta).clamp(0, len - 1);
+        self.palette.selected = next as usize;
+    }
+
+    /// Tecla con la paleta abierta. Devuelve si consumió la tecla.
+    fn palette_key(&mut self, text: &str, control: bool) -> bool {
+        match text {
+            "\u{1b}" => self.palette_close(),
+            "\n" | "\r" => self.palette_accept(),
+            "\u{F700}" => self.palette_move(-1),
+            "\u{F701}" => self.palette_move(1),
+            "\u{8}" => {
+                let _ = self.palette.query.pop();
+                self.palette_recompute();
+            }
+            _ => {
+                if !control && !text.is_empty() && !text.starts_with('\u{F7}') {
+                    self.palette.query.push_str(text);
+                    self.palette_recompute();
+                }
+            }
+        }
+        true
+    }
+
+    /// Atajo que abre la paleta, o desvío de teclas mientras está abierta.
+    /// Devuelve `true` si la tecla ya se atendió.
+    fn palette_intercept(&mut self, text: &str, control: bool, shift: bool) -> bool {
+        if self.palette.open {
+            return self.palette_key(text, control);
+        }
+        if control && text.eq_ignore_ascii_case("p") {
+            self.palette_open(if shift {
+                PaletteKind::Commands
+            } else {
+                PaletteKind::Files
+            });
+            return true;
+        }
+        false
+    }
+
+    /// Ejecuta la fila seleccionada y cierra la paleta.
+    fn palette_accept(&mut self) {
+        let action = self.palette.rows.get(self.palette.selected).cloned();
+        self.palette.open = false;
+        match action {
+            Some(row) => match row.action {
+                PaletteAction::Command(c) => self.run_command(c),
+                PaletteAction::File(p) => self.open_file(p),
+            },
+            None => {}
+        }
+    }
+
+    /// Ejecuta la fila `i` (clic).
+    fn palette_accept_at(&mut self, i: i32) {
+        if i >= 0 && (i as usize) < self.palette.rows.len() {
+            self.palette.selected = i as usize;
+            self.palette_accept();
+        }
+    }
+
+    /// Ejecuta un comando de la paleta.
+    fn run_command(&mut self, c: Command) {
+        match c {
+            Command::Run => self.run(None),
+            Command::Build => self.build(""),
+            Command::Lint => self.lint_active(),
+            Command::NextError => self.diagnostic_step(true),
+            Command::Find => self.find_open(false),
+            Command::Replace => self.find_open(true),
+            Command::GotoDef => self.go_to_definition(),
+            Command::Preview => self.toggle_preview(),
+            Command::Save => self.save_active(),
+            Command::FindFiles => self.palette_open(PaletteKind::Files),
+            Command::OpenProject => self.pick_project(),
+            Command::OpenFile => self.pick_file(),
+            Command::NewFile => self.new_file(),
+            Command::NewTerminal => {
+                self.new_local_session();
+                self.resize_local();
+            }
+            Command::SplitTerminal => self.split_terminal(),
+            Command::ToggleExplorer => self.toggle_panel(0),
+            Command::ToggleAgent => self.toggle_panel(1),
+            Command::ToggleTerminal => self.toggle_panel(2),
+            Command::ToggleGit => self.toggle_panel(3),
+            Command::GitRefresh => self.git_refresh(),
+            Command::GitStageAll => self.git_stage_all(),
+            Command::GitPush => self.git_push(),
+        }
+    }
+
+    /// Muestra u oculta un panel (0 Explorador, 1 OpenCode, 2 Terminal, 3 Git).
+    /// Si estaba oculto vuelve a un dock por defecto y enciende la región.
+    fn toggle_panel(&mut self, i: usize) {
+        const DEFAULT: [Dock; 4] = [Dock::Left, Dock::Right, Dock::Bottom, Dock::Left];
+        let Some(dock) = self.docks.get_mut(i) else {
+            return;
+        };
+        if *dock == Dock::Hidden {
+            *dock = DEFAULT[i];
+            match *dock {
+                Dock::Left => self.show_left = true,
+                Dock::Right => self.show_right = true,
+                Dock::Bottom => self.show_bottom = true,
+                Dock::Hidden => {}
+            }
+        } else {
+            *dock = Dock::Hidden;
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Sesiones
 // ---------------------------------------------------------------------------
 
@@ -1559,6 +1919,10 @@ impl Ide {
     /// caracteres: Backspace es `\u{8}`, Enter `\n` y las flechas son caracteres
     /// de uso privado (`\u{F700}`–`\u{F703}`).
     fn editor_key(&mut self, text: &str, control: bool, shift: bool) {
+        // Paleta de comandos / buscador de archivos (global).
+        if self.palette_intercept(text, control, shift) {
+            return;
+        }
         if self.tabs.is_empty() {
             return;
         }
@@ -2787,6 +3151,28 @@ impl Ide {
         w.set_git_staged(ModelRc::from(Rc::new(VecModel::from(staged))));
         w.set_git_changes(ModelRc::from(Rc::new(VecModel::from(changes))));
 
+        // --- paleta de comandos / buscador de archivos ---
+        w.set_palette_open(self.palette.open);
+        w.set_palette_title(
+            match self.palette.kind {
+                PaletteKind::Commands => "Comandos",
+                PaletteKind::Files => "Archivos del proyecto",
+            }
+            .into(),
+        );
+        w.set_palette_query(self.palette.query.clone().into());
+        w.set_palette_selected(self.palette.selected as i32);
+        let rows: Vec<IdePaletteItem> = self
+            .palette
+            .rows
+            .iter()
+            .map(|r| IdePaletteItem {
+                label: r.label.clone().into(),
+                detail: r.detail.clone().into(),
+            })
+            .collect();
+        w.set_palette_items(ModelRc::from(Rc::new(VecModel::from(rows))));
+
         // --- editor ---
         // Sin archivos abiertos (y sin haber abierto nunca) se deja el contenido
         // demo del `.slint` como pantalla de bienvenida. Con la primera pestaña,
@@ -3362,6 +3748,50 @@ fn push_recent(list: &mut Vec<PathBuf>, path: PathBuf) {
     list.truncate(8);
 }
 
+/// Junta los archivos del proyecto (recursivo, con topes) para el buscador.
+/// Se saltea carpetas pesadas o generadas y las que empiezan con punto.
+fn collect_files(root: &Path) -> Vec<PathBuf> {
+    const MAX: usize = 6000;
+    const SKIP: &[&str] = &[
+        "target",
+        "node_modules",
+        "dist",
+        "build",
+        "out",
+        "bin",
+        "vendor",
+        ".git",
+    ];
+    let mut out = Vec::new();
+    let mut stack = vec![(root.to_path_buf(), 0usize)];
+    while let Some((dir, depth)) = stack.pop() {
+        if out.len() >= MAX || depth > 24 {
+            continue;
+        }
+        let Ok(rd) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in rd.flatten() {
+            let path = entry.path();
+            let name = entry.file_name().to_string_lossy().into_owned();
+            let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
+            if is_dir {
+                if name.starts_with('.') || SKIP.contains(&name.as_str()) {
+                    continue;
+                }
+                stack.push((path, depth + 1));
+            } else {
+                out.push(path);
+            }
+            if out.len() >= MAX {
+                break;
+            }
+        }
+    }
+    out.sort();
+    out
+}
+
 /// Traduce el tamaño de un panel en píxeles a celdas de terminal (columnas ×
 /// filas), acotado a un rango razonable para el PTY.
 fn cells_for(w: f32, h: f32, cell_w: f32) -> (u16, u16) {
@@ -3594,6 +4024,30 @@ pub fn attach(window: &NuIdeWindow, ide: Rc<RefCell<Ide>>) {
             if let Some(w) = weak.upgrade() {
                 let mut e = ide.borrow_mut();
                 e.git_open(&path);
+                e.sync(&w);
+            }
+        });
+    }
+
+    // Paleta de comandos / buscador: aceptar una fila o cerrarla.
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_palette_accept(move |i| {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.palette_accept_at(i);
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_palette_dismiss(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.palette_close();
                 e.sync(&w);
             }
         });
@@ -4685,5 +5139,82 @@ mod tests {
         let mut cfg = Config::load();
         cfg.set("k", save_recent(&paths));
         assert_eq!(load_recent(&cfg, "k"), paths);
+    }
+
+    #[test]
+    fn la_paleta_filtra_comandos_por_etiqueta_y_atajo() {
+        assert_eq!(filter_commands("").len(), Command::ALL.len());
+
+        let git = filter_commands("git");
+        assert!(git.contains(&Command::GitPush));
+        assert!(git.iter().all(|c| matches!(
+            c,
+            Command::GitRefresh | Command::GitStageAll | Command::GitPush
+        )));
+
+        // El atajo también cuenta como match.
+        assert!(filter_commands("F5").contains(&Command::Run));
+        assert!(filter_commands("zzz").is_empty());
+    }
+
+    #[test]
+    fn collect_files_entra_en_subcarpetas_y_saltea_generados() {
+        let dir = temp_dir("palette-files");
+        std::fs::create_dir_all(dir.join("src")).unwrap();
+        std::fs::create_dir_all(dir.join("target")).unwrap();
+        std::fs::create_dir_all(dir.join(".git")).unwrap();
+        std::fs::write(dir.join("src").join("main.spasm"), "end;").unwrap();
+        std::fs::write(dir.join("target").join("basura.o"), "x").unwrap();
+        std::fs::write(dir.join(".git").join("config"), "x").unwrap();
+
+        let names: Vec<String> = collect_files(&dir)
+            .iter()
+            .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
+            .collect();
+        assert!(names.iter().any(|n| n == "main.spasm"));
+        assert!(!names.iter().any(|n| n == "basura.o"));
+        assert!(!names.iter().any(|n| n == "config"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn ctrl_p_abre_la_paleta_y_esc_la_cierra() {
+        let mut ide = Ide::new();
+        assert!(!ide.palette.open);
+
+        // Raíz de prueba: así el buscador no recorre todo el repo.
+        let dir = temp_dir("palette-ctrl");
+        std::fs::write(dir.join("a.spasm"), "end;").unwrap();
+        ide.explorer = Explorer::new(dir.clone());
+
+        // Ctrl+Shift+P: paleta de comandos.
+        assert!(ide.palette_intercept("P", true, true));
+        assert!(ide.palette.open);
+        assert_eq!(ide.palette.kind, PaletteKind::Commands);
+        assert_eq!(ide.palette.rows.len(), Command::ALL.len());
+
+        // Escribir filtra en vivo.
+        ide.palette_key("g", false);
+        ide.palette_key("i", false);
+        ide.palette_key("t", false);
+        assert!(ide.palette.rows.iter().all(|r| matches!(
+            r.action,
+            PaletteAction::Command(Command::GitRefresh | Command::GitStageAll | Command::GitPush)
+        )));
+
+        // Esc cierra.
+        ide.palette_key("\u{1b}", false);
+        assert!(!ide.palette.open);
+
+        // Ctrl+P: buscador de archivos.
+        assert!(ide.palette_intercept("p", true, false));
+        assert_eq!(ide.palette.kind, PaletteKind::Files);
+        assert_eq!(ide.palette.rows.len(), 1);
+
+        // Mientras está abierta, las teclas no llegan al editor.
+        assert!(ide.palette_key("x", false));
+        assert_eq!(ide.palette.query, "x");
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

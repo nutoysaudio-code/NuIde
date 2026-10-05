@@ -51,6 +51,7 @@ abiertos es una **página de bienvenida** real (accesos y atajos).
 | 20 | página de bienvenida del editor (accesos + atajos) | ✅ |
 | 21 | bienvenida: recientes (proyectos/archivos) + nuevo archivo | ✅ |
 | 22 | control de código (Git): rama, stage, commit y push | ✅ |
+| 23 | paleta de comandos (`Ctrl+Shift+P`) + buscar archivos (`Ctrl+P`) | ✅ |
 
 > El parte de estado detallado —qué se cambió en cada iteración, limitaciones y
 > pendientes con su enfoque— está en [`docs/ESTADO.md`](docs/ESTADO.md).
@@ -266,6 +267,26 @@ archivos con cambios, separados en **CAMBIOS** y **PREPARADOS**.
 **Limitación:** no hay *diff*, *stage* por hunks ni manejo de credenciales más
 allá de lo que haga `git` (si `push` pide credenciales, se comporta como la CLI).
 
+### La paleta de comandos y el buscador de archivos
+
+`Ctrl+Shift+P` abre la **paleta de comandos** y `Ctrl+P` el **buscador de
+archivos**; se cierran con `Esc` y se navegan con `↑`/`↓` + `Enter` (o clic).
+
+- La paleta (`ui/ide_palette.slint`) es un overlay oscurecido con un campo de
+  filtrado que corre en Rust: se escribe y la lista se recalcula en vivo
+  (coincide por etiqueta o por atajo). Incluye ejecutar/compilar/analizar,
+  buscar, ir a definición, guardar, abrir carpeta/archivo/nuevo, nueva
+  terminal, dividir, `Ver:` cada panel y acciones de Git.
+- El buscador junta los archivos del proyecto (`collect_files`, recursivo y con
+  topes; saltea `target`/`node_modules`/`.git`/… y carpetas ocultas), filtra por
+  ruta y abre el elegido.
+- El teclado lo maneja Rust (no un `TextInput`): los tres focos (editor,
+  terminal, agente) desvían las teclas a la paleta mientras está abierta, así
+  que el atajo es global venga de donde venga el foco.
+
+**Limitación:** el filtrado es por subcadena (sin *fuzzy* ni regex); la lista
+muestra hasta 50 archivos.
+
 ## Estructura
 
 ```
@@ -298,6 +319,7 @@ nuide/
     ide_terminal.slint     terminal local + `TerminalScreen` reutilizable
     ide_opencode.slint     panel de OpenCode CLI (TUI en PTY)
     ide_git.slint          panel de control de código (Git)
+    ide_palette.slint      paleta de comandos / buscador de archivos
     ide_viewmenu.slint     desplegable del menú Ver (paneles)
     ide_welcome.slint      bienvenida del editor (accesos + atajos)
     nuide_ui.slint         la ventana: layout, divisores y datos demo
@@ -352,23 +374,19 @@ Ordenados por impacto para usar el IDE día a día. (Nada de esto está hecho; e
 la hoja de ruta acordada. El enfoque de cada uno está en
 [`docs/ESTADO.md`](docs/ESTADO.md#5-pendientes-hoja-de-ruta).)
 
-1. **Persistencia de estado.** Guardar entre ejecuciones algo más que el
-   proyecto: tamaño/posición de la ventana, pestañas abiertas, sesiones y qué
-   paneles están visibles.
-2. **Git.** Barra de estado con rama y estado reales + acciones básicas (stage,
-   commit, push) desde la IDE.
-3. **Atajos y búsqueda.** `F5` ejecutar / `Ctrl+B` compilar, paleta de comandos y
-   búsqueda de archivos; buscar/reemplazar dentro del editor.
-4. **Mouse reporting en las terminales.** Reenviar el mouse a los procesos que lo
+1. **Mouse reporting en las terminales.** Reenviar el mouse a los procesos que lo
    pidan (la TUI de OpenCode, `vim`…) sin perder la selección/copia.
-5. **Empaquetado.** `.exe` release con icono y versión, e instalador, como las
+2. **Empaquetado.** `.exe` release con icono y versión, e instalador, como las
    otras apps del ecosistema.
+3. **Persistencia ampliada y búsqueda avanzada.** Recordar también las sesiones
+   de terminal, y sumar *fuzzy*/regex y acotar la búsqueda a la selección.
 
 ### Estado al 2026-10-04
 
-Compilado y publicado: `gitlab.com/nutoys-group/nuide` (`main`). 72 tests OK;
+Compilado y publicado: `gitlab.com/nutoys-group/nuide` (`main`). 75 tests OK;
 clon limpio genera `nuide.exe`. Las dos terminales son PTY reales (shell local y
 TUI de `opencode`), el proyecto se elige con diálogo nativo y se recuerda, el
 editor tiene buscar/reemplazar, resaltados, **resaltado por lenguaje y visores**
-(imagen y vista previa de Markdown), **diagnóstico con el parser de SpASM**, y
-los paneles se acoplan/apilan por lado. Falta local: los ítems de arriba.
+(imagen y vista previa de Markdown), **diagnóstico con el parser de SpASM**,
+**control de código (Git)** y **paleta de comandos / buscador de archivos**; los
+paneles se acoplan/apilan por lado. Falta local: los ítems de arriba.

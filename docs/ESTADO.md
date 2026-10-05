@@ -257,6 +257,24 @@ ui/*.slint          la ventana, paneles y tema
   proyecto, al guardar y al terminar cada operación. La rama se muestra en la
   barra de estado (`git-branch`).
 
+### 3.15 Paleta de comandos y buscador de archivos
+
+- `Ctrl+Shift+P` abre la **paleta de comandos** y `Ctrl+P` el **buscador de
+  archivos**; `Esc` cierra, `↑`/`↓` mueven y `Enter` ejecuta (o abre).
+- Overlay `ui/ide_palette.slint` (`IdePalette`): fondo oscurecido, campo de
+  filtrado y lista con auto-scroll de la fila seleccionada.
+- El estado y el teclado viven en Rust (`Palette`, `PaletteKind`, `Command`):
+  `palette_intercept` se llama al inicio de `editor_key` y `pty_key`, así el
+  atajo es global (el foco puede estar en el editor, la terminal o el agente).
+  Mientras está abierta, las teclas se desvían a `palette_key`.
+- Comandos: ejecutar/compilar/analizar, siguiente error, buscar/reemplazar, ir a
+  definición, vista previa, guardar, abrir carpeta/archivo/nuevo, buscar
+  archivos, nueva/dividir terminal, `Ver:` cada panel y refrescar/preparar/push
+  de Git. `filter_commands` matchea por etiqueta o atajo.
+- `collect_files` junta los archivos del proyecto (recursivo, tope 6000, sin
+  `target`/`node_modules`/`.git`/… ni carpetas ocultas); el buscador filtra por
+  ruta y muestra hasta 50.
+
 ---
 
 ## 4. Limitaciones conocidas
@@ -324,15 +342,14 @@ Un `src/git.rs` con descubrimiento + parseo de `status --porcelain`.
 
 ### 5.3 Atajos y búsqueda
 
-**Objetivo:** `F5` ejecutar / `Ctrl+B` compilar (ya están, con foco en el editor),
-paleta de comandos y búsqueda de archivos. En el editor ya están buscar/reemplazar
-(`Ctrl+F`/`Ctrl+H`) con mayúsculas y palabra completa; faltan **regex**, acotar a
-la selección y hacer los atajos globales.
+**Hecho** (iteración 3.15): paleta de comandos (`Ctrl+Shift+P`) y buscador de
+archivos (`Ctrl+P`) globales. En el editor ya están buscar/reemplazar
+(`Ctrl+F`/`Ctrl+H`) con mayúsculas y palabra completa.
 
-**Enfoque:** callbacks de teclado globales en `NuIdeWindow`; un overlay para la
-paleta y el buscador de archivos; en la búsqueda, sumar banderas.
+**Falta:** *fuzzy*/regex en la paleta y en la búsqueda, y acotar la búsqueda a la
+selección.
 
-**Archivos:** `ui/*.slint`, `src/editor.rs`, `src/highlight.rs`.
+**Archivos:** `ui/ide_palette.slint`, `src/editor.rs`.
 
 ### 5.4 Mouse reporting en las terminales
 
@@ -359,7 +376,7 @@ script de instalación.
 ## 6. Verificación
 
 - `cargo build` / `cargo check` sin warnings.
-- `cargo test`: **72 pruebas OK** (unitarias; las de PTY, el linter y el build
+- `cargo test`: **75 pruebas OK** (unitarias; las de PTY, el linter y el build
   lanzan `cmd`/`opencode`/Python/spasmc reales y se saltean si no están).
 - `cargo fmt --check` limpio.
 - `slint-viewer --check ui/nuide_ui.slint` OK.
