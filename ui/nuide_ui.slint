@@ -1,6 +1,6 @@
 import { IdeTheme } from "ide_theme.slint";
 export { IdeTheme }
-import { IdeTreeNode, IdeTab, IdeCodeLine, TermLine, IdeOutlineItem, IdeRecent, IdeGitFile, IdePaletteItem, IdeMenuEntry } from "ide_types.slint";
+import { IdeTreeNode, IdeTab, IdeCodeLine, TermLine, IdeOutlineItem, IdeRecent, IdeGitFile, IdePaletteItem, IdeMenuEntry, IdeSearchHit } from "ide_types.slint";
 import { IdeTopBar } from "ide_topbar.slint";
 import { IdeStatusBar } from "ide_statusbar.slint";
 import { IdeExplorer } from "ide_explorer.slint";
@@ -13,6 +13,7 @@ import { IdePalette } from "ide_palette.slint";
 import { IdeMenu } from "ide_menu.slint";
 import { IdeConfirm, IdeAsk } from "ide_confirm.slint";
 import { IdePrompt } from "ide_prompt.slint";
+import { IdeSearch } from "ide_search.slint";
 
 // ---------------------------------------------------------------------------
 // NuIde — SpASM Studio (walking skeleton)
@@ -66,6 +67,20 @@ export component NuIdeWindow inherits Window {
     in-out property <string> prompt-title: "";
     in-out property <string> prompt-text: "";
     in-out property <string> prompt-placeholder: "";
+    // Buscar en el proyecto.
+    in-out property <bool> search-open: false;
+    in-out property <bool> search-replace-open: false;
+    in-out property <bool> search-case: false;
+    in-out property <bool> search-regex: false;
+    in-out property <bool> search-focus-replace: false;
+    in-out property <bool> search-searching: false;
+    in-out property <string> search-info: "";
+    in-out property <string> search-query-before: "";
+    in-out property <string> search-query-after: "";
+    in-out property <string> search-replace-before: "";
+    in-out property <string> search-replace-after: "";
+    in-out property <[IdeSearchHit]> search-hits: [];
+    in-out property <int> search-selected: -1;
     // Diálogo de dos botones (eliminar).
     in-out property <bool> ask-open: false;
     in-out property <string> ask-title: "";
@@ -196,6 +211,14 @@ export component NuIdeWindow inherits Window {
     // Diálogo de entrada de texto.
     callback prompt-accept();
     callback prompt-cancel();
+    // Buscar en el proyecto.
+    callback search-dismiss();
+    callback search-toggle-case();
+    callback search-toggle-regex();
+    callback search-toggle-replace();
+    callback search-replace-all();
+    callback search-accept(int);
+    callback search-focus(bool);
     // Diálogo de dos botones (eliminar).
     callback ask-accept();
     callback ask-cancel();
@@ -647,6 +670,33 @@ export component NuIdeWindow inherits Window {
         width: 220px;
         items: root.explorer-context-items;
         activated(id) => { root.explorer-context-command(id); }
+    }
+
+    // --- buscar en el proyecto (encima de los paneles) ---
+    if root.search-open: IdeSearch {
+        x: 0;
+        y: 0;
+        width: parent.width;
+        height: parent.height;
+        query-before: root.search-query-before;
+        query-after: root.search-query-after;
+        replace-before: root.search-replace-before;
+        replace-after: root.search-replace-after;
+        replace-open: root.search-replace-open;
+        case: root.search-case;
+        regex: root.search-regex;
+        focus-replace: root.search-focus-replace;
+        searching: root.search-searching;
+        info: root.search-info;
+        hits: root.search-hits;
+        selected: root.search-selected;
+        dismiss => { root.search-dismiss(); }
+        toggle-case => { root.search-toggle-case(); }
+        toggle-regex => { root.search-toggle-regex(); }
+        toggle-replace => { root.search-toggle-replace(); }
+        replace-all => { root.search-replace-all(); }
+        accept(i) => { root.search-accept(i); }
+        focus-field(replace) => { root.search-focus(replace); }
     }
 
     // --- diálogo de cambios sin guardar (encima de todo) ---

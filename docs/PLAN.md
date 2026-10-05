@@ -116,7 +116,7 @@ recupera cursor y scroll.
 
 ---
 
-## Fase 4 — Buscar en el proyecto  ·  M  ·  must
+## Fase 4 — Buscar en el proyecto  ·  M  ·  must  ·  ✅ hecha (3.20)
 
 **Objetivo:** encontrar texto en todos los archivos.
 

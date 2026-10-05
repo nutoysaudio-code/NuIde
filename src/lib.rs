@@ -14,6 +14,7 @@ pub mod git;
 pub mod highlight;
 pub mod lint;
 pub mod pty;
+pub mod search;
 pub mod spasm;
 pub mod terminal;
 pub mod ui;

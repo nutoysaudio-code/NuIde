@@ -34,10 +34,11 @@ use crate::git;
 use crate::highlight;
 use crate::lint;
 use crate::pty::{self, Pty, PtyEvent};
+use crate::search;
 use crate::spasm::Toolchain;
 use crate::ui::{
-    IdeCodeLine, IdeGitFile, IdeMenuEntry, IdeOutlineItem, IdePaletteItem, IdeRecent, IdeTab,
-    IdeToken, IdeTreeNode, NuIdeWindow, TermLine, TermRun,
+    IdeCodeLine, IdeGitFile, IdeMenuEntry, IdeOutlineItem, IdePaletteItem, IdeRecent, IdeSearchHit,
+    IdeTab, IdeToken, IdeTreeNode, NuIdeWindow, TermLine, TermRun,
 };
 use crate::vt::{Screen, Selection};
 
@@ -388,6 +389,24 @@ impl Find {
     }
 }
 
+/// Estado de "buscar en el proyecto".
+#[derive(Default)]
+struct Search {
+    open: bool,
+    query: String,
+    replace: String,
+    replace_open: bool,
+    case_sensitive: bool,
+    regex: bool,
+    focus_replace: bool,
+    query_cursor: usize,
+    replace_cursor: usize,
+    hits: Vec<crate::search::SearchHit>,
+    selected: usize,
+    truncated: bool,
+    searching: bool,
+}
+
 /// Decoraciones de resaltado que dependen del cursor y del documento, además de
 /// la selección y la búsqueda. Se recalculan una vez por pasada de render.
 #[derive(Default)]
@@ -444,11 +463,12 @@ enum Command {
     ToggleInsertSpaces,
     RestartSession,
     RenameSession,
+    ProjectSearch,
 }
 
 impl Command {
     /// Todos, en el orden en que se muestran.
-    const ALL: [Command; 36] = [
+    const ALL: [Command; 37] = [
         Command::Run,
         Command::Build,
         Command::Lint,
@@ -485,6 +505,7 @@ impl Command {
         Command::ToggleInsertSpaces,
         Command::RestartSession,
         Command::RenameSession,
+        Command::ProjectSearch,
     ];
 
     fn label(self) -> &'static str {
@@ -525,6 +546,7 @@ impl Command {
             Command::ToggleInsertSpaces => "Editor: insertar espacios",
             Command::RestartSession => "Terminal: reiniciar sesión",
             Command::RenameSession => "Terminal: renombrar sesión…",
+            Command::ProjectSearch => "Buscar en el proyecto",
         }
     }
 
@@ -558,6 +580,7 @@ impl Command {
             Command::CycleTabSize => "4",
             Command::ToggleInsertSpaces => "espacios",
             Command::RestartSession | Command::RenameSession => "terminal",
+            Command::ProjectSearch => "Ctrl+Shift+F",
             _ => "",
         }
     }
@@ -686,6 +709,14 @@ enum Confirm {
     Quit,
 }
 
+/// Confirmación de dos botones pendiente.
+enum Ask {
+    /// Eliminar una ruta.
+    Delete(PathBuf),
+    /// Reemplazar en todo el proyecto.
+    ReplaceInProject,
+}
+
 /// Qué pide el diálogo de entrada de texto.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum PromptKind {
@@ -734,8 +765,8 @@ pub struct Ide {
     explorer_context_items: Vec<IdeMenuEntry>,
     /// Diálogo de entrada de texto (nuevo archivo/carpeta, renombrar).
     prompt: Option<Prompt>,
-    /// Confirmación de borrado pendiente (ruta objetivo).
-    ask: Option<PathBuf>,
+    /// Confirmación de borrado o reemplazo pendiente.
+    ask: Option<Ask>,
     /// Archivos abiertos en el editor.
     tabs: Vec<OpenTab>,
     active_tab: usize,
@@ -779,6 +810,11 @@ pub struct Ide {
     insert_spaces: bool,
     /// Estado de la búsqueda del editor (barra, coincidencias).
     find: Find,
+    /// Buscar en el proyecto: estado y canal del hilo.
+    search: Search,
+    search_tx: Sender<search::SearchResult>,
+    search_rx: Receiver<search::SearchResult>,
+    search_gen: u64,
     /// Diagnósticos del archivo activo (errores del parser de SpASM).
     diagnostics: Vec<lint::Diagnostic>,
     /// Esquema del archivo activo (funciones y variables).
@@ -842,6 +878,7 @@ impl Ide {
         let (lint_tx, lint_rx) = mpsc::channel();
         let (build_tx, build_rx) = mpsc::channel();
         let (git_tx, git_rx) = mpsc::channel();
+        let (search_tx, search_rx) = mpsc::channel();
         // En las pruebas no se consulta Git (mantiene los tests rápidos y ajenos
         // al estado del repo; el parseo se cubre en `git::tests`).
         let git_status = if cfg!(test) {
@@ -890,6 +927,10 @@ impl Ide {
             tab_size,
             insert_spaces,
             find: Find::default(),
+            search: Search::default(),
+            search_tx,
+            search_rx,
+            search_gen: 0,
             diagnostics: Vec::new(),
             outline: Vec::new(),
             diagnostics_path: None,
@@ -1311,8 +1352,11 @@ impl Ide {
     /// proceso: `Ctrl+Shift+C/V` copian/pegan la selección y `Shift+PageUp/Down`
     /// recorren el scrollback. Cualquier otra tecla vuelve la vista al final.
     fn pty_key(&mut self, target: Target, text: &str, control: bool, shift: bool, alt: bool) {
-        // Diálogo de entrada (modal) y paleta de comandos / buscador (global).
+        // Diálogo de entrada (modal), búsqueda en el proyecto y paleta (global).
         if self.prompt_intercept(text, control) {
+            return;
+        }
+        if self.search_intercept(text, control, shift) {
             return;
         }
         if self.palette_intercept(text, control, shift) {
@@ -1934,6 +1978,7 @@ impl Ide {
             Command::ToggleInsertSpaces => self.toggle_insert_spaces(),
             Command::RestartSession => self.restart_session(),
             Command::RenameSession => self.prompt_rename_session(),
+            Command::ProjectSearch => self.search_open(),
         }
     }
 
@@ -2285,7 +2330,7 @@ impl Ide {
                     text: node.label.clone(),
                 });
             }
-            "ctx.delete" => self.ask = Some(node.path.clone()),
+            "ctx.delete" => self.ask = Some(Ask::Delete(node.path.clone())),
             "ctx.copy-path" => {
                 let _ = clipboard_write(&node.path.display().to_string());
             }
@@ -2385,19 +2430,26 @@ impl Ide {
         }
     }
 
-    /// Confirma el borrado pendiente.
+    /// Confirma la acción pendiente (borrar o reemplazar en el proyecto).
     fn ask_accept(&mut self) {
-        let Some(path) = self.ask.take() else {
+        let Some(ask) = self.ask.take() else {
             return;
         };
+        match ask {
+            Ask::Delete(path) => self.delete_path(&path),
+            Ask::ReplaceInProject => self.replace_in_project(),
+        }
+    }
+
+    /// Borra una ruta y cierra las pestañas que quedaron dentro.
+    fn delete_path(&mut self, path: &Path) {
         let ok = if path.is_dir() {
-            std::fs::remove_dir_all(&path).is_ok()
+            std::fs::remove_dir_all(path).is_ok()
         } else {
-            std::fs::remove_file(&path).is_ok()
+            std::fs::remove_file(path).is_ok()
         };
         if ok {
-            // Cierra las pestañas que quedaron dentro de lo borrado.
-            self.tabs.retain(|t| !t.path.starts_with(&path));
+            self.tabs.retain(|t| !t.path.starts_with(path));
             if self.active_tab >= self.tabs.len() {
                 self.active_tab = self.tabs.len().saturating_sub(1);
             }
@@ -2408,6 +2460,80 @@ impl Ide {
                 self.git_refresh();
             }
         }
+    }
+
+    /// Reemplaza la consulta en todos los archivos con coincidencias y recarga
+    /// las pestañas abiertas que hayan cambiado.
+    fn replace_in_project(&mut self) {
+        let query = self.search.query.clone();
+        if query.is_empty() {
+            return;
+        }
+        let replacement = self.search.replace.clone();
+        let case = self.search.case_sensitive;
+        let re = if self.search.regex {
+            match build_regex(&query, case) {
+                Some(re) => Some(re),
+                None => return,
+            }
+        } else {
+            None
+        };
+        let mut files: Vec<PathBuf> = self.search.hits.iter().map(|h| h.path.clone()).collect();
+        files.sort();
+        files.dedup();
+        for path in files {
+            let Ok(text) = std::fs::read_to_string(&path) else {
+                continue;
+            };
+            let trailing = text.ends_with('\n');
+            let mut new = String::new();
+            for (i, line) in text.lines().enumerate() {
+                if i > 0 {
+                    new.push('\n');
+                }
+                match &re {
+                    Some(re) => new.push_str(&re.replace_all(line, replacement.as_str())),
+                    None => {
+                        let (updated, _) = replace_in_line(line, &query, &replacement, case, false);
+                        new.push_str(&updated);
+                    }
+                }
+            }
+            if trailing {
+                new.push('\n');
+            }
+            if std::fs::write(&path, new).is_ok() {
+                self.reload_open_tab(&path);
+            }
+        }
+        self.search_run();
+        if !cfg!(test) {
+            self.git_refresh();
+        }
+    }
+
+    /// Recarga desde disco una pestaña abierta (tras reemplazar en el proyecto).
+    fn reload_open_tab(&mut self, path: &Path) {
+        let Some(i) = self.tabs.iter().position(|t| t.path == path) else {
+            return;
+        };
+        if self.tabs[i].read_only {
+            return;
+        }
+        let (lines, trailing, _) = read_lines(path);
+        let last = lines.len().saturating_sub(1);
+        self.tabs[i].lines = lines;
+        self.tabs[i].trailing_newline = trailing;
+        self.tabs[i].dirty = false;
+        let clamped_line = self.tabs[i].cursor.line.min(last);
+        let max_col = self.tabs[i].line_len(clamped_line);
+        let col = self.tabs[i].cursor.col.min(max_col);
+        self.tabs[i].cursor = Cursor {
+            line: clamped_line,
+            col,
+        };
+        self.editor_full = true;
     }
 
     /// Reapunta las pestañas abiertas al mover/renombrar una ruta.
@@ -2423,6 +2549,197 @@ impl Ide {
                 self.active_file = Some(to.join(rel));
             }
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Buscar en el proyecto
+// ---------------------------------------------------------------------------
+
+impl Ide {
+    /// Abre el panel de búsqueda en el proyecto (hereda la consulta del editor).
+    fn search_open(&mut self) {
+        self.search.open = true;
+        self.search.selected = 0;
+        if self.search.query.is_empty() && !self.find.query.is_empty() {
+            self.search.query = self.find.query.clone();
+            self.search.query_cursor = self.search.query.chars().count();
+        }
+        self.search_run();
+    }
+
+    /// Cierra el panel de búsqueda.
+    fn search_close(&mut self) {
+        self.search.open = false;
+    }
+
+    /// Lanza la búsqueda en un hilo (descarta respuestas viejas por generación).
+    fn search_run(&mut self) {
+        self.search_gen += 1;
+        self.search.searching = true;
+        search::spawn(
+            self.explorer.root().to_path_buf(),
+            self.search.query.clone(),
+            self.search.case_sensitive,
+            self.search.regex,
+            self.search_gen,
+            self.search_tx.clone(),
+        );
+    }
+
+    /// Alterna distinguir mayúsculas en la búsqueda del proyecto.
+    fn search_toggle_case(&mut self) {
+        self.search.case_sensitive = !self.search.case_sensitive;
+        self.search_run();
+    }
+
+    /// Alterna expresiones regulares en la búsqueda del proyecto.
+    fn search_toggle_regex(&mut self) {
+        self.search.regex = !self.search.regex;
+        self.search_run();
+    }
+
+    /// Muestra u oculta el campo de reemplazo.
+    fn search_toggle_replace(&mut self) {
+        self.search.replace_open = !self.search.replace_open;
+        if !self.search.replace_open {
+            self.search.focus_replace = false;
+        }
+    }
+
+    /// Mueve la selección de resultados.
+    fn search_move(&mut self, delta: i32) {
+        let len = self.search.hits.len() as i32;
+        if len == 0 {
+            return;
+        }
+        self.search.selected = (self.search.selected as i32 + delta).clamp(0, len - 1) as usize;
+    }
+
+    /// Abre el resultado seleccionado en la línea correspondiente.
+    fn search_accept(&mut self) {
+        let Some(hit) = self.search.hits.get(self.search.selected) else {
+            return;
+        };
+        let (path, line, col) = (hit.path.clone(), hit.line, hit.col);
+        self.open_file(path);
+        if let Some(t) = self.tabs.get_mut(self.active_tab) {
+            let last = t.lines.len().saturating_sub(1);
+            t.cursor = Cursor {
+                line: line.min(last),
+                col,
+            };
+            t.anchor = None;
+        }
+        self.editor_full = true;
+        self.search.open = false;
+    }
+
+    /// Ejecuta el resultado `i` (clic).
+    fn search_accept_at(&mut self, i: i32) {
+        if i >= 0 && (i as usize) < self.search.hits.len() {
+            self.search.selected = i as usize;
+            self.search_accept();
+        }
+    }
+
+    /// Inserta un carácter en el campo con foco y vuelve a buscar.
+    fn search_insert(&mut self, ch: char) {
+        if self.search.focus_replace {
+            let at = self
+                .search
+                .replace_cursor
+                .min(self.search.replace.chars().count());
+            let mut chars: Vec<char> = self.search.replace.chars().collect();
+            chars.insert(at, ch);
+            self.search.replace = chars.into_iter().collect();
+            self.search.replace_cursor = at + 1;
+        } else {
+            let at = self
+                .search
+                .query_cursor
+                .min(self.search.query.chars().count());
+            let mut chars: Vec<char> = self.search.query.chars().collect();
+            chars.insert(at, ch);
+            self.search.query = chars.into_iter().collect();
+            self.search.query_cursor = at + 1;
+            self.search_run();
+        }
+    }
+
+    /// Borra el carácter anterior al cursor del campo con foco.
+    fn search_backspace(&mut self) {
+        if self.search.focus_replace {
+            let at = self
+                .search
+                .replace_cursor
+                .min(self.search.replace.chars().count());
+            if at == 0 {
+                return;
+            }
+            let mut chars: Vec<char> = self.search.replace.chars().collect();
+            chars.remove(at - 1);
+            self.search.replace = chars.into_iter().collect();
+            self.search.replace_cursor = at - 1;
+        } else {
+            let at = self
+                .search
+                .query_cursor
+                .min(self.search.query.chars().count());
+            if at == 0 {
+                return;
+            }
+            let mut chars: Vec<char> = self.search.query.chars().collect();
+            chars.remove(at - 1);
+            self.search.query = chars.into_iter().collect();
+            self.search.query_cursor = at - 1;
+            self.search_run();
+        }
+    }
+
+    /// Tecla del panel de búsqueda del proyecto. Devuelve si la consumió.
+    fn search_key(&mut self, text: &str, control: bool, shift: bool) {
+        match text {
+            "\u{1b}" => self.search_close(),
+            "\n" | "\r" => self.search_accept(),
+            "\t" => {
+                if self.search.replace_open {
+                    self.search.focus_replace = !self.search.focus_replace;
+                }
+            }
+            "\u{F700}" => self.search_move(-1),
+            "\u{F701}" => self.search_move(1),
+            "\u{8}" => self.search_backspace(),
+            _ => {
+                if !control && !text.is_empty() && !text.starts_with('\u{F7}') {
+                    for ch in text.chars() {
+                        self.search_insert(ch);
+                    }
+                }
+            }
+        }
+        let _ = shift;
+    }
+
+    /// Atajo (`Ctrl+Shift+F`) o desvío de teclas con el panel abierto.
+    fn search_intercept(&mut self, text: &str, control: bool, shift: bool) -> bool {
+        if self.search.open {
+            self.search_key(text, control, shift);
+            return true;
+        }
+        if control && shift && text.eq_ignore_ascii_case("f") {
+            self.search_open();
+            return true;
+        }
+        false
+    }
+
+    /// Pide confirmación para reemplazar en todo el proyecto.
+    fn search_request_replace_all(&mut self) {
+        if self.search.query.is_empty() || self.search.hits.is_empty() {
+            return;
+        }
+        self.ask = Some(Ask::ReplaceInProject);
     }
 }
 
@@ -2758,8 +3075,11 @@ impl Ide {
     /// caracteres: Backspace es `\u{8}`, Enter `\n` y las flechas son caracteres
     /// de uso privado (`\u{F700}`–`\u{F703}`).
     fn editor_key(&mut self, text: &str, control: bool, shift: bool) {
-        // Diálogo de entrada (modal) y paleta de comandos / buscador (global).
+        // Diálogo de entrada (modal), búsqueda en el proyecto y paleta (global).
         if self.prompt_intercept(text, control) {
+            return;
+        }
+        if self.search_intercept(text, control, shift) {
             return;
         }
         if self.palette_intercept(text, control, shift) {
@@ -4285,18 +4605,80 @@ impl Ide {
             w.set_prompt_text(p.text.clone().into());
         }
         w.set_ask_open(self.ask.is_some());
-        if let Some(path) = self.ask.as_ref() {
-            w.set_ask_title("Eliminar".into());
-            w.set_ask_message(
-                format!(
-                    "¿Eliminar «{}»? Esta acción no se puede deshacer.",
-                    file_name(path)
-                )
-                .into(),
-            );
-            w.set_ask_accept_label("Eliminar".into());
-            w.set_ask_danger(true);
+        match self.ask.as_ref() {
+            Some(Ask::Delete(path)) => {
+                w.set_ask_title("Eliminar".into());
+                w.set_ask_message(
+                    format!(
+                        "¿Eliminar «{}»? Esta acción no se puede deshacer.",
+                        file_name(path)
+                    )
+                    .into(),
+                );
+                w.set_ask_accept_label("Eliminar".into());
+                w.set_ask_danger(true);
+            }
+            Some(Ask::ReplaceInProject) => {
+                let files = {
+                    let mut v: Vec<PathBuf> =
+                        self.search.hits.iter().map(|h| h.path.clone()).collect();
+                    v.sort();
+                    v.dedup();
+                    v.len()
+                };
+                w.set_ask_title("Reemplazar en el proyecto".into());
+                w.set_ask_message(
+                    format!(
+                        "Se reemplazará «{}» en {files} archivo(s). ¿Continuar?",
+                        self.search.query
+                    )
+                    .into(),
+                );
+                w.set_ask_accept_label("Reemplazar".into());
+                w.set_ask_danger(false);
+            }
+            None => {}
         }
+
+        // --- buscar en el proyecto ---
+        w.set_search_open(self.search.open);
+        w.set_search_replace_open(self.search.replace_open);
+        w.set_search_case(self.search.case_sensitive);
+        w.set_search_regex(self.search.regex);
+        w.set_search_focus_replace(self.search.focus_replace);
+        w.set_search_searching(self.search.searching);
+        w.set_search_selected(self.search.selected as i32);
+        let (qb, qa) = split_at_cursor(&self.search.query, self.search.query_cursor);
+        let (rb, ra) = split_at_cursor(&self.search.replace, self.search.replace_cursor);
+        w.set_search_query_before(qb.into());
+        w.set_search_query_after(qa.into());
+        w.set_search_replace_before(rb.into());
+        w.set_search_replace_after(ra.into());
+        let info = if self.search.query.is_empty() {
+            String::new()
+        } else if self.search.searching {
+            "…".to_string()
+        } else {
+            let n = self.search.hits.len();
+            let extra = if self.search.truncated { "+" } else { "" };
+            format!("{n}{extra} resultado(s)")
+        };
+        w.set_search_info(info.into());
+        let root = self.explorer.root().to_path_buf();
+        let hits: Vec<IdeSearchHit> = self
+            .search
+            .hits
+            .iter()
+            .map(|h| {
+                let rel = h.path.strip_prefix(&root).unwrap_or(&h.path);
+                IdeSearchHit {
+                    path: rel.to_string_lossy().into_owned().into(),
+                    line: h.line as i32 + 1,
+                    text: h.text.clone().into(),
+                }
+            })
+            .collect();
+        w.set_search_hits(ModelRc::from(Rc::new(VecModel::from(hits))));
 
         // --- Git ---
         w.set_git_repo(self.git_status.is_repo);
@@ -4483,6 +4865,21 @@ impl Ide {
                 w.set_git_message("".into());
             }
             got = true;
+        }
+        while let Ok(result) = self.search_rx.try_recv() {
+            // Sólo la última búsqueda importa.
+            if result.gen == self.search_gen {
+                self.search.hits = result.hits;
+                self.search.truncated = result.truncated;
+                self.search.searching = false;
+                let len = self.search.hits.len();
+                self.search.selected = if len == 0 {
+                    0
+                } else {
+                    self.search.selected.min(len - 1)
+                };
+                got = true;
+            }
         }
         if got {
             self.sync(w);
@@ -4812,7 +5209,7 @@ fn char_eq(a: char, b: char, case_sensitive: bool) -> bool {
 
 /// Apariciones de `query` en `line`, como rangos de caracteres con el fin
 /// exclusivo. No se solapan. Con `whole_word`, exige bordes de palabra.
-fn find_in_line(
+pub(crate) fn find_in_line(
     line: &str,
     query: &str,
     case_sensitive: bool,
@@ -4841,7 +5238,7 @@ fn find_in_line(
 }
 
 /// Compila una expresión regular (case-insensitive si `case_sensitive` es false).
-fn build_regex(pattern: &str, case_sensitive: bool) -> Option<regex_lite::Regex> {
+pub(crate) fn build_regex(pattern: &str, case_sensitive: bool) -> Option<regex_lite::Regex> {
     regex_lite::RegexBuilder::new(pattern)
         .case_insensitive(!case_sensitive)
         .build()
@@ -4849,7 +5246,11 @@ fn build_regex(pattern: &str, case_sensitive: bool) -> Option<regex_lite::Regex>
 }
 
 /// Apariciones de una regex en `line` (rangos de caracteres, fin exclusivo).
-fn find_in_line_regex(line: &str, re: &regex_lite::Regex, whole_word: bool) -> Vec<(usize, usize)> {
+pub(crate) fn find_in_line_regex(
+    line: &str,
+    re: &regex_lite::Regex,
+    whole_word: bool,
+) -> Vec<(usize, usize)> {
     let chars: Vec<char> = line.chars().collect();
     let mut out = Vec::new();
     for m in re.find_iter(line) {
@@ -4992,7 +5393,7 @@ fn push_recent(list: &mut Vec<PathBuf>, path: PathBuf) {
 
 /// Junta los archivos del proyecto (recursivo, con topes) para el buscador.
 /// Se saltea carpetas pesadas o generadas y las que empiezan con punto.
-fn collect_files(root: &Path) -> Vec<PathBuf> {
+pub(crate) fn collect_files(root: &Path) -> Vec<PathBuf> {
     const MAX: usize = 6000;
     const SKIP: &[&str] = &[
         "target",
@@ -5290,6 +5691,90 @@ pub fn attach(window: &NuIdeWindow, ide: Rc<RefCell<Ide>>) {
             if let Some(w) = weak.upgrade() {
                 let mut e = ide.borrow_mut();
                 e.palette_close();
+                e.sync(&w);
+            }
+        });
+    }
+
+    // Buscar en el proyecto.
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_search_dismiss(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.search_close();
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_search_toggle_case(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.search_toggle_case();
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_search_toggle_regex(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.search_toggle_regex();
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_search_toggle_replace(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.search_toggle_replace();
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_search_replace_all(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.search_request_replace_all();
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_search_accept(move |i| {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.search_accept_at(i);
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_search_focus(move |replace| {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.search.focus_replace = replace;
+                if replace {
+                    e.search.replace_cursor = e.search.replace.chars().count();
+                } else {
+                    e.search.query_cursor = e.search.query.chars().count();
+                }
                 e.sync(&w);
             }
         });
@@ -6873,7 +7358,10 @@ mod tests {
             .unwrap();
         ide.explorer_selected = idx as i32;
         ide.explorer_context_command("ctx.delete");
-        assert_eq!(ide.ask.as_deref(), Some(a.as_path()));
+        match ide.ask.as_ref() {
+            Some(Ask::Delete(p)) => assert_eq!(p.as_path(), a.as_path()),
+            _ => panic!("esperaba Ask::Delete"),
+        }
         ide.ask_accept();
 
         assert!(!a.exists());
@@ -7029,5 +7517,74 @@ mod tests {
         ide.prompt.as_mut().unwrap().text = "servidor".to_string();
         ide.prompt_accept();
         assert_eq!(ide.local[ide.local_active].name, "servidor");
+    }
+
+    #[test]
+    fn ctrl_shift_f_abre_la_busqueda_del_proyecto() {
+        let dir = temp_dir("search-open");
+        let mut ide = Ide::new();
+        ide.explorer = Explorer::new(dir.clone());
+
+        assert!(!ide.search.open);
+        assert!(ide.search_intercept("F", true, true));
+        assert!(ide.search.open);
+        ide.search_key("x", false, false);
+        assert_eq!(ide.search.query, "x");
+        ide.search_key("\u{1b}", false, false);
+        assert!(!ide.search.open);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn abrir_un_resultado_salta_a_la_linea() {
+        let dir = temp_dir("search-accept");
+        let a = dir.join("a.spasm");
+        std::fs::write(&a, "l1\nl2\nl3\n").unwrap();
+        let mut ide = Ide::new();
+        ide.explorer = Explorer::new(dir.clone());
+
+        ide.search.open = true;
+        ide.search.hits = vec![crate::search::SearchHit {
+            path: a.clone(),
+            line: 2,
+            col: 0,
+            text: "l3".to_string(),
+        }];
+        ide.search.selected = 0;
+        ide.search_accept();
+
+        assert!(!ide.search.open);
+        assert_eq!(ide.tabs[0].path, a);
+        assert_eq!(ide.tabs[0].cursor.line, 2);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn reemplazar_en_el_proyecto_escribe_los_archivos() {
+        let dir = temp_dir("search-replace");
+        let a = dir.join("a.spasm");
+        std::fs::write(&a, "foo\nbar\nfoo\n").unwrap();
+        let mut ide = Ide::new();
+        ide.explorer = Explorer::new(dir.clone());
+        ide.search.query = "foo".to_string();
+        ide.search.replace = "baz".to_string();
+        ide.search.hits = vec![
+            crate::search::SearchHit {
+                path: a.clone(),
+                line: 0,
+                col: 0,
+                text: "foo".to_string(),
+            },
+            crate::search::SearchHit {
+                path: a.clone(),
+                line: 2,
+                col: 0,
+                text: "foo".to_string(),
+            },
+        ];
+
+        ide.replace_in_project();
+        assert_eq!(std::fs::read_to_string(&a).unwrap(), "baz\nbar\nbaz\n");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

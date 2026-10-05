@@ -81,6 +81,16 @@ export struct IdePaletteItem {
     detail: string,
 }
 
+// Resultado de "buscar en el proyecto".
+export struct IdeSearchHit {
+    // Ruta relativa a la raíz.
+    path: string,
+    // Línea (1-based, para mostrar).
+    line: int,
+    // Texto de la línea.
+    text: string,
+}
+
 // Fila de un menú desplegable (Archivo/Editar). `id` vacío = separador.
 export struct IdeMenuEntry {
     id: string,

@@ -1,0 +1,345 @@
+import { IdeTheme } from "ide_theme.slint";
+import { IdeSearchHit } from "ide_types.slint";
+
+// Botón compacto para la barra de búsqueda del proyecto.
+component SearchButton inherits Rectangle {
+    in property <string> label: "";
+    in property <bool> active: false;
+    in property <bool> subtle: false;
+    in property <bool> enabled: true;
+    callback activated();
+
+    height: 22px;
+    width: label-text.width + 16px;
+    border-radius: IdeTheme.radius-sm;
+    background: !root.enabled ? IdeTheme.control
+        : root.active ? IdeTheme.selection
+        : (ta.has-hover ? IdeTheme.control-hi : IdeTheme.control);
+    border-width: 1px;
+    border-color: root.active ? IdeTheme.mint : IdeTheme.border-soft;
+
+    label-text := Text {
+        x: 8px;
+        y: (parent.height - self.height) / 2;
+        text: root.label;
+        color: root.enabled ? (root.active ? IdeTheme.mint : IdeTheme.text-soft) : IdeTheme.text-dim;
+        font-family: IdeTheme.sans;
+        font-size: 11px;
+        vertical-alignment: center;
+    }
+
+    ta := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: MouseCursor.pointer;
+        clicked => { root.activated(); }
+    }
+}
+
+// Fila de resultado.
+component SearchResultRow inherits Rectangle {
+    in property <string> path: "";
+    in property <int> line: 0;
+    in property <string> text: "";
+    in property <bool> selected: false;
+    callback activated();
+
+    height: 22px;
+    background: root.selected ? IdeTheme.selection : (ta.has-hover ? IdeTheme.control : transparent);
+
+    Text {
+        x: 8px;
+        y: (parent.height - self.height) / 2;
+        width: 260px;
+        text: root.path + ":" + root.line;
+        color: IdeTheme.mint;
+        font-family: IdeTheme.mono;
+        font-size: 11px;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+
+    Text {
+        x: 276px;
+        y: (parent.height - self.height) / 2;
+        width: parent.width - 284px;
+        text: root.text;
+        color: IdeTheme.text-soft;
+        font-family: IdeTheme.mono;
+        font-size: 11px;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+
+    ta := TouchArea {
+        mouse-cursor: MouseCursor.pointer;
+        clicked => { root.activated(); }
+    }
+}
+
+// Buscar en todo el proyecto. El teclado lo maneja Rust; esta capa dibuja el
+// estado y avisa los clics.
+export component IdeSearch inherits Rectangle {
+    in property <string> query-before: "";
+    in property <string> query-after: "";
+    in property <string> replace-before: "";
+    in property <string> replace-after: "";
+    in property <bool> replace-open: false;
+    in property <bool> case: false;
+    in property <bool> regex: false;
+    in property <bool> focus-replace: false;
+    in property <bool> searching: false;
+    in property <string> info: "";
+    in property <[IdeSearchHit]> hits: [];
+    in property <int> selected: -1;
+
+    callback dismiss();
+    callback toggle-case();
+    callback toggle-regex();
+    callback toggle-replace();
+    callback replace-all();
+    callback accept(int);
+    callback focus-field(bool);
+
+    Rectangle {
+        x: 0;
+        y: 0;
+        width: parent.width;
+        height: parent.height;
+        background: #000000aa;
+
+        backdrop := TouchArea {
+            clicked => { root.dismiss(); }
+        }
+    }
+
+    private property <length> input-h: root.replace-open ? 74px : 40px;
+    private property <length> list-h: min(root.hits.length * 22px + 8px, 340px);
+    private property <length> footer-h: 26px;
+
+    box := Rectangle {
+        x: (parent.width - self.width) / 2;
+        y: 56px;
+        width: 680px;
+        height: root.input-h + root.list-h + root.footer-h;
+        background: IdeTheme.panel;
+        border-width: 1px;
+        border-color: IdeTheme.border-soft;
+        border-radius: IdeTheme.radius;
+        clip: true;
+
+        // --- campo de búsqueda ---
+        Text {
+            x: 14px;
+            y: (22px + 8px) / 2 - self.height / 2;
+            text: "Buscar";
+            color: IdeTheme.text-dim;
+            font-family: IdeTheme.sans;
+            font-size: 11px;
+            vertical-alignment: center;
+        }
+
+        Rectangle {
+            x: 70px;
+            y: 8px;
+            width: parent.width - 70px - 16px;
+            height: 22px;
+            border-radius: IdeTheme.radius-sm;
+            background: IdeTheme.bg;
+            border-width: 1px;
+            border-color: !root.focus-replace ? IdeTheme.mint : IdeTheme.border-soft;
+            clip: true;
+
+            HorizontalLayout {
+                x: 6px;
+                y: 0;
+                height: parent.height;
+                spacing: 0;
+                alignment: start;
+                cross-axis-alignment: center;
+
+                Text {
+                    text: root.query-before;
+                    color: IdeTheme.text;
+                    font-family: IdeTheme.mono;
+                    font-size: 12px;
+                    vertical-alignment: center;
+                }
+                Rectangle {
+                    visible: !root.focus-replace;
+                    width: 1px;
+                    height: 13px;
+                    background: IdeTheme.mint;
+                }
+                Text {
+                    text: root.query-after;
+                    color: IdeTheme.text;
+                    font-family: IdeTheme.mono;
+                    font-size: 12px;
+                    vertical-alignment: center;
+                }
+            }
+
+            TouchArea {
+                mouse-cursor: MouseCursor.text;
+                clicked => { root.focus-field(false); }
+            }
+        }
+
+        // --- campo de reemplazo ---
+        if root.replace-open: Text {
+            x: 14px;
+            y: 40px + (22px / 2) - self.height / 2;
+            text: "Reempl.";
+            color: IdeTheme.text-dim;
+            font-family: IdeTheme.sans;
+            font-size: 11px;
+            vertical-alignment: center;
+        }
+
+        if root.replace-open: Rectangle {
+            x: 70px;
+            y: 40px;
+            width: parent.width - 70px - 16px;
+            height: 22px;
+            border-radius: IdeTheme.radius-sm;
+            background: IdeTheme.bg;
+            border-width: 1px;
+            border-color: root.focus-replace ? IdeTheme.mint : IdeTheme.border-soft;
+            clip: true;
+
+            HorizontalLayout {
+                x: 6px;
+                y: 0;
+                height: parent.height;
+                spacing: 0;
+                alignment: start;
+                cross-axis-alignment: center;
+
+                Text {
+                    text: root.replace-before;
+                    color: IdeTheme.text;
+                    font-family: IdeTheme.mono;
+                    font-size: 12px;
+                    vertical-alignment: center;
+                }
+                Rectangle {
+                    visible: root.focus-replace;
+                    width: 1px;
+                    height: 13px;
+                    background: IdeTheme.mint;
+                }
+                Text {
+                    text: root.replace-after;
+                    color: IdeTheme.text;
+                    font-family: IdeTheme.mono;
+                    font-size: 12px;
+                    vertical-alignment: center;
+                }
+            }
+
+            TouchArea {
+                mouse-cursor: MouseCursor.text;
+                clicked => { root.focus-field(true); }
+            }
+        }
+
+        // --- barra de acciones ---
+        HorizontalLayout {
+            x: 70px;
+            y: root.input-h - 30px;
+            width: parent.width - 86px;
+            height: 22px;
+            spacing: 6px;
+            alignment: end;
+            cross-axis-alignment: center;
+
+            Text {
+                text: root.searching ? "Buscando…" : root.info;
+                color: IdeTheme.text-soft;
+                font-family: IdeTheme.mono;
+                font-size: 11px;
+                vertical-alignment: center;
+                horizontal-stretch: 1;
+            }
+            SearchButton { label: "Aa"; active: root.case; activated => { root.toggle-case(); } }
+            SearchButton { label: ".*"; active: root.regex; activated => { root.toggle-regex(); } }
+            SearchButton { label: "⇄"; active: root.replace-open; activated => { root.toggle-replace(); } }
+            SearchButton {
+                label: "Reemplazar todo";
+                enabled: root.replace-open && root.hits.length > 0;
+                activated => { root.replace-all(); }
+            }
+            SearchButton { label: "×"; activated => { root.dismiss(); } }
+        }
+
+        Rectangle {
+            y: root.input-h;
+            width: parent.width;
+            height: IdeTheme.hairline;
+            background: IdeTheme.border-faint;
+        }
+
+        // --- resultados ---
+        results := Flickable {
+            x: 0;
+            y: root.input-h;
+            width: parent.width;
+            height: root.list-h;
+            content-width: self.width;
+            content-height: results-list.preferred-height + 8px;
+
+            results-list := VerticalLayout {
+                x: 6px;
+                y: 4px;
+                width: parent.width - 12px;
+                spacing: 1px;
+
+                if root.hits.length == 0: Text {
+                    x: 6px;
+                    text: root.searching ? "…" : "Sin resultados";
+                    color: IdeTheme.text-dim;
+                    font-family: IdeTheme.sans;
+                    font-size: 12px;
+                }
+
+                for hit[i] in root.hits: SearchResultRow {
+                    path: hit.path;
+                    line: hit.line;
+                    text: hit.text;
+                    selected: i == root.selected;
+                    activated => { root.accept(i); }
+                }
+            }
+        }
+
+        // --- pie ---
+        Rectangle {
+            y: parent.height - root.footer-h;
+            width: parent.width;
+            height: IdeTheme.hairline;
+            background: IdeTheme.border-faint;
+        }
+
+        Text {
+            x: 14px;
+            y: parent.height - root.footer-h;
+            width: parent.width - 28px;
+            height: root.footer-h;
+            text: "↑↓ moverse   ·   Tab reemplazo   ·   Enter abrir   ·   Esc cerrar";
+            color: IdeTheme.text-dim;
+            font-family: IdeTheme.sans;
+            font-size: 11px;
+            vertical-alignment: center;
+        }
+    }
+
+    // Mantiene visible la fila seleccionada.
+    changed selected => {
+        let y = root.selected * 22px + 8px;
+        if (y < -results.content-y) {
+            results.content-y = max(results.height - results.content-height, min(0px, -y));
+        } else if (y + 22px > -results.content-y + results.height) {
+            results.content-y = max(results.height - results.content-height, min(0px, -(y + 22px - results.height)));
+        }
+    }
+}

@@ -57,6 +57,7 @@ abiertos es una **página de bienvenida** real (accesos y atajos).
 | 25 | explorador: nuevo/renombrar/eliminar, contextual y filtro de generados | ✅ |
 | 26 | editor: regex, buscar en selección, historial, autocierre/autoindent y tab | ✅ |
 | 27 | terminal: mouse reporting + renombrar/reiniciar sesión | ✅ |
+| 28 | buscar y reemplazar en todo el proyecto | ✅ |
 
 > El parte de estado detallado —qué se cambió en cada iteración, limitaciones y
 > pendientes con su enfoque— está en [`docs/ESTADO.md`](docs/ESTADO.md).
@@ -184,6 +185,23 @@ Sin pestañas abiertas se muestra una **página de bienvenida**
 (`ui/ide_welcome.slint`) con accesos (**Abrir carpeta…**, **Abrir archivo…**,
 **Nuevo archivo…**), la lista de **Recientes** (proyectos y archivos, guardados
 en la config) y los atajos; con la primera pestaña, el editor pasa a ser real.
+
+### Buscar en el proyecto
+
+`Ctrl+Shift+F` (o el comando *Buscar en el proyecto*) abre un panel que recorre
+**todos los archivos del proyecto** y muestra los resultados agrupados por
+archivo y línea, con el texto de la línea.
+
+- La búsqueda corre en un **hilo** (`src/search.rs`) y descarta respuestas viejas
+  por generación, así escribir no congela la UI. Reutiliza `collect_files`, que
+  saltea generados (`target`, `node_modules`, `.git`, …) y carpetas ocultas, y
+  saltea binarios y archivos de más de 2 MB.
+- `Aa` distingue mayúsculas y `.*` usa **expresiones regulares**.
+- `↑`/`↓` navegan, `Tab` pasa al campo de reemplazo y `Enter` (o clic) **abre el
+  archivo en la línea** del resultado.
+- `⇄` muestra el reemplazo y **Reemplazar todo** lo aplica en todos los archivos
+  con coincidencias (con confirmación); recarga las pestañas abiertas afectadas y
+  refresca Git.
 
 ### La terminal local (real)
 
@@ -349,6 +367,7 @@ nuide/
     lint.rs                diagnóstico de SpASM (corre el parser real)
     build.rs               ejecuta el toolchain y parsea la salida (build/run)
     git.rs                 control de código por CLI (status, stage, commit, push)
+    search.rs              buscar en todo el proyecto (en un hilo)
     terminal.rs            consola lineal heredada (sólo pruebas de integración)
     explorer.rs            árbol de archivos plano con profundidad
     highlight.rs           tokenizador/resaltado de SpASM
@@ -366,6 +385,7 @@ nuide/
     ide_opencode.slint     panel de OpenCode CLI (TUI en PTY)
     ide_git.slint          panel de control de código (Git)
     ide_palette.slint      paleta de comandos / buscador de archivos
+    ide_search.slint       buscar/reemplazar en el proyecto
     ide_menu.slint         menú desplegable (Archivo / Editar)
     ide_confirm.slint      diálogos de confirmación / eliminar
     ide_prompt.slint       diálogo de entrada de texto
@@ -433,13 +453,14 @@ Ordenados por impacto para usar el IDE día a día; el **plan en fases** complet
 
 ### Estado al 2026-10-04
 
-Compilado y publicado: `gitlab.com/nutoys-group/nuide` (`main`). 95 tests OK;
+Compilado y publicado: `gitlab.com/nutoys-group/nuide` (`main`). 101 tests OK;
 clon limpio genera `nuide.exe`. Las dos terminales son PTY reales (shell local y
 TUI de `opencode`) con **mouse reporting**, el proyecto se elige con diálogo
 nativo y se recuerda, el editor tiene buscar/reemplazar (con **regex**, **en
 selección** e historial), autocierre/autoindentación, resaltados, **resaltado
 por lenguaje y visores** (imagen y vista previa de Markdown), **diagnóstico con
 el parser de SpASM**, **control de código (Git)**, **paleta de comandos /
-buscador de archivos**, **menús Archivo/Editar** con guardar como y cierre
-confirmado, y **explorador con operaciones de archivos**; los paneles se
-acoplan/apilan por lado. Falta local: los ítems de arriba.
+buscador de archivos**, **buscar en todo el proyecto**, **menús Archivo/Editar**
+con guardar como y cierre confirmado, y **explorador con operaciones de
+archivos**; los paneles se acoplan/apilan por lado. Falta local: los ítems de
+arriba.

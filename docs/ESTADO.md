@@ -348,6 +348,21 @@ ui/*.slint          la ventana, paneles y tema
   `IdePrompt` con `PromptKind::SessionName`) y `Terminal: reiniciar sesión`
   (`restart_session`, conserva la posición y arranca en la raíz del proyecto).
 
+### 3.20 Buscar en todo el proyecto
+
+- Módulo `src/search.rs`: `spawn` corre la búsqueda en un hilo y manda
+  `SearchResult { gen, hits, truncated }`; `gen` permite descartar respuestas
+  viejas. Reutiliza `collect_files` y los buscadores de línea del editor.
+- Panel `ui/ide_search.slint` (`IdeSearch`): campo de búsqueda, campo de
+  reemplazo opcional, botones `Aa` (mayúsculas), `.*` (regex), `⇄` (reemplazo) y
+  **Reemplazar todo**; lista de resultados `ruta:línea  texto` con auto-scroll.
+- Se abre con **`Ctrl+Shift+F`** (`search_intercept`, global) o el comando de
+  paleta. El teclado lo maneja Rust (`search_key`); `Enter`/clic abren el archivo
+  en la línea (`search_accept`).
+- **Reemplazar en el proyecto** pide confirmación (`Ask::ReplaceInProject`,
+  generalizamos `ask` a un enum), aplica `replace_in_line` o la regex, recarga
+  las pestañas abiertas afectadas (`reload_open_tab`) y refresca Git.
+
 ---
 
 ## 4. Limitaciones conocidas
@@ -362,9 +377,9 @@ ui/*.slint          la ventana, paneles y tema
 - **La shell local no cambia de carpeta** al cambiar de proyecto, pero las
   sesiones nuevas y **reiniciar la sesión** arrancan en la raíz del proyecto (el
   agente sí cambia sin reiniciarse).
-- **Búsqueda del editor.** Ya tiene expresiones regulares y acotar a la
-  selección; falta "buscar en todo el proyecto" (Fase 4) y la paleta filtra por
-  subcadena (sin *fuzzy*).
+- **Búsqueda del editor.** Tiene expresiones regulares, acotar a la selección y
+  buscar en todo el proyecto; falta *fuzzy* en la paleta (que hoy filtra por
+  subcadena).
 - **Editor sin *render* virtualizado.** Se materializa el modelo completo (tope
   20k líneas), así que un archivo enorme no entra completo; todavía no hay
   *word wrap*, plegado ni multi-cursor.
@@ -453,7 +468,7 @@ script de instalación.
 ## 6. Verificación
 
 - `cargo build` / `cargo check` sin warnings.
-- `cargo test`: **95 pruebas OK** (unitarias; las de PTY, el linter y el build
+- `cargo test`: **101 pruebas OK** (unitarias; las de PTY, el linter y el build
   lanzan `cmd`/`opencode`/Python/spasmc reales y se saltean si no están).
 - `cargo fmt --check` limpio.
 - `slint-viewer --check ui/nuide_ui.slint` OK.
