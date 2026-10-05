@@ -140,6 +140,7 @@ export component IdeTopBar inherits Rectangle {
     out property <length> file-menu-x: file-item.x;
     out property <length> edit-menu-x: edit-item.x;
     out property <length> view-menu-x: view-item.x;
+    out property <length> help-menu-x: help-item.x;
 
     height: IdeTheme.topbar-h;
     background: IdeTheme.panel;
@@ -193,6 +194,7 @@ export component IdeTopBar inherits Rectangle {
         view-item := IdeMenuItem { label: "Ver"; active: root.active-menu == "Ver"; activated => { root.menu-activated(self.label); } }
         IdeMenuItem { label: "Ejecutar"; activated => { root.menu-activated(self.label); } }
         IdeMenuItem { label: "Compilar"; activated => { root.menu-activated(self.label); } }
+        help-item := IdeMenuItem { label: "Ayuda"; active: root.active-menu == "Ayuda"; activated => { root.menu-activated(self.label); } }
     }
 
     // Proyecto, centrado en la barra. Es clickeable: abre el selector de carpeta.

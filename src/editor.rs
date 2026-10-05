@@ -800,6 +800,20 @@ fn reveal_in_explorer(path: &Path) {
     }
 }
 
+/// Abre una URL en el navegador del sistema.
+fn open_url(url: &str) {
+    #[cfg(windows)]
+    {
+        let _ = std::process::Command::new("cmd")
+            .args(["/C", "start", "", url])
+            .spawn();
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = std::process::Command::new("xdg-open").arg(url).spawn();
+    }
+}
+
 /// Tipo de paleta abierta.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 enum PaletteKind {
@@ -984,6 +998,10 @@ pub struct Ide {
     keymap: HashMap<String, String>,
     /// Acción esperando una combinación nueva.
     capturing_key: Option<String>,
+    /// Diálogo "Acerca de".
+    about_open: bool,
+    /// Versión de la app (para Acerca de).
+    version: String,
     /// Estado de la búsqueda del editor (barra, coincidencias).
     find: Find,
     /// Buscar en el proyecto: estado y canal del hilo.
@@ -1154,6 +1172,8 @@ impl Ide {
             prefs_open: false,
             keymap,
             capturing_key: None,
+            about_open: false,
+            version: env!("CARGO_PKG_VERSION").to_string(),
             find: Find::default(),
             search: Search::default(),
             search_tx,
@@ -2198,8 +2218,8 @@ impl Ide {
         match label {
             "Ejecutar" => self.run(None),
             "Compilar" => self.build(""),
-            // Archivo/Editar/Ver abren su desplegable (y lo cierran si ya está).
-            "Archivo" | "Editar" | "Ver" => {
+            // Archivo/Editar/Ver/Ayuda abren su desplegable (y lo cierran si ya está).
+            "Archivo" | "Editar" | "Ver" | "Ayuda" => {
                 self.menu_open = if self.menu_open == label {
                     String::new()
                 } else {
@@ -2725,6 +2745,11 @@ impl Ide {
             "edit.find" => self.find_open(false),
             "edit.replace" => self.find_open(true),
             "edit.goto-line" => self.palette_open(PaletteKind::GoToLine),
+            "help.about" => self.about_show(),
+            "help.syntax" => self.spasm_help(),
+            "help.keys" => self.prefs_toggle(),
+            "help.config" => reveal_in_explorer(&crate::config::config_dir()),
+            "help.repo" => open_url("https://gitlab.com/nutoys-group/nuide"),
             _ => {}
         }
         false
@@ -2763,6 +2788,18 @@ impl Ide {
             menu_entry("edit.find", "Buscar", "Ctrl+F", has),
             menu_entry("edit.replace", "Reemplazar", "Ctrl+H", has),
             menu_entry("edit.goto-line", "Ir a línea…", "Ctrl+G", has),
+        ]
+    }
+
+    /// Filas del menú Ayuda.
+    fn help_menu_items(&self) -> Vec<IdeMenuEntry> {
+        vec![
+            menu_entry("help.about", "Acerca de NuIde", "", true),
+            menu_entry("help.syntax", "Ayuda de sintaxis SpASM", "F1", true),
+            menu_entry("help.keys", "Preferencias y atajos", "Ctrl+,", true),
+            menu_sep(),
+            menu_entry("help.config", "Abrir carpeta de configuración", "", true),
+            menu_entry("help.repo", "Ver en GitLab", "", true),
         ]
     }
 }
@@ -3272,6 +3309,16 @@ impl Ide {
     fn prefs_close(&mut self) {
         self.prefs_open = false;
         self.capturing_key = None;
+    }
+
+    /// Abre el diálogo "Acerca de NuIde".
+    fn about_show(&mut self) {
+        self.about_open = true;
+    }
+
+    /// Cierra "Acerca de".
+    fn about_close(&mut self) {
+        self.about_open = false;
     }
 
     fn prefs_cycle_mono(&mut self) {
@@ -5130,6 +5177,7 @@ impl Ide {
         let menu_items: Vec<IdeMenuEntry> = match self.menu_open.as_str() {
             "Archivo" => self.file_menu_items(),
             "Editar" => self.edit_menu_items(),
+            "Ayuda" => self.help_menu_items(),
             _ => Vec::new(),
         };
         w.set_menu_items(ModelRc::from(Rc::new(VecModel::from(menu_items))));
@@ -5361,6 +5409,8 @@ impl Ide {
         w.set_prefs_build_on_save(self.run_build_on_save);
         w.set_prefs_capturing(self.capturing_key.clone().unwrap_or_default().into());
         w.set_prefs_keys(ModelRc::from(Rc::new(VecModel::from(self.prefs_keys()))));
+        w.set_about_open(self.about_open);
+        w.set_about_version(self.version.clone().into());
 
         // --- Git ---
         w.set_git_repo(self.git_status.is_repo);
@@ -6815,6 +6865,17 @@ pub fn attach(window: &NuIdeWindow, ide: Rc<RefCell<Ide>>) {
             if let Some(w) = weak.upgrade() {
                 let mut e = ide.borrow_mut();
                 e.prefs_capture(&id);
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_about_close(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.about_close();
                 e.sync(&w);
             }
         });

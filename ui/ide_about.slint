@@ -1,0 +1,139 @@
+import { IdeTheme } from "ide_theme.slint";
+
+// Acerca de NuIde: créditos y versión.
+export component IdeAbout inherits Rectangle {
+    in property <string> version: "0.1.0";
+    callback dismiss();
+
+    Rectangle {
+        x: 0;
+        y: 0;
+        width: parent.width;
+        height: parent.height;
+        background: #000000aa;
+
+        backdrop := TouchArea {
+            clicked => { root.dismiss(); }
+        }
+    }
+
+    box := Rectangle {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        width: 440px;
+        height: 240px;
+        background: IdeTheme.panel;
+        border-width: 1px;
+        border-color: IdeTheme.border-soft;
+        border-radius: IdeTheme.radius;
+
+        // Logo.
+        Rectangle {
+            x: 24px;
+            y: 24px;
+            width: 40px;
+            height: 40px;
+            border-radius: 10px;
+            background: @linear-gradient(180deg, #24393a 0%, #172728 100%);
+            border-width: 1px;
+            border-color: IdeTheme.mint;
+
+            Text {
+                width: parent.width;
+                height: parent.height;
+                text: "N";
+                color: IdeTheme.mint;
+                font-family: IdeTheme.sans;
+                font-size: 20px;
+                font-weight: 700;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+        }
+
+        Text {
+            x: 78px;
+            y: 24px;
+            text: "NuIde " + root.version;
+            color: IdeTheme.text;
+            font-family: IdeTheme.sans;
+            font-size: 17px;
+            font-weight: 600;
+            vertical-alignment: center;
+        }
+
+        Text {
+            x: 78px;
+            y: 46px;
+            text: "IDE para SpASM";
+            color: IdeTheme.text-soft;
+            font-family: IdeTheme.sans;
+            font-size: 12px;
+            vertical-alignment: center;
+        }
+
+        Text {
+            x: 24px;
+            y: 84px;
+            width: parent.width - 48px;
+            text: "Rust + Slint. Terminales reales (ConPTY) y panel de OpenCode CLI.";
+            color: IdeTheme.text-soft;
+            font-family: IdeTheme.sans;
+            font-size: 12px;
+            wrap: word-wrap;
+        }
+
+        Text {
+            x: 24px;
+            y: 120px;
+            width: parent.width - 48px;
+            text: "Editor con resaltado, diagnóstico del parser de SpASM, Git, buscar en el proyecto y paleta de comandos.";
+            color: IdeTheme.text-dim;
+            font-family: IdeTheme.sans;
+            font-size: 12px;
+            wrap: word-wrap;
+        }
+
+        Text {
+            x: 24px;
+            y: 168px;
+            text: "© NuToys · gitlab.com/nutoys-group/nuide";
+            color: IdeTheme.mint;
+            font-family: IdeTheme.mono;
+            font-size: 11px;
+            vertical-alignment: center;
+        }
+
+        Rectangle {
+            y: parent.height - 40px;
+            width: parent.width;
+            height: IdeTheme.hairline;
+            background: IdeTheme.border-faint;
+        }
+
+        Rectangle {
+            x: parent.width - 96px;
+            y: parent.height - 32px;
+            width: 72px;
+            height: 24px;
+            border-radius: IdeTheme.radius-sm;
+            background: ta.has-hover ? #9fe6d8 : IdeTheme.mint;
+
+            Text {
+                width: parent.width;
+                height: parent.height;
+                text: "Cerrar";
+                color: IdeTheme.bg;
+                font-family: IdeTheme.sans;
+                font-size: 12px;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+
+            ta := TouchArea {
+                mouse-cursor: MouseCursor.pointer;
+                clicked => { root.dismiss(); }
+            }
+        }
+    }
+}

@@ -16,6 +16,7 @@ import { IdePrompt } from "ide_prompt.slint";
 import { IdeSearch } from "ide_search.slint";
 import { IdeDiff } from "ide_diff.slint";
 import { IdePrefs } from "ide_prefs.slint";
+import { IdeAbout } from "ide_about.slint";
 
 // ---------------------------------------------------------------------------
 // NuIde — SpASM Studio (walking skeleton)
@@ -148,6 +149,9 @@ export component NuIdeWindow inherits Window {
     in-out property <bool> prefs-build-on-save: false;
     in-out property <string> prefs-capturing: "";
     in-out property <[IdePrefRow]> prefs-keys: [];
+    // Acerca de.
+    in-out property <bool> about-open: false;
+    in-out property <string> about-version: "0.1.0";
     // Paleta de comandos / buscador de archivos.
     in-out property <bool> palette-open: false;
     in-out property <string> palette-title: "";
@@ -228,6 +232,8 @@ export component NuIdeWindow inherits Window {
     callback prefs-toggle-spaces();
     callback prefs-toggle-build();
     callback prefs-capture(string);
+    // Acerca de.
+    callback about-close();
     callback palette-accept(int);
     callback palette-dismiss();
     callback terminal-key(string, bool, bool, bool);
@@ -332,6 +338,7 @@ export component NuIdeWindow inherits Window {
     // Dónde anclar el desplegable abierto, según cuál sea.
     private property <length> menu-anchor: root.menu-open == "Archivo" ? topbar.file-menu-x
         : root.menu-open == "Editar" ? topbar.edit-menu-x
+        : root.menu-open == "Ayuda" ? topbar.help-menu-x
         : topbar.view-menu-x;
     private property <length> content-w: self.width;
     private property <length> content-h: max(0px, self.height - IdeTheme.topbar-h - IdeTheme.statusbar-h);
@@ -699,8 +706,8 @@ export component NuIdeWindow inherits Window {
         cycle-dock(kind) => { root.cycle-dock(kind); }
     }
 
-    // --- desplegable de Archivo / Editar ---
-    if root.menu-open == "Archivo" || root.menu-open == "Editar": IdeMenu {
+    // --- desplegable de Archivo / Editar / Ayuda ---
+    if root.menu-open == "Archivo" || root.menu-open == "Editar" || root.menu-open == "Ayuda": IdeMenu {
         x: root.menu-anchor;
         y: IdeTheme.topbar-h;
         items: root.menu-items;
@@ -791,6 +798,16 @@ export component NuIdeWindow inherits Window {
         toggle-spaces => { root.prefs-toggle-spaces(); }
         toggle-build => { root.prefs-toggle-build(); }
         capture(id) => { root.prefs-capture(id); }
+    }
+
+    // --- acerca de ---
+    if root.about-open: IdeAbout {
+        x: 0;
+        y: 0;
+        width: parent.width;
+        height: parent.height;
+        version: root.about-version;
+        dismiss => { root.about-close(); }
     }
 
     // --- buscar en el proyecto (encima de los paneles) ---
