@@ -1831,49 +1831,59 @@ impl Ide {
 // ---------------------------------------------------------------------------
 
 impl Ide {
-    /// Teclas de la terminal local.
-    fn local_key(&mut self, text: &str, control: bool, shift: bool, alt: bool) {
-        self.pty_key(Target::Local, text, control, shift, alt);
+    /// Teclas de la terminal local. `true` si hay que volcar toda la ventana.
+    fn local_key(&mut self, text: &str, control: bool, shift: bool, alt: bool) -> bool {
+        self.pty_key(Target::Local, text, control, shift, alt)
     }
 
-    /// Teclas del panel del agente.
-    fn agent_key(&mut self, text: &str, control: bool, shift: bool, alt: bool) {
-        self.pty_key(Target::Agent, text, control, shift, alt);
+    /// Teclas del panel del agente. `true` si hay que volcar toda la ventana.
+    fn agent_key(&mut self, text: &str, control: bool, shift: bool, alt: bool) -> bool {
+        self.pty_key(Target::Agent, text, control, shift, alt)
     }
 
-    /// Teclado compartido por las dos terminales.
+    /// Teclado compartido por las dos terminales. Devuelve `true` cuando la tecla
+    /// tocó algo fuera de la terminal (diálogo, paleta, búsqueda, atajo global),
+    /// en cuyo caso hace falta el vuelcado completo; si no, alcanza con
+    /// `sync_terms`.
     ///
     /// Antes de mandar las teclas al PTY se atienden los atajos que no son del
     /// proceso: `Ctrl+Shift+C/V` copian/pegan la selección y `Shift+PageUp/Down`
     /// recorren el scrollback. Cualquier otra tecla vuelve la vista al final.
-    fn pty_key(&mut self, target: Target, text: &str, control: bool, shift: bool, alt: bool) {
+    fn pty_key(
+        &mut self,
+        target: Target,
+        text: &str,
+        control: bool,
+        shift: bool,
+        alt: bool,
+    ) -> bool {
         // Diálogo de entrada (modal), paleta/búsqueda abiertas, captura de atajo
         // y atajos globales configurables; después, las teclas del proceso.
         if self.prompt_intercept(text, control) {
-            return;
+            return true;
         }
         if self.palette_intercept(text, control, shift) {
-            return;
+            return true;
         }
         if self.search_intercept(text, control, shift) {
-            return;
+            return true;
         }
         if self.capture_key(text, control, shift, alt) {
-            return;
+            return true;
         }
         if let Some(action) = self.keymap_action(text, control, shift, alt) {
             self.run_key_action(&action);
-            return;
+            return true;
         }
         if control && shift {
             match text.to_ascii_lowercase().as_str() {
                 "c" => {
                     self.copy_selection(target);
-                    return;
+                    return false;
                 }
                 "v" => {
                     self.paste_into(target);
-                    return;
+                    return false;
                 }
                 _ => {}
             }
@@ -1882,7 +1892,7 @@ impl Ide {
             let half = (self.dimensions(target).1 / 2).max(1) as i32;
             let delta = if text == "\u{F72c}" { half } else { -half };
             self.scroll_session(target, delta);
-            return;
+            return false;
         }
         // Cualquier tecla normal abandona el historial y la selección.
         if let Some(session) = self.session_mut(target) {
@@ -1892,6 +1902,7 @@ impl Ide {
         if let Some(bytes) = encode_key(text, control, shift, alt) {
             self.write_to(target, &bytes);
         }
+        false
     }
 
     /// Escribe bytes en el PTY de la terminal indicada.
@@ -7428,8 +7439,11 @@ pub fn attach(window: &NuIdeWindow, ide: Rc<RefCell<Ide>>) {
         window.on_terminal_key(move |text, control, shift, alt| {
             if let Some(w) = weak.upgrade() {
                 let mut e = ide.borrow_mut();
-                e.local_key(&text, control, shift, alt);
-                e.sync(&w);
+                if e.local_key(&text, control, shift, alt) {
+                    e.sync(&w);
+                } else {
+                    e.sync_terms(&w);
+                }
             }
         });
     }
@@ -7451,7 +7465,7 @@ pub fn attach(window: &NuIdeWindow, ide: Rc<RefCell<Ide>>) {
             if let Some(w) = weak.upgrade() {
                 let mut e = ide.borrow_mut();
                 e.wheel(Target::Local, dy);
-                e.sync(&w);
+                e.sync_terms(&w);
             }
         });
     }
@@ -7462,7 +7476,7 @@ pub fn attach(window: &NuIdeWindow, ide: Rc<RefCell<Ide>>) {
             if let Some(w) = weak.upgrade() {
                 let mut e = ide.borrow_mut();
                 e.select_start(Target::Local, y, x);
-                e.sync(&w);
+                e.sync_terms(&w);
             }
         });
     }
@@ -7473,7 +7487,7 @@ pub fn attach(window: &NuIdeWindow, ide: Rc<RefCell<Ide>>) {
             if let Some(w) = weak.upgrade() {
                 let mut e = ide.borrow_mut();
                 e.select_update(Target::Local, y, x);
-                e.sync(&w);
+                e.sync_terms(&w);
             }
         });
     }
@@ -7484,7 +7498,7 @@ pub fn attach(window: &NuIdeWindow, ide: Rc<RefCell<Ide>>) {
             if let Some(w) = weak.upgrade() {
                 let mut e = ide.borrow_mut();
                 e.select_end(Target::Local);
-                e.sync(&w);
+                e.sync_terms(&w);
             }
         });
     }
@@ -7496,7 +7510,19 @@ pub fn attach(window: &NuIdeWindow, ide: Rc<RefCell<Ide>>) {
             if let Some(w) = weak.upgrade() {
                 let mut e = ide.borrow_mut();
                 e.forward_mouse(Target::Local, mouse_kind(kind, button), y, x);
-                e.sync(&w);
+                e.sync_terms(&w);
+            }
+        });
+    }
+    // Pegar en la terminal local (botón del medio).
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_terminal_paste(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.paste_into(Target::Local);
+                e.sync_terms(&w);
             }
         });
     }
@@ -7753,8 +7779,11 @@ pub fn attach(window: &NuIdeWindow, ide: Rc<RefCell<Ide>>) {
         window.on_agent_key(move |text, control, shift, alt| {
             if let Some(w) = weak.upgrade() {
                 let mut e = ide.borrow_mut();
-                e.agent_key(&text, control, shift, alt);
-                e.sync(&w);
+                if e.agent_key(&text, control, shift, alt) {
+                    e.sync(&w);
+                } else {
+                    e.sync_terms(&w);
+                }
             }
         });
     }
@@ -7776,7 +7805,7 @@ pub fn attach(window: &NuIdeWindow, ide: Rc<RefCell<Ide>>) {
             if let Some(w) = weak.upgrade() {
                 let mut e = ide.borrow_mut();
                 e.wheel(Target::Agent, dy);
-                e.sync(&w);
+                e.sync_terms(&w);
             }
         });
     }
@@ -7787,7 +7816,7 @@ pub fn attach(window: &NuIdeWindow, ide: Rc<RefCell<Ide>>) {
             if let Some(w) = weak.upgrade() {
                 let mut e = ide.borrow_mut();
                 e.select_start(Target::Agent, y, x);
-                e.sync(&w);
+                e.sync_terms(&w);
             }
         });
     }
@@ -7798,7 +7827,7 @@ pub fn attach(window: &NuIdeWindow, ide: Rc<RefCell<Ide>>) {
             if let Some(w) = weak.upgrade() {
                 let mut e = ide.borrow_mut();
                 e.select_update(Target::Agent, y, x);
-                e.sync(&w);
+                e.sync_terms(&w);
             }
         });
     }
@@ -7809,7 +7838,7 @@ pub fn attach(window: &NuIdeWindow, ide: Rc<RefCell<Ide>>) {
             if let Some(w) = weak.upgrade() {
                 let mut e = ide.borrow_mut();
                 e.select_end(Target::Agent);
-                e.sync(&w);
+                e.sync_terms(&w);
             }
         });
     }
@@ -7821,7 +7850,19 @@ pub fn attach(window: &NuIdeWindow, ide: Rc<RefCell<Ide>>) {
             if let Some(w) = weak.upgrade() {
                 let mut e = ide.borrow_mut();
                 e.forward_mouse(Target::Agent, mouse_kind(kind, button), y, x);
-                e.sync(&w);
+                e.sync_terms(&w);
+            }
+        });
+    }
+    // Pegar en el panel del agente (botón del medio).
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_agent_paste(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.paste_into(Target::Agent);
+                e.sync_terms(&w);
             }
         });
     }
@@ -7844,6 +7885,21 @@ pub fn attach(window: &NuIdeWindow, ide: Rc<RefCell<Ide>>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// La tecla de una terminal sólo toca la terminal: con `sync_terms` alcanza.
+    /// Los atajos que abren paneles ajenos (paleta) o interceptan el diálogo
+    /// necesitan el vuelcado completo. Es el contrato que devuelve `pty_key`.
+    #[test]
+    fn las_teclas_de_la_terminal_no_piden_vuelcado_completo() {
+        let mut ide = Ide::new();
+        // Sin sesión creada: la letra, y también copiar/pegar de terminal.
+        assert!(!ide.local_key("a", false, false, false));
+        assert!(!ide.local_key("c", true, true, false));
+        assert!(!ide.local_key("v", true, true, false));
+        // El atajo global de la paleta cambia otros paneles: vuelve `true`.
+        assert!(ide.local_key("p", true, true, false));
+        assert!(ide.palette.open);
+    }
 
     #[test]
     fn encode_key_traduce_teclas_a_bytes_del_pty() {

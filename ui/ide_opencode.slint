@@ -30,6 +30,8 @@ export component IdeOpenCode inherits FocusScope {
     callback selection-end();
     // Evento de mouse reenviado al proceso (kind, button, y, x).
     callback mouse-report(int, int, length, length);
+    // Pegar el portapapeles en el agente (botón del medio).
+    callback paste-requested();
 
     focus-on-click: true;
 
@@ -38,8 +40,9 @@ export component IdeOpenCode inherits FocusScope {
         accept
     }
 
-    // La ficha de sesión ocupa los 92 px de arriba (34 de encabezado + 58).
-    private property <length> screen-top: 92px;
+    // La ficha de sesión ocupa los 104 px de arriba (34 de encabezado + 70 de
+    // ficha, que ahora incluye la pista de copiar/pegar).
+    private property <length> screen-top: 104px;
 
     function report-size() {
         root.resized(self.width, max(0px, self.height - root.screen-top));
@@ -120,7 +123,7 @@ export component IdeOpenCode inherits FocusScope {
             x: 0;
             y: 34px;
             width: parent.width;
-            height: 58px;
+            height: 70px;
             background: IdeTheme.panel;
 
             VerticalLayout {
@@ -147,6 +150,15 @@ export component IdeOpenCode inherits FocusScope {
                     color: IdeTheme.text-soft;
                     font-family: IdeTheme.mono;
                     font-size: 11px;
+                }
+                // Pista de uso: con mouse reporting el mouse es de la TUI, así
+                // que seleccionar necesita Shift (y soltar copia al portapapeles).
+                Text {
+                    text: "Shift+arrastrar selecciona y copia · click medio pega";
+                    color: IdeTheme.text-dim;
+                    font-family: IdeTheme.mono;
+                    font-size: 10px;
+                    overflow: elide;
                 }
             }
 
@@ -175,6 +187,7 @@ export component IdeOpenCode inherits FocusScope {
             selection-end => { root.selection-end(); }
             scrolled(dy) => { root.scrolled(dy); }
             mouse-report(k, b, y, x) => { root.focus(); root.mouse-report(k, b, y, x); }
+            paste-requested => { root.focus(); root.paste-requested(); }
         }
     }
 }

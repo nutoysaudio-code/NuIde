@@ -246,6 +246,8 @@ export component NuIdeWindow inherits Window {
     callback terminal-selection-update(length, length);
     callback terminal-selection-end();
     callback terminal-mouse(int, int, length, length);
+    // Botón del medio en la terminal: pegar el portapapeles.
+    callback terminal-paste();
     callback session-selected(int);
     callback new-session();
     callback close-session();
@@ -315,6 +317,8 @@ export component NuIdeWindow inherits Window {
     callback agent-selection-update(length, length);
     callback agent-selection-end();
     callback agent-mouse(int, int, length, length);
+    // Botón del medio en el panel del agente: pegar el portapapeles.
+    callback agent-paste();
 
     // La terminal recibe el teclado apenas se abre la ventana: sólo hay un
     // elemento focusable y éste es el dueño natural del foco.
@@ -625,6 +629,7 @@ export component NuIdeWindow inherits Window {
             selection-start(y, x) => { root.terminal-selection-start(y, x); }
             selection-update(y, x) => { root.terminal-selection-update(y, x); }
             selection-end => { root.terminal-selection-end(); }
+            paste-requested => { root.terminal-paste(); }
             new-session => { root.new-session(); }
             close => { root.close-session(); }
             split => { root.split-terminal(); }
@@ -654,6 +659,7 @@ export component NuIdeWindow inherits Window {
             selection-update(y, x) => { root.agent-selection-update(y, x); }
             selection-end => { root.agent-selection-end(); }
             mouse-report(k, b, y, x) => { root.agent-mouse(k, b, y, x); }
+            paste-requested => { root.agent-paste(); }
         }
 
         // --- panel: control de código (Git) (dock configurable) ---
