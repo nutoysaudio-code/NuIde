@@ -328,6 +328,17 @@ struct Find {
     case_sensitive: bool,
     /// Sólo coincidencias que sean palabras completas.
     whole_word: bool,
+    /// La consulta es una expresión regular.
+    regex: bool,
+    /// Sólo buscar dentro de la selección (`selection` guarda el rango).
+    in_selection: bool,
+    /// Rango de la selección al activar `in_selection`:
+    /// `(línea_ini, col_ini, línea_fin, col_fin)`.
+    selection: Option<(usize, usize, usize, usize)>,
+    /// Consultas anteriores (para las flechas arriba/abajo).
+    history: Vec<String>,
+    /// Posición dentro del historial (`None` = editando la consulta actual).
+    history_pos: Option<usize>,
     /// El foco está en el campo de reemplazo (si no, en el de búsqueda).
     focus_replace: bool,
     /// Posición del cursor dentro de cada campo (en caracteres).
@@ -401,11 +412,13 @@ enum Command {
     GitRefresh,
     GitStageAll,
     GitPush,
+    CycleTabSize,
+    ToggleInsertSpaces,
 }
 
 impl Command {
     /// Todos, en el orden en que se muestran.
-    const ALL: [Command; 32] = [
+    const ALL: [Command; 34] = [
         Command::Run,
         Command::Build,
         Command::Lint,
@@ -438,6 +451,8 @@ impl Command {
         Command::GitRefresh,
         Command::GitStageAll,
         Command::GitPush,
+        Command::CycleTabSize,
+        Command::ToggleInsertSpaces,
     ];
 
     fn label(self) -> &'static str {
@@ -474,6 +489,8 @@ impl Command {
             Command::GitRefresh => "Git: refrescar",
             Command::GitStageAll => "Git: preparar todo",
             Command::GitPush => "Git: push",
+            Command::CycleTabSize => "Editor: tamaño de tab (2/4/8)",
+            Command::ToggleInsertSpaces => "Editor: insertar espacios",
         }
     }
 
@@ -504,6 +521,8 @@ impl Command {
             | Command::ToggleTerminal
             | Command::ToggleGit => "panel",
             Command::GitRefresh | Command::GitStageAll | Command::GitPush => "git",
+            Command::CycleTabSize => "4",
+            Command::ToggleInsertSpaces => "espacios",
             _ => "",
         }
     }
@@ -718,6 +737,9 @@ pub struct Ide {
     undo: Vec<(Vec<String>, Cursor)>,
     /// Pila de rehacer. Se vacía con cada edición nueva.
     redo: Vec<(Vec<String>, Cursor)>,
+    /// Ajustes del editor: ancho de tab y si inserta espacios.
+    tab_size: usize,
+    insert_spaces: bool,
     /// Estado de la búsqueda del editor (barra, coincidencias).
     find: Find,
     /// Diagnósticos del archivo activo (errores del parser de SpASM).
@@ -770,6 +792,8 @@ impl Ide {
         let show_right = config.bool("show.right", true);
         let show_bottom = config.bool("show.bottom", true);
         let show_generated = config.bool("explorer.generated", true);
+        let tab_size = config.i32("editor.tab-size", 4).clamp(1, 16) as usize;
+        let insert_spaces = config.bool("editor.insert-spaces", true);
         let docks = [
             Dock::from_code(config.i32("panel.0.dock", 0)),
             Dock::from_code(config.i32("panel.1.dock", 1)),
@@ -826,6 +850,8 @@ impl Ide {
             editor_full: false,
             undo: Vec::new(),
             redo: Vec::new(),
+            tab_size,
+            insert_spaces,
             find: Find::default(),
             diagnostics: Vec::new(),
             outline: Vec::new(),
@@ -873,6 +899,21 @@ impl Ide {
         for path in paths {
             self.open_file(path);
         }
+        // Restaura el cursor recordado de cada pestaña.
+        for i in 0..self.tabs.len() {
+            if let Some(v) = self.config.get(&format!("tab.{i}.cursor")) {
+                if let Some((line, col)) = v.split_once(',') {
+                    if let (Ok(l), Ok(c)) = (line.parse::<usize>(), col.parse::<usize>()) {
+                        let t = &mut self.tabs[i];
+                        let last = t.lines.len().saturating_sub(1);
+                        t.cursor = Cursor {
+                            line: l.min(last),
+                            col: c,
+                        };
+                    }
+                }
+            }
+        }
         if let Some(active) = self
             .config
             .get("active_tab")
@@ -902,6 +943,10 @@ impl Ide {
         self.config.set("tabs", self.tabs.len());
         for (i, tab) in self.tabs.iter().enumerate() {
             self.config.set(&format!("tab.{i}"), tab.path.display());
+            self.config.set(
+                &format!("tab.{i}.cursor"),
+                format!("{},{}", tab.cursor.line, tab.cursor.col),
+            );
         }
         self.config.set("active_tab", self.active_tab);
         self.config
@@ -912,6 +957,9 @@ impl Ide {
             "explorer.generated",
             u8::from(self.explorer.shows_generated()),
         );
+        self.config.set("editor.tab-size", self.tab_size);
+        self.config
+            .set("editor.insert-spaces", u8::from(self.insert_spaces));
         self.config.save();
     }
 
@@ -1782,6 +1830,8 @@ impl Ide {
             Command::GitRefresh => self.git_refresh(),
             Command::GitStageAll => self.git_stage_all(),
             Command::GitPush => self.git_push(),
+            Command::CycleTabSize => self.cycle_tab_size(),
+            Command::ToggleInsertSpaces => self.toggle_insert_spaces(),
         }
     }
 
@@ -2666,7 +2716,7 @@ impl Ide {
                 '\u{8}' => self.backspace(),
                 '\u{7f}' => self.delete_forward(),
                 '\n' | '\r' => self.newline(),
-                '\t' => self.insert_str("    "),
+                '\t' => self.insert_tab(),
                 '\u{F700}' | '\u{F701}' | '\u{F702}' | '\u{F703}' | '\u{F729}' | '\u{F72b}'
                 | '\u{F72c}' | '\u{F72d}' => self.move_for_key(ch, shift),
                 '\u{1b}' => {}
@@ -2858,6 +2908,63 @@ impl Ide {
         self.editor_full = true;
     }
 
+    /// Alterna buscar con expresiones regulares.
+    fn find_toggle_regex(&mut self) {
+        self.find.regex = !self.find.regex;
+        self.find_recompute();
+        self.editor_full = true;
+    }
+
+    /// Alterna buscar sólo dentro de la selección (captura el rango al activar).
+    fn find_toggle_selection(&mut self) {
+        if self.find.in_selection {
+            self.find.in_selection = false;
+            self.find.selection = None;
+        } else if let Some(range) = self.current_selection() {
+            self.find.in_selection = true;
+            self.find.selection = Some(range);
+        }
+        self.find_recompute();
+        self.editor_full = true;
+    }
+
+    /// Guarda la consulta en el historial (sin duplicados, tope 20).
+    fn remember_query(&mut self) {
+        let q = self.find.query.trim().to_string();
+        if q.is_empty() {
+            return;
+        }
+        self.find.history.retain(|h| h != &q);
+        self.find.history.push(q);
+        if self.find.history.len() > 20 {
+            self.find.history.remove(0);
+        }
+        self.find.history_pos = None;
+    }
+
+    /// Recorre el historial de consultas (`delta`: -1 arriba, +1 abajo).
+    fn find_history(&mut self, delta: i32) {
+        if self.find.history.is_empty() {
+            return;
+        }
+        let len = self.find.history.len() as i32;
+        let pos = match self.find.history_pos {
+            None => {
+                if delta < 0 {
+                    len - 1
+                } else {
+                    return;
+                }
+            }
+            Some(p) => (p as i32 + delta).clamp(0, len - 1),
+        };
+        self.find.history_pos = Some(pos as usize);
+        self.find.query = self.find.history[pos as usize].clone();
+        self.find.query_cursor = self.find.query.chars().count();
+        self.find_recompute();
+        self.editor_full = true;
+    }
+
     /// Pone el foco en uno de los dos campos.
     fn find_focus(&mut self, replace: bool) {
         if replace && !self.find.replace_open {
@@ -2883,11 +2990,36 @@ impl Ide {
         }
         let case = self.find.case_sensitive;
         let whole = self.find.whole_word;
+        let sel = if self.find.in_selection {
+            self.find.selection
+        } else {
+            None
+        };
+        let re = if self.find.regex {
+            let compiled = build_regex(&query, case);
+            if compiled.is_none() {
+                return; // expresión inválida: sin coincidencias
+            }
+            compiled
+        } else {
+            None
+        };
         let Some(tab) = self.tabs.get(self.active_tab) else {
             return;
         };
         for (line, text) in tab.lines.iter().enumerate() {
-            let hits = find_in_line(text, &query, case, whole);
+            if let Some((sl, _, el, _)) = sel {
+                if line < sl || line > el {
+                    continue;
+                }
+            }
+            let mut hits = match &re {
+                Some(re) => find_in_line_regex(text, re, whole),
+                None => find_in_line(text, &query, case, whole),
+            };
+            if let Some((sl, sc, el, ec)) = sel {
+                hits.retain(|&(a, b)| !(line == sl && a < sc) && !(line == el && b > ec));
+            }
             if !hits.is_empty() {
                 self.find
                     .matches
@@ -2902,8 +3034,21 @@ impl Ide {
         }
     }
 
+    /// Rango normalizado de la selección activa.
+    fn current_selection(&self) -> Option<(usize, usize, usize, usize)> {
+        let t = self.tabs.get(self.active_tab)?;
+        let a = t.anchor?;
+        let c = t.cursor;
+        if (a.line, a.col) <= (c.line, c.col) {
+            Some((a.line, a.col, c.line, c.col))
+        } else {
+            Some((c.line, c.col, a.line, a.col))
+        }
+    }
+
     /// Salta a la coincidencia siguiente o anterior (circular).
     fn find_step(&mut self, forward: bool) {
+        self.remember_query();
         let n = self.find.matches.len();
         if n == 0 {
             return;
@@ -2937,6 +3082,7 @@ impl Ide {
 
     /// Inserta un carácter en el cursor del campo con foco.
     fn find_insert(&mut self, ch: char) {
+        self.find.history_pos = None;
         let (text, cursor) = self.find_field();
         let mut chars: Vec<char> = text.chars().collect();
         let at = (*cursor).min(chars.len());
@@ -3027,6 +3173,8 @@ impl Ide {
                 }
                 '\u{F702}' => self.find_move_cursor(-1, false),
                 '\u{F703}' => self.find_move_cursor(1, false),
+                '\u{F700}' if !self.find.focus_replace => self.find_history(-1),
+                '\u{F701}' if !self.find.focus_replace => self.find_history(1),
                 '\u{F729}' => {
                     let (_, cursor) = self.find_field();
                     *cursor = 0;
@@ -3213,9 +3361,125 @@ impl Ide {
         clipboard_write(text).is_ok()
     }
 
-    /// Inserta un carácter en la posición del cursor.
+    /// Inserta un carácter en la posición del cursor, con cierre automático de
+    /// pares (paréntesis/llaves/comillas) y salto sobre un cierre ya presente.
     fn insert_char(&mut self, ch: char) {
+        if !self.tabs[self.active_tab].has_selection() {
+            let close = match ch {
+                '(' => Some(')'),
+                '[' => Some(']'),
+                '{' => Some('}'),
+                '"' => Some('"'),
+                '\'' => Some('\''),
+                _ => None,
+            };
+            if let Some(c) = close {
+                if self.skip_over(ch) {
+                    return;
+                }
+                let quote = ch == '"' || ch == '\'';
+                if quote
+                    && (self.char_before_cursor().is_some_and(is_word_char)
+                        || self.char_at_cursor().is_some_and(is_word_char))
+                {
+                    // No cerrar comillas dentro de una palabra (don't).
+                    self.insert_str(&ch.to_string());
+                    return;
+                }
+                self.insert_auto_pair(ch, c);
+                return;
+            }
+            if matches!(ch, ')' | ']' | '}' | '"' | '\'') && self.skip_over(ch) {
+                return;
+            }
+        }
         self.insert_str(&ch.to_string());
+    }
+
+    /// Inserta el par `open`+`close` y deja el cursor en el medio.
+    fn insert_auto_pair(&mut self, open: char, close: char) {
+        self.push_undo();
+        self.tabs[self.active_tab].delete_selection();
+        let line = self.tabs[self.active_tab].cursor.line;
+        {
+            let t = &mut self.tabs[self.active_tab];
+            let col = t.cursor.col;
+            let mut chars: Vec<char> = t.lines[line].chars().collect();
+            chars.insert(col, open);
+            chars.insert(col + 1, close);
+            t.lines[line] = chars.into_iter().collect();
+            t.cursor.col = col + 1;
+            t.anchor = None;
+            t.dirty = true;
+        }
+        self.update_row(line);
+    }
+
+    /// Si el carácter bajo el cursor es `ch`, avanza sobre él (no lo duplica).
+    fn skip_over(&mut self, ch: char) -> bool {
+        if self.char_at_cursor() != Some(ch) {
+            return false;
+        }
+        self.tabs[self.active_tab].cursor.col += 1;
+        let line = self.tabs[self.active_tab].cursor.line;
+        self.update_row(line);
+        true
+    }
+
+    /// Carácter bajo el cursor.
+    fn char_at_cursor(&self) -> Option<char> {
+        let t = self.tabs.get(self.active_tab)?;
+        let chars: Vec<char> = t.lines.get(t.cursor.line)?.chars().collect();
+        chars.get(t.cursor.col).copied()
+    }
+
+    /// Carácter inmediatamente anterior al cursor.
+    fn char_before_cursor(&self) -> Option<char> {
+        let t = self.tabs.get(self.active_tab)?;
+        if t.cursor.col == 0 {
+            return None;
+        }
+        let chars: Vec<char> = t.lines.get(t.cursor.line)?.chars().collect();
+        chars.get(t.cursor.col - 1).copied()
+    }
+
+    /// Unidad de indentación (según `insert_spaces` y `tab_size`).
+    fn indent_unit(&self) -> String {
+        if self.insert_spaces {
+            " ".repeat(self.tab_size)
+        } else {
+            "\t".to_string()
+        }
+    }
+
+    /// Inserta una tabulación: espacios hasta el ancho configurado, o un `\t`.
+    fn insert_tab(&mut self) {
+        if self.insert_spaces {
+            let unit = self.indent_unit();
+            self.insert_str(&unit);
+        } else {
+            self.insert_char('\t');
+        }
+    }
+
+    /// Cicla el tamaño de tab: 2 → 4 → 8 → 2.
+    fn cycle_tab_size(&mut self) {
+        self.tab_size = match self.tab_size {
+            2 => 4,
+            4 => 8,
+            8 => 2,
+            _ => 4,
+        };
+        self.config.set("editor.tab-size", self.tab_size);
+        self.config.save();
+    }
+
+    /// Alterna insertar espacios vs. tabulaciones.
+    fn toggle_insert_spaces(&mut self) {
+        self.insert_spaces = !self.insert_spaces;
+        self.config
+            .set("editor.insert-spaces", u8::from(self.insert_spaces));
+        self.config.save();
     }
 
     /// Inserta un fragmento (sin saltos) en la posición del cursor. Si hay
@@ -3324,22 +3588,60 @@ impl Ide {
         self.tabs[self.active_tab].delete_selection();
         let line = self.tabs[self.active_tab].cursor.line;
         let col = self.tabs[self.active_tab].cursor.col;
+        let unit = self.indent_unit();
         {
             let t = &mut self.tabs[self.active_tab];
             let chars: Vec<char> = t.lines[line].chars().collect();
             let head: String = chars[..col].iter().collect();
             let tail: String = chars[col..].iter().collect();
             // Auto-indentación: se copian los espacios/tabs iniciales.
-            let indent: String = head
+            let base: String = head
                 .chars()
                 .take_while(|c| *c == ' ' || *c == '\t')
                 .collect();
+            let opens = head
+                .trim_end()
+                .chars()
+                .last()
+                .is_some_and(|c| matches!(c, '(' | '[' | '{'));
             t.lines[line] = head;
-            t.lines.insert(line + 1, format!("{indent}{tail}"));
-            t.cursor = Cursor {
-                line: line + 1,
-                col: indent.chars().count(),
-            };
+            if opens {
+                let inner = format!("{base}{unit}");
+                let tail_trim = tail.trim_start();
+                let tail_is_closer = tail_trim
+                    .chars()
+                    .next()
+                    .is_some_and(|c| matches!(c, ')' | ']' | '}'));
+                if tail_trim.is_empty() {
+                    t.lines.insert(line + 1, inner);
+                    t.cursor = Cursor {
+                        line: line + 1,
+                        col: base.chars().count() + unit.chars().count(),
+                    };
+                } else if tail_is_closer {
+                    // El cierre se alinea con la línea del abridor.
+                    t.lines.insert(line + 1, inner);
+                    t.lines.insert(line + 2, format!("{base}{tail_trim}"));
+                    t.cursor = Cursor {
+                        line: line + 1,
+                        col: base.chars().count() + unit.chars().count(),
+                    };
+                } else {
+                    let col = base.chars().count() + unit.chars().count();
+                    t.lines.insert(line + 1, format!("{base}{unit}{tail}"));
+                    t.cursor = Cursor {
+                        line: line + 1,
+                        col,
+                    };
+                }
+            } else {
+                let col = base.chars().count();
+                t.lines.insert(line + 1, format!("{base}{tail}"));
+                t.cursor = Cursor {
+                    line: line + 1,
+                    col,
+                };
+            }
             t.anchor = None;
             t.dirty = true;
         }
@@ -3961,6 +4263,8 @@ impl Ide {
             w.set_find_focus_replace(self.find.focus_replace);
             w.set_find_case(self.find.case_sensitive);
             w.set_find_whole_word(self.find.whole_word);
+            w.set_find_regex(self.find.regex);
+            w.set_find_in_selection(self.find.in_selection);
             let (qb, qa) = split_at_cursor(&self.find.query, self.find.query_cursor);
             let (rb, ra) = split_at_cursor(&self.find.replace, self.find.replace_cursor);
             w.set_find_query_before(qb.into());
@@ -4380,6 +4684,36 @@ fn find_in_line(
         } else {
             i += 1;
         }
+    }
+    out
+}
+
+/// Compila una expresión regular (case-insensitive si `case_sensitive` es false).
+fn build_regex(pattern: &str, case_sensitive: bool) -> Option<regex_lite::Regex> {
+    regex_lite::RegexBuilder::new(pattern)
+        .case_insensitive(!case_sensitive)
+        .build()
+        .ok()
+}
+
+/// Apariciones de una regex en `line` (rangos de caracteres, fin exclusivo).
+fn find_in_line_regex(line: &str, re: &regex_lite::Regex, whole_word: bool) -> Vec<(usize, usize)> {
+    let chars: Vec<char> = line.chars().collect();
+    let mut out = Vec::new();
+    for m in re.find_iter(line) {
+        if m.start() == m.end() {
+            continue;
+        }
+        let start = line[..m.start()].chars().count();
+        let end = line[..m.end()].chars().count();
+        if whole_word {
+            let boundary = (start == 0 || !is_word_char(chars[start - 1]))
+                && (end == chars.len() || !is_word_char(chars[end]));
+            if !boundary {
+                continue;
+            }
+        }
+        out.push((start, end));
     }
     out
 }
@@ -5298,6 +5632,28 @@ pub fn attach(window: &NuIdeWindow, ide: Rc<RefCell<Ide>>) {
             if let Some(w) = weak.upgrade() {
                 let mut e = ide.borrow_mut();
                 e.find_toggle_word();
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_find_toggle_regex(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.find_toggle_regex();
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_find_toggle_selection(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.find_toggle_selection();
                 e.sync(&w);
             }
         });
@@ -6308,5 +6664,95 @@ mod tests {
         assert!(!a.exists());
         assert!(ide.tabs.is_empty());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn regex_encuentra_rangos_en_la_linea() {
+        let re = build_regex(r"\d+", false).unwrap();
+        assert_eq!(
+            find_in_line_regex("a12 b3", &re, false),
+            vec![(1, 3), (5, 6)]
+        );
+        // Inválida no compila.
+        assert!(build_regex("(", false).is_none());
+    }
+
+    #[test]
+    fn el_editor_cierra_pares_y_salta_el_cierre() {
+        let dir = temp_dir("autopair");
+        let a = dir.join("a.spasm");
+        std::fs::write(&a, "x\n").unwrap();
+        let mut ide = Ide::new();
+        ide.open_file(a);
+
+        ide.tabs[0].cursor = Cursor { line: 0, col: 1 };
+        ide.insert_char('(');
+        assert_eq!(ide.tabs[0].lines[0], "x()");
+        assert_eq!(ide.tabs[0].cursor.col, 2);
+
+        // Escribir el cierre ya presente sólo avanza.
+        ide.insert_char(')');
+        assert_eq!(ide.tabs[0].lines[0], "x()");
+        assert_eq!(ide.tabs[0].cursor.col, 3);
+
+        // Comilla dentro de palabra no se autocierra.
+        ide.tabs[0].lines[0] = "don".to_string();
+        ide.tabs[0].cursor = Cursor { line: 0, col: 3 };
+        ide.insert_char('\'');
+        assert_eq!(ide.tabs[0].lines[0], "don'");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn enter_entre_parentesis_indenta_y_alinea_el_cierre() {
+        let dir = temp_dir("autoindent");
+        let a = dir.join("a.spasm");
+        std::fs::write(&a, "func()\n").unwrap();
+        let mut ide = Ide::new();
+        ide.open_file(a);
+
+        // Cursor entre "(" y ")".
+        ide.tabs[0].cursor = Cursor { line: 0, col: 5 };
+        ide.newline();
+        assert_eq!(ide.tabs[0].lines, vec!["func(", "    ", ")"]);
+        assert_eq!(ide.tabs[0].cursor.line, 1);
+        assert_eq!(ide.tabs[0].cursor.col, 4);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn buscar_en_la_seleccion_acota_las_coincidencias() {
+        let dir = temp_dir("find-sel");
+        let a = dir.join("sel.spasm");
+        std::fs::write(&a, "foo\nbar\nfoo\n").unwrap();
+        let mut ide = Ide::new();
+        ide.open_file(a);
+        ide.find_open(false);
+        ide.find.query = "foo".to_string();
+        // Selecciona sólo la primera línea.
+        ide.tabs[0].anchor = Some(Cursor { line: 0, col: 0 });
+        ide.tabs[0].cursor = Cursor { line: 1, col: 0 };
+        ide.find_toggle_selection();
+
+        assert!(ide.find.in_selection);
+        assert_eq!(ide.find.matches.len(), 1);
+        assert_eq!(ide.find.matches[0].0, 0);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn la_busqueda_recuerda_el_historial() {
+        let mut ide = Ide::new();
+        ide.find_open(false);
+        ide.find.query = "uno".to_string();
+        ide.remember_query();
+        ide.find.query = "dos".to_string();
+        ide.remember_query();
+
+        ide.find.query.clear();
+        ide.find_history(-1);
+        assert_eq!(ide.find.query, "dos");
+        ide.find_history(-1);
+        assert_eq!(ide.find.query, "uno");
     }
 }

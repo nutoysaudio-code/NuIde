@@ -124,6 +124,8 @@ export component NuIdeWindow inherits Window {
     in-out property <bool> find-focus-replace: false;
     in-out property <bool> find-case: false;
     in-out property <bool> find-whole-word: false;
+    in-out property <bool> find-regex: false;
+    in-out property <bool> find-in-selection: false;
     in-out property <string> find-query-before: "";
     in-out property <string> find-query-after: "";
     in-out property <string> find-replace-before: "";
@@ -206,6 +208,8 @@ export component NuIdeWindow inherits Window {
     callback find-toggle-replace();
     callback find-toggle-case();
     callback find-toggle-word();
+    callback find-toggle-regex();
+    callback find-toggle-selection();
     callback find-focus(bool);
     callback replace-one();
     callback replace-all();
@@ -462,6 +466,8 @@ export component NuIdeWindow inherits Window {
             find-focus-replace: root.find-focus-replace;
             find-case: root.find-case;
             find-whole-word: root.find-whole-word;
+            find-regex: root.find-regex;
+            find-in-selection: root.find-in-selection;
             find-query-before: root.find-query-before;
             find-query-after: root.find-query-after;
             find-replace-before: root.find-replace-before;
@@ -486,6 +492,8 @@ export component NuIdeWindow inherits Window {
             find-toggle-replace => { root.find-toggle-replace(); }
             find-toggle-case => { root.find-toggle-case(); }
             find-toggle-word => { root.find-toggle-word(); }
+            find-toggle-regex => { root.find-toggle-regex(); }
+            find-toggle-selection => { root.find-toggle-selection(); }
             find-focus(replace) => { root.find-focus(replace); }
             replace-one => { root.replace-one(); }
             replace-all => { root.replace-all(); }

@@ -194,6 +194,8 @@ export component IdeEditor inherits FocusScope {
     in property <bool> find-focus-replace: false;
     in property <bool> find-case: false;
     in property <bool> find-whole-word: false;
+    in property <bool> find-regex: false;
+    in property <bool> find-in-selection: false;
     // Texto antes y después del cursor de cada campo (para dibujar el caret en
     // su posición sin operaciones de string en Slint).
     in property <string> find-query-before: "";
@@ -229,6 +231,8 @@ export component IdeEditor inherits FocusScope {
     callback find-toggle-replace();
     callback find-toggle-case();
     callback find-toggle-word();
+    callback find-toggle-regex();
+    callback find-toggle-selection();
     callback find-focus(bool);
     callback replace-one();
     callback replace-all();
@@ -497,6 +501,8 @@ export component IdeEditor inherits FocusScope {
                     IdeFindButton { label: "›"; activated => { root.find-next(); } }
                     IdeFindButton { label: "Aa"; active: root.find-case; activated => { root.find-toggle-case(); } }
                     IdeFindButton { label: "Palabra"; active: root.find-whole-word; activated => { root.find-toggle-word(); } }
+                    IdeFindButton { label: ".*"; active: root.find-regex; activated => { root.find-toggle-regex(); } }
+                    IdeFindButton { label: "Sel."; active: root.find-in-selection; activated => { root.find-toggle-selection(); } }
                     IdeFindButton { label: "⇄"; active: root.find-replace-open; activated => { root.find-toggle-replace(); } }
                     IdeFindButton { label: "×"; danger: true; activated => { root.find-close(); } }
                 }

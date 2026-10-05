@@ -312,6 +312,26 @@ ui/*.slint          la ventana, paneles y tema
   `explorer.generated`.
 - El explorador se reconstruye al crear/renombrar/borrar y al guardar como.
 
+### 3.18 Editor avanzado (búsqueda, edición y ajustes)
+
+- **Búsqueda** ampliada en `Find`: botón `.*` compila la consulta con
+  `regex-lite` (`build_regex`, `find_in_line_regex`, case por bandera); botón
+  `Sel.` acota a la selección (captura el rango al activar y filtra por
+  línea/columna); `↑`/`↓` recorren el **historial** (`remember_query`,
+  `find_history`) en el campo de búsqueda.
+- **Auto-cierre de pares**: `insert_char` inserta `()`, `[]`, `{}`, `""`, `''`
+  y deja el cursor en el medio; escribir el cierre presente sólo avanza
+  (`skip_over`). Las comillas dentro de una palabra no se autocierran.
+- **Autoindentación**: `newline` abre un nivel tras un abridor (`(`/`[`/`{`) y
+  alinea el cierre; usa la unidad de indentación configurada.
+- **Tab configurable**: `tab_size` + `insert_spaces` (config
+  `editor.tab-size` / `editor.insert-spaces`), comandos de paleta «Editor:
+  tamaño de tab (2/4/8)» y «Editor: insertar espacios». `Tab` inserta la unidad.
+- **Persistencia de cursor** por pestaña (`tab.{i}.cursor` en la config); se
+  recupera al reabrir. Cambiar de pestaña ya conservaba el cursor.
+- **Dependencia**: se sumó `regex-lite` (variante liviana de `regex`, sin tablas
+  Unicode) — primera dependencia nueva justificada por la búsqueda.
+
 ---
 
 ## 4. Limitaciones conocidas
@@ -326,9 +346,12 @@ ui/*.slint          la ventana, paneles y tema
   una sola vez: no se puede duplicar para llenar más de 3 por lado.
 - **La shell local no cambia de carpeta** al cambiar de proyecto (sí lo hacen las
   sesiones nuevas y el agente, que se relanza).
-- **Búsqueda del editor.** No soporta expresiones regulares ni acotar a la
-  selección, y todavía no hay "buscar en todo el proyecto". La paleta filtra por
+- **Búsqueda del editor.** Ya tiene expresiones regulares y acotar a la
+  selección; falta "buscar en todo el proyecto" (Fase 4) y la paleta filtra por
   subcadena (sin *fuzzy*).
+- **Editor sin *render* virtualizado.** Se materializa el modelo completo (tope
+  20k líneas), así que un archivo enorme no entra completo; todavía no hay
+  *word wrap*, plegado ni multi-cursor.
 - **Eliminar no usa la papelera.** El explorador borra de forma permanente (con
   confirmación previa); mandar a la papelera requeriría una API del SO.
 - **Diagnóstico acotado.** Corre el parser al abrir/guardar/`F6` (no en cada
@@ -414,7 +437,7 @@ script de instalación.
 ## 6. Verificación
 
 - `cargo build` / `cargo check` sin warnings.
-- `cargo test`: **85 pruebas OK** (unitarias; las de PTY, el linter y el build
+- `cargo test`: **90 pruebas OK** (unitarias; las de PTY, el linter y el build
   lanzan `cmd`/`opencode`/Python/spasmc reales y se saltean si no están).
 - `cargo fmt --check` limpio.
 - `slint-viewer --check ui/nuide_ui.slint` OK.

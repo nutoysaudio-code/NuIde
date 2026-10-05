@@ -93,9 +93,12 @@ correcto y sin perder estado del editor.
 
 ---
 
-## Fase 3 — Editor avanzado  ·  M/L  ·  must + nice
+## Fase 3 — Editor avanzado  ·  M/L  ·  must + nice  ·  ✅ hecha (3.18)
 
 **Objetivo:** cerrar las carencias del editor frente a VS Code en lo diario.
+(Hecho: regex, en selección, historial, autocierre/autoindentación, tab
+configurable y persistencia de cursor. Pendiente de esta fase: *word wrap*,
+plegado, multi-cursor y *render* virtualizado.)
 
 - `M` Búsqueda con **regex**, **acotada a la selección** e **historial**.
 - `S` **Ir a línea** (`Ctrl+G`) y "ir a símbolo" desde el esquema.

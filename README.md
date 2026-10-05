@@ -6,8 +6,9 @@ resaltado, terminal local y una terminal dedicada a **OpenCode CLI**.
 NuIde es un **proyecto independiente**: una aplicación de escritorio en
 **Rust + Slint** que no depende del workspace de audio ni de ningún crate
 compartido de plugins. Sus dependencias son `slint` (UI), `arboard`
-(portapapeles), `portable-pty` + `vt100` (terminales reales) y `rfd` (diálogo
-nativo de carpetas). Tiene su propio `[workspace]` para compilarse solo.
+(portapapeles), `portable-pty` + `vt100` (terminales reales), `rfd` (diálogos
+nativos) y `regex-lite` (búsqueda con expresiones regulares). Tiene su propio
+`[workspace]` para compilarse solo.
 
 La paleta es oscura y propia (instrumento electrónico sobrio): vive en
 `ui/ide_theme.slint`. La especificación visual está en
@@ -54,6 +55,7 @@ abiertos es una **página de bienvenida** real (accesos y atajos).
 | 23 | paleta de comandos (`Ctrl+Shift+P`) + buscar archivos (`Ctrl+P`) | ✅ |
 | 24 | menús Archivo/Editar + guardar como / cerrar con confirmación | ✅ |
 | 25 | explorador: nuevo/renombrar/eliminar, contextual y filtro de generados | ✅ |
+| 26 | editor: regex, buscar en selección, historial, autocierre/autoindent y tab | ✅ |
 
 > El parte de estado detallado —qué se cambió en cada iteración, limitaciones y
 > pendientes con su enfoque— está en [`docs/ESTADO.md`](docs/ESTADO.md).
@@ -151,10 +153,19 @@ muestra en la barra de estado.
 `Enter` / `Shift+Enter` saltan a la coincidencia siguiente / anterior, `Tab`
 alterna entre los campos de buscar y reemplazar, y `Esc` cierra. Los campos se
 editan con `←`/`→`, `Home`/`End`, `Backspace` y `Delete` (con el caret a la
-vista). El botón `Aa` distingue mayúsculas, `Palabra` busca palabras completas y
-`⇄` muestra u oculta el reemplazo. «Reemplazar» cambia la coincidencia actual y
-«Todo» el resto del archivo (ambos con deshacer). El contador muestra
-`actual/total`.
+vista); `↑`/`↓` recorren el **historial** de búsquedas. El botón `Aa` distingue
+mayúsculas, `Palabra` busca palabras completas, `.*` interpreta la consulta como
+**expresión regular** (`regex-lite`) y `Sel.` busca **sólo dentro de la
+selección**. El botón `⇄` muestra u oculta el reemplazo; «Reemplazar» cambia la
+coincidencia actual y «Todo» el resto del archivo (ambos con deshacer). El
+contador muestra `actual/total`.
+
+**Ayudas de edición.** Al escribir `(`/`[`/`{`/`"`/`'` se inserta el par y el
+cursor queda en el medio (y escribir el cierre ya presente sólo avanza sobre él).
+`Enter` copia la indentación y **abre un nivel** tras un abridor, dejando el
+cierre alineado. `Tab` inserta espacios (o `\t`); el ancho y el modo se cambian
+desde la paleta (`Editor: tamaño de tab`, `Editor: insertar espacios`) y se
+recuerdan. El **cursor de cada pestaña se guarda** y se recupera al reabrir.
 
 **Resaltados de contexto.** Además del resaltado de sintaxis, el editor pinta
 todas las apariciones de la **palabra bajo el cursor**, el **par de llaves**
@@ -414,10 +425,11 @@ Ordenados por impacto para usar el IDE día a día; el **plan en fases** complet
 
 ### Estado al 2026-10-04
 
-Compilado y publicado: `gitlab.com/nutoys-group/nuide` (`main`). 85 tests OK;
+Compilado y publicado: `gitlab.com/nutoys-group/nuide` (`main`). 90 tests OK;
 clon limpio genera `nuide.exe`. Las dos terminales son PTY reales (shell local y
 TUI de `opencode`), el proyecto se elige con diálogo nativo y se recuerda, el
-editor tiene buscar/reemplazar, resaltados, **resaltado por lenguaje y visores**
+editor tiene buscar/reemplazar (con **regex**, **en selección** e historial),
+autocierre/autoindentación, resaltados, **resaltado por lenguaje y visores**
 (imagen y vista previa de Markdown), **diagnóstico con el parser de SpASM**,
 **control de código (Git)**, **paleta de comandos / buscador de archivos**,
 **menús Archivo/Editar** con guardar como y cierre confirmado, y **explorador
