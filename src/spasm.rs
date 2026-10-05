@@ -132,11 +132,17 @@ impl Toolchain {
             }
             CCompiler::Msvc(vcvars) => {
                 // `cmd /C "call vcvars && cl ..."` tiene problemas de
-                // entrecomillado; se escribe un `.bat` y se lo corre.
+                // entrecomillado; se escribe un `.bat` y se lo corre. Se hace
+                // `cd` a la carpeta de salida para que el `.obj` no ensucie el
+                // proyecto.
+                let out_dir = out_exe
+                    .parent()
+                    .unwrap_or_else(|| std::path::Path::new("."));
                 let bat = out_exe.with_extension("build.bat");
                 let script = format!(
-                    "@echo off\r\ncall \"{}\" >NUL\r\nif errorlevel 1 exit /b 1\r\ncl /nologo /O2 \"{}\" /Fe:\"{}\"\r\nexit /b %errorlevel%\r\n",
+                    "@echo off\r\ncall \"{}\" >NUL\r\nif errorlevel 1 exit /b 1\r\ncd /d \"{}\"\r\ncl /nologo /O2 \"{}\" /Fe:\"{}\"\r\nexit /b %errorlevel%\r\n",
                     vcvars.display(),
+                    out_dir.display(),
                     out_c.display(),
                     out_exe.display()
                 );

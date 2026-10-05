@@ -1,8 +1,9 @@
-# Artefactos de build (Rust).
-/target/
-/build/
+# Build de Rust.
+/target
 
-# Basura de Windows / editores.
-Thumbs.db
-Desktop.ini
+# Salidas del toolchain de SpASM / C.
+/build/
+/releases/
+*.obj
 *.pdb
+*.ilk
