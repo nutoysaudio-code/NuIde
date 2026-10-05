@@ -49,6 +49,7 @@ bienvenida** real (accesos y atajos).
 | 18 | esquema (outline) + ir a definición (`F12`) | ✅ |
 | 19 | terminal inferior dividida (dos vistas) | ✅ |
 | 20 | página de bienvenida del editor (accesos + atajos) | ✅ |
+| 21 | bienvenida: recientes (proyectos/archivos) + nuevo archivo | ✅ |
 
 > El parte de estado detallado —qué se cambió en cada iteración, limitaciones y
 > pendientes con su enfoque— está en [`docs/ESTADO.md`](docs/ESTADO.md).
@@ -157,8 +158,9 @@ con lo que puede cruzar líneas; la rueda del mouse sigue scrolleando la
 `content-y` para dejar visible la línea activa (auto-scroll).
 
 Sin pestañas abiertas se muestra una **página de bienvenida**
-(`ui/ide_welcome.slint`) con accesos (**Abrir carpeta…**, **Abrir archivo…**) y
-la lista de atajos; con la primera pestaña, el editor pasa a ser real.
+(`ui/ide_welcome.slint`) con accesos (**Abrir carpeta…**, **Abrir archivo…**,
+**Nuevo archivo…**), la lista de **Recientes** (proyectos y archivos, guardados
+en la config) y los atajos; con la primera pestaña, el editor pasa a ser real.
 
 ### La terminal local (real)
 
@@ -340,7 +342,7 @@ la hoja de ruta acordada. El enfoque de cada uno está en
 
 ### Estado al 2026-10-04
 
-Compilado y publicado: `gitlab.com/nutoys-group/nuide` (`main`). 64 tests OK;
+Compilado y publicado: `gitlab.com/nutoys-group/nuide` (`main`). 67 tests OK;
 clon limpio genera `nuide.exe`. Las dos terminales son PTY reales (shell local y
 TUI de `opencode`), el proyecto se elige con diálogo nativo y se recuerda, el
 editor tiene buscar/reemplazar, resaltados, **resaltado por lenguaje y visores**

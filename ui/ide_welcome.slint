@@ -1,4 +1,5 @@
 import { IdeTheme } from "ide_theme.slint";
+import { IdeRecent } from "ide_types.slint";
 
 // Botón de la bienvenida.
 component WelcomeButton inherits Rectangle {
@@ -54,10 +55,53 @@ component WelcomeRow inherits HorizontalLayout {
     }
 }
 
+// Fila de "Recientes": nombre + ruta, clickeable.
+component WelcomeRecent inherits Rectangle {
+    in property <string> label: "";
+    in property <string> detail: "";
+    in property <bool> is-project: false;
+    callback activated();
+
+    height: 24px;
+    border-radius: IdeTheme.radius-sm;
+    background: ta.has-hover ? IdeTheme.control-hi : transparent;
+
+    Text {
+        x: 8px;
+        y: (parent.height - self.height) / 2;
+        text: (root.is-project ? "▣  " : "≡  ") + root.label;
+        color: root.is-project ? IdeTheme.mint : IdeTheme.text-soft;
+        font-family: IdeTheme.sans;
+        font-size: 12px;
+        vertical-alignment: center;
+        width: 190px;
+        overflow: elide;
+    }
+    Text {
+        x: 200px;
+        y: (parent.height - self.height) / 2;
+        width: parent.width - 208px;
+        text: root.detail;
+        color: IdeTheme.text-dim;
+        font-family: IdeTheme.mono;
+        font-size: 11px;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+
+    ta := TouchArea {
+        mouse-cursor: MouseCursor.pointer;
+        clicked => { root.activated(); }
+    }
+}
+
 // Pantalla de bienvenida del editor (sin archivos abiertos).
 export component IdeWelcome inherits Rectangle {
+    in property <[IdeRecent]> recent: [];
     callback open-project();
     callback open-file();
+    callback new-file();
+    callback open-recent(int);
 
     background: transparent;
 
@@ -93,9 +137,33 @@ export component IdeWelcome inherits Rectangle {
             spacing: 10px;
             WelcomeButton { label: "Abrir carpeta…"; activated => { root.open-project(); } }
             WelcomeButton { label: "Abrir archivo…"; activated => { root.open-file(); } }
+            WelcomeButton { label: "Nuevo archivo…"; activated => { root.new-file(); } }
         }
 
-        Rectangle { height: 10px; background: transparent; }
+        if root.recent.length > 0: Rectangle { height: 8px; background: transparent; }
+
+        if root.recent.length > 0: Text {
+            text: "Recientes";
+            color: IdeTheme.text-dim;
+            font-family: IdeTheme.sans;
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 1.4px;
+            horizontal-alignment: center;
+        }
+
+        if root.recent.length > 0: VerticalLayout {
+            width: parent.width;
+            spacing: 0;
+            for item[i] in root.recent: WelcomeRecent {
+                label: item.label;
+                detail: item.detail;
+                is-project: item.kind == 1;
+                activated => { root.open-recent(i); }
+            }
+        }
+
+        Rectangle { height: 8px; background: transparent; }
 
         Text {
             text: "Atajos";

@@ -1,5 +1,5 @@
 import { IdeTheme } from "ide_theme.slint";
-import { IdeTab, IdeCodeLine, IdeOutlineItem } from "ide_types.slint";
+import { IdeTab, IdeCodeLine, IdeOutlineItem, IdeRecent } from "ide_types.slint";
 import { IdeWelcome } from "ide_welcome.slint";
 
 // Pestaña del editor con punto de "sin guardar" y botón de cierre.
@@ -212,6 +212,8 @@ export component IdeEditor inherits FocusScope {
     in-out property <bool> outline-open: false;
     // Pantalla de bienvenida (sin archivos abiertos).
     in property <bool> welcome: false;
+    // Recientes de la bienvenida (proyectos y archivos).
+    in property <[IdeRecent]> welcome-recent: [];
     callback tab-selected(int);
     callback tab-closed(int);
     // Tecla cruda: (texto, ¿control?, ¿shift?), igual que en la terminal.
@@ -241,6 +243,8 @@ export component IdeEditor inherits FocusScope {
     // Acciones de la bienvenida.
     callback open-project();
     callback open-file();
+    callback new-file();
+    callback open-recent(int);
 
     focus-on-click: true;
 
@@ -634,6 +638,9 @@ export component IdeEditor inherits FocusScope {
             height: parent.height - root.canvas-y;
             open-project => { root.open-project(); }
             open-file => { root.open-file(); }
+            new-file => { root.new-file(); }
+            open-recent(i) => { root.open-recent(i); }
+            recent: root.welcome-recent;
         }
 
         // --- visor de imagen (zoom + paneo) ---

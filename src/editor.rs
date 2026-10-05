@@ -35,7 +35,8 @@ use crate::lint;
 use crate::pty::{self, Pty, PtyEvent};
 use crate::spasm::Toolchain;
 use crate::ui::{
-    IdeCodeLine, IdeOutlineItem, IdeTab, IdeToken, IdeTreeNode, NuIdeWindow, TermLine, TermRun,
+    IdeCodeLine, IdeOutlineItem, IdeRecent, IdeTab, IdeToken, IdeTreeNode, NuIdeWindow, TermLine,
+    TermRun,
 };
 use crate::vt::{Screen, Selection};
 
@@ -357,6 +358,13 @@ struct Decorations {
     brackets: Vec<(usize, usize)>,
 }
 
+/// Entrada de la lista de "Recientes" de la bienvenida.
+#[derive(Clone)]
+enum RecentEntry {
+    Project(PathBuf),
+    File(PathBuf),
+}
+
 /// Estado completo de la IDE.
 pub struct Ide {
     toolchain: Toolchain,
@@ -385,6 +393,10 @@ pub struct Ide {
     /// Archivos abiertos en el editor.
     tabs: Vec<OpenTab>,
     active_tab: usize,
+    /// Últimos proyectos y archivos usados (sección "Recientes" de la
+    /// bienvenida).
+    recent_projects: Vec<PathBuf>,
+    recent_files: Vec<PathBuf>,
     /// Visibilidad de las regiones (barra izquierda, barra derecha, panel
     /// inferior). Las regiones las controlan los botones de la barra.
     show_left: bool,
@@ -449,6 +461,8 @@ impl Ide {
         let config = Config::load();
         // Si hay un proyecto recordado y sigue existiendo, se arranca ahí.
         let root = config.project().unwrap_or(cwd);
+        let recent_projects = load_recent(&config, "recent.projects");
+        let recent_files = load_recent(&config, "recent.files");
         let show_left = config.bool("show.left", true);
         let show_right = config.bool("show.right", true);
         let show_bottom = config.bool("show.bottom", true);
@@ -479,6 +493,8 @@ impl Ide {
             explorer_selected: -1,
             tabs: Vec::new(),
             active_tab: 0,
+            recent_projects,
+            recent_files,
             show_left,
             show_right,
             show_bottom,
@@ -561,6 +577,10 @@ impl Ide {
             self.config.set(&format!("tab.{i}"), tab.path.display());
         }
         self.config.set("active_tab", self.active_tab);
+        self.config
+            .set("recent.projects", save_recent(&self.recent_projects));
+        self.config
+            .set("recent.files", save_recent(&self.recent_files));
         self.config.save();
     }
 
@@ -669,12 +689,59 @@ impl Ide {
         }
     }
 
+    /// Crea un archivo SpASM nuevo (diálogo de guardar) y lo abre. Si la ruta ya
+    /// existe, no la pisa: sólo la abre.
+    fn new_file(&mut self) {
+        let start = self.explorer.root().to_path_buf();
+        let path = match rfd::FileDialog::new()
+            .set_title("Nuevo archivo")
+            .set_directory(&start)
+            .set_file_name("nuevo.spasm")
+            .save_file()
+        {
+            Some(p) => p,
+            None => return,
+        };
+        if !path.exists() {
+            const TEMPLATE: &str = "; nuevo archivo SpASM\n\nprograma \"nuevo\"\n\nfunc suma(a : int) -> int {\n    let b = a\n    return b\n}\n\nmain {\n    let c = suma(1)\n}\n";
+            if std::fs::write(&path, TEMPLATE).is_err() {
+                return;
+            }
+            self.explorer.rebuild();
+        }
+        self.open_file(path);
+    }
+
+    /// Proyectos y archivos recientes, en el orden de la lista de la bienvenida
+    /// (primero proyectos, luego archivos). El índice es el que manda la UI.
+    fn recent_entries(&self) -> Vec<RecentEntry> {
+        self.recent_projects
+            .iter()
+            .cloned()
+            .map(RecentEntry::Project)
+            .chain(self.recent_files.iter().cloned().map(RecentEntry::File))
+            .collect()
+    }
+
+    /// Abre una entrada de "Recientes" de la bienvenida.
+    fn open_recent(&mut self, i: i32) {
+        if i < 0 {
+            return;
+        }
+        match self.recent_entries().into_iter().nth(i as usize) {
+            Some(RecentEntry::Project(dir)) => self.set_project(dir),
+            Some(RecentEntry::File(path)) => self.open_file(path),
+            None => {}
+        }
+    }
+
     /// Fija `dir` como raíz: reconstruye el explorador, reinicia el agente en la
     /// carpeta nueva y recuerda la elección.
     fn set_project(&mut self, dir: PathBuf) {
         if !dir.is_dir() || dir == self.explorer.root() {
             return;
         }
+        push_recent(&mut self.recent_projects, dir.clone());
         self.explorer.set_root(dir.clone());
         self.config.set("project", dir.display());
         self.config.save();
@@ -1269,6 +1336,7 @@ impl Ide {
         if !path.is_file() {
             return;
         }
+        push_recent(&mut self.recent_files, path.clone());
         self.active_file = Some(path.clone());
         if let Some(i) = self.tabs.iter().position(|t| t.path == path) {
             self.active_tab = i;
@@ -2536,6 +2604,23 @@ impl Ide {
                 slint::SharedString,
             >::new()))));
         }
+        let recent: Vec<IdeRecent> = self
+            .recent_entries()
+            .into_iter()
+            .map(|e| match e {
+                RecentEntry::Project(p) => IdeRecent {
+                    label: dir_name(&p).into(),
+                    detail: p.display().to_string().into(),
+                    kind: 1,
+                },
+                RecentEntry::File(p) => IdeRecent {
+                    label: file_name(&p).into(),
+                    detail: p.display().to_string().into(),
+                    kind: 0,
+                },
+            })
+            .collect();
+        w.set_welcome_recent(ModelRc::from(Rc::new(VecModel::from(recent))));
 
         // --- terminal real ---
         let sessions: Vec<slint::SharedString> =
@@ -3120,6 +3205,42 @@ fn file_name(path: &Path) -> String {
         .unwrap_or_else(|| path.display().to_string())
 }
 
+/// Nombre de una carpeta (proyecto) para la bienvenida.
+fn dir_name(path: &Path) -> String {
+    path.file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| path.display().to_string())
+}
+
+/// Separa una lista de rutas guardada con `|` (separador ilegal en Windows).
+fn load_recent(config: &Config, key: &str) -> Vec<PathBuf> {
+    config
+        .get(key)
+        .map(|v| {
+            v.split('|')
+                .filter(|s| !s.is_empty())
+                .map(PathBuf::from)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Serializa una lista de rutas para `Config`.
+fn save_recent(paths: &[PathBuf]) -> String {
+    paths
+        .iter()
+        .map(|p| p.display().to_string())
+        .collect::<Vec<_>>()
+        .join("|")
+}
+
+/// Mete `path` al frente de la lista de recientes (sin duplicados, tope 8).
+fn push_recent(list: &mut Vec<PathBuf>, path: PathBuf) {
+    list.retain(|p| p != &path);
+    list.insert(0, path);
+    list.truncate(8);
+}
+
 /// Traduce el tamaño de un panel en píxeles a celdas de terminal (columnas ×
 /// filas), acotado a un rango razonable para el PTY.
 fn cells_for(w: f32, h: f32, cell_w: f32) -> (u16, u16) {
@@ -3248,6 +3369,30 @@ pub fn attach(window: &NuIdeWindow, ide: Rc<RefCell<Ide>>) {
             if let Some(w) = weak.upgrade() {
                 let mut e = ide.borrow_mut();
                 e.pick_file();
+                e.sync(&w);
+            }
+        });
+    }
+    // Nuevo archivo (bienvenida).
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_new_file(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.new_file();
+                e.sync(&w);
+            }
+        });
+    }
+    // Recientes (bienvenida): abre un proyecto o un archivo por índice.
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_open_recent(move |i| {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.open_recent(i);
                 e.sync(&w);
             }
         });
@@ -4298,5 +4443,39 @@ mod tests {
         assert!(ide.tabs.is_empty());
         assert!(ide.active_file.is_none());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn push_recent_dedup_y_limita_a_ocho() {
+        let mut list = Vec::new();
+        for i in 0..10 {
+            push_recent(&mut list, PathBuf::from(format!("p{i}")));
+        }
+        assert_eq!(list.len(), 8);
+        assert_eq!(list[0], PathBuf::from("p9"));
+
+        // Reinsertar uno existente lo sube al frente sin duplicar.
+        push_recent(&mut list, PathBuf::from("p5"));
+        assert_eq!(list[0], PathBuf::from("p5"));
+        assert_eq!(list.iter().filter(|p| p.as_os_str() == "p5").count(), 1);
+    }
+
+    #[test]
+    fn load_recent_separa_por_barra_vertical_e_ignora_vacios() {
+        let mut cfg = Config::load();
+        cfg.set("recent.files", "a|b||c");
+        assert_eq!(
+            load_recent(&cfg, "recent.files"),
+            vec![PathBuf::from("a"), PathBuf::from("b"), PathBuf::from("c")]
+        );
+        assert!(load_recent(&cfg, "falta").is_empty());
+    }
+
+    #[test]
+    fn save_recent_hace_round_trip() {
+        let paths = vec![PathBuf::from("F:\\uno\\dos"), PathBuf::from("F:\\tres")];
+        let mut cfg = Config::load();
+        cfg.set("k", save_recent(&paths));
+        assert_eq!(load_recent(&cfg, "k"), paths);
     }
 }

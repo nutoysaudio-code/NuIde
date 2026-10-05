@@ -231,8 +231,13 @@ ui/*.slint          la ventana, paneles y tema
 
 - Sin pestañas abiertas, el área del editor muestra `ui/ide_welcome.slint`
   (`IdeWelcome`) en vez del código: título, accesos **Abrir carpeta…** /
-  **Abrir archivo…** y la lista de atajos.
-- `welcome` lo setea `sync` (`tabs.is_empty()`); `pick_file` usa `rfd::pick_file`.
+  **Abrir archivo…** / **Nuevo archivo…**, la lista de **Recientes** y los
+  atajos.
+- `welcome` lo setea `sync` (`tabs.is_empty()`); `pick_file` usa `rfd::pick_file`
+  y `new_file` usa `rfd::save_file` (crea la plantilla SpASM si no existe).
+- **Recientes**: `recent_projects` y `recent_files` (tope 8, sin duplicados) se
+  guardan en la config separados por `|`; la bienvenida manda el índice y
+  `open_recent` abre el proyecto (`set_project`) o el archivo.
 - Se quitó el bloque de código demo del `.slint` (ya no hace falta).
 
 ---
@@ -337,7 +342,7 @@ script de instalación.
 ## 6. Verificación
 
 - `cargo build` / `cargo check` sin warnings.
-- `cargo test`: **64 pruebas OK** (unitarias; las de PTY, el linter y el build
+- `cargo test`: **67 pruebas OK** (unitarias; las de PTY, el linter y el build
   lanzan `cmd`/`opencode`/Python/spasmc reales y se saltean si no están).
 - `cargo fmt --check` limpio.
 - `slint-viewer --check ui/nuide_ui.slint` OK.

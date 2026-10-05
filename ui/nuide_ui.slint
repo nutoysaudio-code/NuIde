@@ -1,6 +1,6 @@
 import { IdeTheme } from "ide_theme.slint";
 export { IdeTheme }
-import { IdeTreeNode, IdeTab, IdeCodeLine, TermLine, IdeOutlineItem } from "ide_types.slint";
+import { IdeTreeNode, IdeTab, IdeCodeLine, TermLine, IdeOutlineItem, IdeRecent } from "ide_types.slint";
 import { IdeTopBar } from "ide_topbar.slint";
 import { IdeStatusBar } from "ide_statusbar.slint";
 import { IdeExplorer } from "ide_explorer.slint";
@@ -68,6 +68,8 @@ export component NuIdeWindow inherits Window {
     in-out property <[IdeOutlineItem]> outline: [];
     // Pantalla de bienvenida del editor.
     in-out property <bool> welcome: false;
+    // Recientes de la bienvenida (proyectos y archivos).
+    in-out property <[IdeRecent]> welcome-recent: [];
     // Diagnóstico de SpASM (vacío si no hay errores).
     in-out property <string> diagnostics: "";
 
@@ -105,6 +107,8 @@ export component NuIdeWindow inherits Window {
     callback close-requested();
     callback open-project();
     callback open-file();
+    callback new-file();
+    callback open-recent(int);
     callback terminal-key(string, bool, bool, bool);
     callback terminal-resize(length, length);
     callback terminal-scroll(length);
@@ -389,6 +393,7 @@ export component NuIdeWindow inherits Window {
             is-markdown: root.is-markdown;
             outline: root.outline;
             welcome: root.welcome;
+            welcome-recent: root.welcome-recent;
             tab-selected(i) => { root.tab-activated(i); }
             tab-closed(i) => { root.tab-closed(i); }
             key-input(text, ctrl, shift) => { root.editor-key(text, ctrl, shift); }
@@ -410,6 +415,8 @@ export component NuIdeWindow inherits Window {
             goto-line(line) => { root.goto-line(line); }
             open-project => { root.open-project(); }
             open-file => { root.open-file(); }
+            new-file => { root.new-file(); }
+            open-recent(i) => { root.open-recent(i); }
         }
 
         // --- panel: terminal local (dock configurable) ---

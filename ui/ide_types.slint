@@ -57,3 +57,10 @@ export struct IdeOutlineItem {
     line: int,
     kind: int,
 }
+
+// Entrada de "Recientes" de la bienvenida: proyecto (kind 1) o archivo (kind 0).
+export struct IdeRecent {
+    label: string,
+    detail: string,
+    kind: int,
+}
