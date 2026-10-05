@@ -13,7 +13,8 @@ nativos) y `regex-lite` (búsqueda con expresiones regulares). Tiene su propio
 La paleta es oscura y propia (instrumento electrónico sobrio): vive en
 `ui/ide_theme.slint`. La especificación visual está en
 [`docs/NUIDE_IDEA.md`](docs/NUIDE_IDEA.md) y la referencia es
-`SpASM Studio con terminales integrados.png`.
+`SpASM Studio con terminales integrados.png`. La **guía de uso** está en
+[`docs/GUIA.md`](docs/GUIA.md).
 
 ```sh
 cargo run --bin nuide          # o `cargo build --release`
@@ -62,6 +63,7 @@ abiertos es una **página de bienvenida** real (accesos y atajos).
 | 30 | flujo SpASM: config de ejecución, plantillas y ayuda de sintaxis | ✅ |
 | 31 | preferencias (fuente/tamaño/acento) y atajos configurables | ✅ |
 | 32 | calidad/CI + icono + instalador Inno Setup (Node/CLI) + pie CPU/RAM | ✅ |
+| 33 | guía de usuario (`docs/GUIA.md`) + pulido | ✅ |
 
 > El parte de estado detallado —qué se cambió en cada iteración, limitaciones y
 > pendientes con su enfoque— está en [`docs/ESTADO.md`](docs/ESTADO.md).

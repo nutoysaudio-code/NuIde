@@ -463,7 +463,9 @@ ui/*.slint          la ventana, paneles y tema
 - **`terminal.rs` heredado.** La consola lineal ya no la usa la aplicación; sólo
   la ejercitan pruebas de integración del toolchain. Candidata a eliminar o
   migrar sus pruebas al PTY.
-- **Empaquetado básico.** No hay icono/versión en el `.exe` ni instalador.
+- **Sin depurador interactivo.** El intérprete de SpASM no expone paso a paso,
+  breakpoints ni inspección de registros; un depurador requiere agregarlos al
+  toolchain (`SpAMS-Oficial`).
 - **Instalador de SpASM.** El paquete principal puede dejar `spasmc.py` sin sus
   generadores (`spasm-asm-gen.py`, `spasm-c-gen.py`), y entonces ese compilador
   falla. NuIde usa el que descubre (`NUIDE_SPASMC`/`SPASMC`); el `.iss` del
@@ -478,6 +480,9 @@ ui/*.slint          la ventana, paneles y tema
 
 Ordenados por impacto para el uso diario. El **plan en fases** para llegar a
 v1.0 (tamaño, archivos y criterio de terminado) está en [`PLAN.md`](PLAN.md).
+
+> **Nota:** esta hoja de ruta quedó mayormente **hecha**; el estado vivo está en
+> `PLAN.md` (fases 0–10). Lo que sigue es el detalle original de cada ítem.
 
 ### 5.1 Persistencia de estado
 
@@ -539,11 +544,14 @@ script de instalación.
 ## 6. Verificación
 
 - `cargo build` / `cargo check` sin warnings.
+- `cargo clippy --all-targets -- -D warnings` limpio.
 - `cargo test`: **108 pruebas OK** (unitarias; las de PTY, el linter y el build
   lanzan `cmd`/`opencode`/Python/spasmc reales y se saltean si no están).
 - `cargo fmt --check` limpio.
 - `slint-viewer --check ui/nuide_ui.slint` OK.
+- `nuide.exe --version` (smoke test sin display, lo usa la CI).
 - Arranque real del `.exe` sin panics.
+- Guía de usuario en [`GUIA.md`](GUIA.md).
 
 ### Cómo probar a mano
 

@@ -229,7 +229,7 @@ i18n y reasignar todos los atajos.)
 
 ---
 
-## Fase 10 — Pulido, rendimiento y documentación  ·  M  ·  must
+## Fase 10 — Pulido, rendimiento y documentación  ·  M  ·  must  ·  ✅ hecha (guía)
 
 **Objetivo:** cerrar bordes y dejar documentación de usuario.
 
