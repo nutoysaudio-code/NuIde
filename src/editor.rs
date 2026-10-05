@@ -604,8 +604,8 @@ impl Command {
             Command::RunToggleBuildOnSave => "Ejecutar: compilar al guardar",
             Command::SpasmHelp => "SpASM: ayuda de sintaxis",
             Command::NewProject => "SpASM: nuevo proyecto…",
-            Command::TemplateCompiled => "Plantilla: programa compilado…",
-            Command::TemplateInterpreter => "Plantilla: hola mundo (intérprete)…",
+            Command::TemplateCompiled => "Plantilla: release (compilado)…",
+            Command::TemplateInterpreter => "Plantilla: desarrollo (intérprete)…",
             Command::TemplateEmpty => "Plantilla: archivo vacío…",
             Command::Preferences => "Preferencias",
         }
@@ -725,6 +725,26 @@ fn shell_split(s: &str) -> Vec<String> {
         out.push(cur);
     }
     out
+}
+
+/// ¿El archivo usa el dialecto compilado (empieza con `programa`)? El intérprete
+/// sólo entiende el dialecto de intérprete.
+fn uses_compiled_dialect(path: &Path) -> bool {
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return false;
+    };
+    for line in text.lines() {
+        let t = line.trim();
+        if t.is_empty() || t.starts_with(';') || t.starts_with("//") {
+            continue;
+        }
+        return t == "programa"
+            || (t.starts_with("programa")
+                && t.as_bytes()
+                    .get(8)
+                    .is_some_and(|b| !b.is_ascii_alphanumeric() && *b != b'_'));
+    }
+    false
 }
 
 /// Convierte un diff unificado en líneas tipadas para la UI.
@@ -1425,7 +1445,7 @@ impl Ide {
     /// Crea un archivo SpASM nuevo (diálogo de guardar) y lo abre. Si la ruta ya
     /// existe, no la pisa: sólo la abre.
     fn new_file(&mut self) {
-        let body = templates::by_id("compilado").map(|t| t.body).unwrap_or("");
+        let body = templates::by_id("desarrollo").map(|t| t.body).unwrap_or("");
         self.new_file_with(body);
     }
 
@@ -2053,6 +2073,18 @@ impl Ide {
             return;
         };
         self.open_file(file.clone());
+        // El intérprete sólo corre el dialecto de intérprete. Si el archivo usa
+        // `programa`, avisamos en vez de dejar que falle con "Error de sintaxis".
+        if uses_compiled_dialect(&file) {
+            self.write_build_output(
+                "Este archivo usa el dialecto compilado (programa/main).\n\n\
+                 Durante el desarrollo usá el dialecto de intérprete (print ...; end;)\n\
+                 y F5. Cuando esté listo, generá el programa final con Compilar (Ctrl+B).\n",
+            );
+            self.local_active = self.ensure_build_session();
+            self.resize_local();
+            return;
+        }
         let mut args = vec![file.display().to_string()];
         args.extend(shell_split(&self.run_args));
         self.spawn_build(exe, args);
@@ -2132,7 +2164,7 @@ impl Ide {
         let _ = std::fs::create_dir_all(&src);
         let main = src.join("main.spasm");
         if !main.exists() {
-            let body = templates::by_id("compilado").map(|t| t.body).unwrap_or("");
+            let body = templates::by_id("desarrollo").map(|t| t.body).unwrap_or("");
             if std::fs::write(&main, body).is_err() {
                 return;
             }
@@ -2500,11 +2532,11 @@ impl Ide {
             Command::SpasmHelp => self.spasm_help(),
             Command::NewProject => self.new_project(),
             Command::TemplateCompiled => {
-                let body = templates::by_id("compilado").map(|t| t.body).unwrap_or("");
+                let body = templates::by_id("release").map(|t| t.body).unwrap_or("");
                 self.new_file_with(body);
             }
             Command::TemplateInterpreter => {
-                let body = templates::by_id("interprete").map(|t| t.body).unwrap_or("");
+                let body = templates::by_id("desarrollo").map(|t| t.body).unwrap_or("");
                 self.new_file_with(body);
             }
             Command::TemplateEmpty => {
@@ -8729,6 +8761,19 @@ mod tests {
             vec!["--x".to_string(), "a b".to_string(), "--y".to_string()]
         );
         assert!(shell_split("   ").is_empty());
+    }
+
+    #[test]
+    fn detecta_el_dialecto_compilado() {
+        let dir = temp_dir("dialecto");
+        let dev = dir.join("dev.spasm");
+        std::fs::write(&dev, "; comentario\nprint \"hola\";\nend;\n").unwrap();
+        assert!(!uses_compiled_dialect(&dev));
+
+        let rel = dir.join("rel.spasm");
+        std::fs::write(&rel, "programa \"x\"\nmain {\n    let c = 1\n}\n").unwrap();
+        assert!(uses_compiled_dialect(&rel));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

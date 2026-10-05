@@ -40,12 +40,20 @@ decisiones de diseño, ver [`ESTADO.md`](ESTADO.md) y [`PLAN.md`](PLAN.md).
 
 ## 4. Ejecutar y compilar
 
-- **`F5`** corre el **archivo de entrada** con el intérprete, con los **argumentos**
-  configurados. Se cambia desde la paleta: *Ejecutar: elegir archivo de entrada…*,
-  *usar el archivo activo*, *argumentos…* y *compilar al guardar*.
-- **`Ctrl+B`** transpila con `spasmc.py` (y construye si hay compilador de C).
+El flujo de SpASM es **desarrollar con el intérprete** y **compilar para release**:
+
+- **`F5` (Ejecutar)** corre el archivo de **entrada** con el **intérprete**
+  (`spasm.exe`) y los **argumentos** configurados. El intérprete usa el *dialecto
+  de intérprete* (`print ...; end;`). Si el archivo empieza con `programa`, NuIde
+  avisa en la sesión `build` (ese archivo se compila, no se interpreta).
+- **`Ctrl+B` (Compilar)** transpila y, si hay compilador de C, construye el
+  programa final con `spasmc.py` (*dialecto compilado*). Ese es el paso de release.
+- La entrada/argumentos se cambian desde la paleta: *Ejecutar: elegir archivo de
+  entrada…*, *usar el archivo activo*, *argumentos…* y *compilar al guardar*.
 - La salida va a la sesión **build** de la terminal; los errores se marcan en el
   editor y **`F8` / `Shift+F8`** saltan entre diagnósticos.
+- Las **plantillas** reflejan el flujo: *desarrollo (intérprete)* para `F5` y
+  *release (compilado)* para `Ctrl+B`.
 
 ## 5. Terminales
 

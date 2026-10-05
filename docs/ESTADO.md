@@ -389,10 +389,14 @@ ui/*.slint          la ventana, paneles y tema
   `run.build-on-save`; `run()` los usa. Comandos de paleta para elegir la
   entrada (`rfd`), volver al activo, editar los argumentos (`PromptKind::RunArgs`)
   y alternar compilar al guardar (que dispara `build` desde `save_active`).
-- **Plantillas** (`src/templates.rs`): `compilado`, `interprete` y `vacio`.
-  `new_file_with(body)` crea el archivo con el cuerpo de la plantilla; comandos
-  de paleta por plantilla y `new_project` (crea `src/main.spasm`, fija el
-  proyecto y lo abre).
+- **Plantillas** (`src/templates.rs`): `desarrollo` (intérprete, `F5`), `release`
+  (compilado, `Ctrl+B`) y `vacio`. `new_file_with(body)` crea el archivo con el
+  cuerpo; comandos de paleta por plantilla y `new_project` (crea
+  `src/main.spasm` de desarrollo, fija el proyecto y lo abre).
+- **Flujo intérprete/compilador**: `F5` usa el intérprete (dialecto de
+  intérprete); `Ctrl+B` compila (release). Si el archivo de entrada usa
+  `programa`, `run()` lo detecta (`uses_compiled_dialect`) y avisa en la sesión
+  `build` en vez de dejar que el intérprete falle.
 - **Ayuda de sintaxis**: `PaletteKind::Help` lista `highlight::spasm_words()`
   filtrado por la palabra bajo el cursor y, al elegir, **inserta** el término
   (`PaletteAction::InsertWord`). Atajo `F1`.
@@ -545,7 +549,7 @@ script de instalación.
 
 - `cargo build` / `cargo check` sin warnings.
 - `cargo clippy --all-targets -- -D warnings` limpio.
-- `cargo test`: **108 pruebas OK** (unitarias; las de PTY, el linter y el build
+- `cargo test`: **109 pruebas OK** (unitarias; las de PTY, el linter y el build
   lanzan `cmd`/`opencode`/Python/spasmc reales y se saltean si no están).
 - `cargo fmt --check` limpio.
 - `slint-viewer --check ui/nuide_ui.slint` OK.
