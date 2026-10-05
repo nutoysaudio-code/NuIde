@@ -1,15 +1,22 @@
 import { IdeTheme } from "ide_theme.slint";
+import { TipContent } from "ide_tooltip.slint";
 
 // Elemento de menú de la barra superior.
 component IdeMenuItem inherits Rectangle {
     in property <string> label: "Archivo";
     in property <bool> active: false;
+    // Texto del tooltip al pasar el cursor (qué abre este menú).
+    in property <string> tip: "";
     callback activated();
 
     height: 24px;
     width: menu-text.width + 18px;
     border-radius: IdeTheme.radius-sm;
     background: (ta.has-hover || root.active) ? IdeTheme.control : transparent;
+
+    if root.tip != "": Tooltip {
+        TipContent { text: root.tip; }
+    }
 
     menu-text := Text {
         x: 9px;
@@ -31,12 +38,17 @@ component IdeMenuItem inherits Rectangle {
 component IdeWindowButton inherits Rectangle {
     in property <string> glyph: "—";
     in property <bool> danger: false;
+    in property <string> tip: "";
     callback activated();
 
     width: 30px;
     height: 24px;
     border-radius: IdeTheme.radius-sm;
     background: ta.has-hover ? (root.danger ? #d98c8c33 : IdeTheme.control) : transparent;
+
+    if root.tip != "": Tooltip {
+        TipContent { text: root.tip; }
+    }
 
     Text {
         width: parent.width;
@@ -67,6 +79,16 @@ component IdeLayoutButton inherits Rectangle {
     height: 24px;
     border-radius: IdeTheme.radius-sm;
     background: ta.has-hover ? IdeTheme.control : transparent;
+
+    // El tooltip explica qué hace cada botón de layout (no son obvios).
+    private property <string> tip: root.area == 0 ? "Mostrar u ocultar la región izquierda (explorador y git)"
+        : root.area == 1 ? "Mostrar u ocultar la región derecha (OpenCode CLI)"
+        : root.area == 2 ? "Mostrar u ocultar la región inferior (terminal)"
+        : "Menú Ver: mover cada panel (o arrastralo de su cabecera)";
+
+    Tooltip {
+        TipContent { text: root.tip; }
+    }
 
     private property <color> mark: root.active ? IdeTheme.mint : IdeTheme.text-soft;
 
@@ -189,12 +211,12 @@ export component IdeTopBar inherits Rectangle {
 
         Rectangle { width: 8px; background: transparent; }
 
-        file-item := IdeMenuItem { label: "Archivo"; active: root.active-menu == "Archivo"; activated => { root.menu-activated(self.label); } }
-        edit-item := IdeMenuItem { label: "Editar";  active: root.active-menu == "Editar"; activated => { root.menu-activated(self.label); } }
-        view-item := IdeMenuItem { label: "Ver"; active: root.active-menu == "Ver"; activated => { root.menu-activated(self.label); } }
-        IdeMenuItem { label: "Ejecutar"; activated => { root.menu-activated(self.label); } }
-        IdeMenuItem { label: "Compilar"; activated => { root.menu-activated(self.label); } }
-        help-item := IdeMenuItem { label: "Ayuda"; active: root.active-menu == "Ayuda"; activated => { root.menu-activated(self.label); } }
+        file-item := IdeMenuItem { label: "Archivo"; tip: "Abrir proyecto y archivos, guardar, cerrar pestañas y salir"; active: root.active-menu == "Archivo"; activated => { root.menu-activated(self.label); } }
+        edit-item := IdeMenuItem { label: "Editar"; tip: "Deshacer/rehacer, buscar y reemplazar, ir a línea"; active: root.active-menu == "Editar"; activated => { root.menu-activated(self.label); } }
+        view-item := IdeMenuItem { label: "Ver"; tip: "Dónde está cada panel: clic para ciclarlo entre izquierda, derecha, abajo y oculto"; active: root.active-menu == "Ver"; activated => { root.menu-activated(self.label); } }
+        IdeMenuItem { label: "Ejecutar"; tip: "Correr el programa SpASM con la configuración activa (F5)"; activated => { root.menu-activated(self.label); } }
+        IdeMenuItem { label: "Compilar"; tip: "Transpilar y compilar a binario nativo (Ctrl+B) o compilar y ejecutar (Ctrl+Shift+B)"; activated => { root.menu-activated(self.label); } }
+        help-item := IdeMenuItem { label: "Ayuda"; tip: "Sintaxis de SpASM, atajos y acerca de NuIde (F1)"; active: root.active-menu == "Ayuda"; activated => { root.menu-activated(self.label); } }
     }
 
     // Proyecto, centrado en la barra. Es clickeable: abre el selector de carpeta.
@@ -224,6 +246,11 @@ export component IdeTopBar inherits Rectangle {
         width: project-text.width + 32px;
         height: 24px;
         mouse-cursor: MouseCursor.pointer;
+
+        Tooltip {
+            TipContent { text: "Proyecto abierto - clic para elegir otra carpeta"; }
+        }
+
         clicked => { root.project-clicked(); }
     }
 
@@ -244,9 +271,9 @@ export component IdeTopBar inherits Rectangle {
     }
 
     // Controles de ventana (decorativos en este esqueleto; cerrar sí cierra).
-    IdeWindowButton { x: parent.width - 96px; y: 5px; glyph: "—"; activated => { root.menu-activated("Minimizar"); } }
-    IdeWindowButton { x: parent.width - 66px; y: 5px; glyph: "▢"; activated => { root.menu-activated("Maximizar"); } }
-    IdeWindowButton { x: parent.width - 36px; y: 5px; glyph: "×"; danger: true; activated => { root.close-requested(); } }
+    IdeWindowButton { x: parent.width - 96px; y: 5px; glyph: "—"; tip: "Minimizar"; activated => { root.menu-activated("Minimizar"); } }
+    IdeWindowButton { x: parent.width - 66px; y: 5px; glyph: "▢"; tip: "Maximizar o restaurar"; activated => { root.menu-activated("Maximizar"); } }
+    IdeWindowButton { x: parent.width - 36px; y: 5px; glyph: "×"; danger: true; tip: "Salir (pregunta si hay cambios sin guardar)"; activated => { root.close-requested(); } }
 
     // Línea inferior de 1 px.
     Rectangle {

@@ -1,4 +1,5 @@
 import { IdeTheme } from "ide_theme.slint";
+import { TipContent } from "ide_tooltip.slint";
 
 // Icono de rama Git dibujado con rectángulos (no depende de glifos raros).
 component IdeBranchIcon inherits Rectangle {
@@ -54,6 +55,10 @@ export component IdeStatusBar inherits Rectangle {
             font-family: IdeTheme.sans;
             font-size: 11px;
             vertical-alignment: center;
+
+            Tooltip {
+                TipContent { text: "Rama actual de Git - clic en el panel de código para cambiarla"; }
+            }
         }
 
         Text {
@@ -62,6 +67,10 @@ export component IdeStatusBar inherits Rectangle {
             font-family: IdeTheme.sans;
             font-size: 11px;
             vertical-alignment: center;
+
+            Tooltip {
+                TipContent { text: "Errores y avisos del análisis del archivo abierto (F6); F8 salta al siguiente"; }
+            }
         }
 
         Rectangle { horizontal-stretch: 1; background: transparent; }
@@ -72,6 +81,10 @@ export component IdeStatusBar inherits Rectangle {
             font-family: IdeTheme.sans;
             font-size: 11px;
             vertical-alignment: center;
+
+            Tooltip {
+                TipContent { text: "Lenguaje detectado por la extensión del archivo activo"; }
+            }
         }
         IdeStatusDivider { }
         Text {
@@ -80,6 +93,10 @@ export component IdeStatusBar inherits Rectangle {
             font-family: IdeTheme.sans;
             font-size: 11px;
             vertical-alignment: center;
+
+            Tooltip {
+                TipContent { text: "Codificación con la que se lee y se guarda el archivo"; }
+            }
         }
         IdeStatusDivider { }
         Text {
@@ -88,6 +105,10 @@ export component IdeStatusBar inherits Rectangle {
             font-family: IdeTheme.sans;
             font-size: 11px;
             vertical-alignment: center;
+
+            Tooltip {
+                TipContent { text: "Posición del cursor (línea, columna) en el editor"; }
+            }
         }
 
         IdeStatusDivider { }

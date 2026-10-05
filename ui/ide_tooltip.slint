@@ -1,0 +1,36 @@
+import { IdeTheme } from "ide_theme.slint";
+
+// ---------------------------------------------------------------------------
+// Contenido de los tooltips.
+//
+// Slint trae el elemento `Tooltip`, pero su `text` es `styled-text` y sólo
+// acepta literales (`@markdown("...")`). Como acá el texto viene de una property
+// (los atajos y estados cambian en runtime), se usa la otra forma documentada:
+// omitir `text` y poner UN elemento hijo propio.
+//
+// Uso en cualquier componente:
+//
+//     if root.tip != "": Tooltip { TipContent { text: root.tip; } }
+//
+// El `if` es para que un elemento sin texto asignado no muestre una caja vacía.
+// ---------------------------------------------------------------------------
+
+export component TipContent inherits Rectangle {
+    in property <string> text: "";
+
+    width: tip-text.width + 20px;
+    height: tip-text.height + 12px;
+    border-radius: IdeTheme.radius-sm;
+    background: #0b1011f2;
+    border-width: IdeTheme.hairline;
+    border-color: IdeTheme.border-soft;
+
+    tip-text := Text {
+        x: 10px;
+        y: 6px;
+        text: root.text;
+        color: IdeTheme.text;
+        font-family: IdeTheme.sans;
+        font-size: 11px;
+    }
+}
