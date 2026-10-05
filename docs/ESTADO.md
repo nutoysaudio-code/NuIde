@@ -448,6 +448,53 @@ ui/*.slint          la ventana, paneles y tema
 - **CI** (`.gitlab-ci.yml`): `fmt`/`clippy -D warnings`/`test` en Linux y `.exe`
   release como artefacto en Windows. Perfil `release` optimizado.
 
+### 3.25 Performance: refresco incremental y renderer
+
+Medición base (app abierta, sin tocar nada, con el panel de OpenCode corriendo):
+**77 % de un núcleo y 113 MB**. Después de estos cambios, mediana sobre 18 s:
+**10,4 % y 40 MB** (sin la TUI del agente: 9,4 % y 34,6 MB).
+
+- **Renderer por defecto = software** (`src/main.rs`, `pick_renderer`): Slint lee
+  `SLINT_BACKEND` y acá el orden por defecto elegía FemtoVG (OpenGL), que repinta
+  la escena **completa** ante cualquier cambio. Mismo binario, sólo cambiando la
+  variable: `winit-femtovg` → 77 % / 113 MB; `winit-software` → 10 % / 30 MB (el
+  renderer software hace *partial rendering* de la región dañada y no depende del
+  driver OpenGL). Se puede seguir probando la vía GPU con
+  `$env:SLINT_BACKEND = "winit-femtovg"`.
+- **Tramos por huella de fila** (`src/vt.rs`): `Screen` guarda una huella (`u64`)
+  por fila y `changed_rows()` devuelve **sólo las filas que cambiaron**. El
+  recorrido de celdas para la huella no asigna memoria (`Cell::contents()` es
+  `&str`; antes se hacía un `String` por celda en cada refresco). `snapshot()`
+  sigue disponible (lo usan las pruebas) y `resize()` invalida las huellas.
+- **Modelo de filas mutable en su sitio** (`src/editor.rs`, `TermRows`):
+  `VecModel` no tiene "cambiar fila"; el `remove` + `insert` mandaba
+  `row_removed`/`row_added` y Slint **destruía y recreaba** el elemento del `for`
+  con sus `Text` (el shaping completo). `TermRows` implementa `Model` sobre un
+  `RefCell<Vec<TermLine>>` y avisa con `row_changed` → el elemento se reutiliza.
+  Comprobación empírica: con el mismo cómputo Rust y **sin** mutar el modelo, el
+  CPU en reposo era 3 %; con la mutación por `remove`+`insert`, 77 %.
+- **Refresco segmentado** (`sync_terms`): la salida del PTY ya no llama al
+  `sync()` global (que reconstruye ~20 modelos de la ventana: explorador,
+  búsqueda, diff, paleta…). `drain()` distingue salida nueva (`Output`) de un
+  cambio estructural (`Exit`, linter, build, git, búsqueda) y refresca sólo los
+  paneles de terminal.
+- **El medidor de CPU/RAM no fuerza redraw**: escribe directo
+  `cpu-percent`/`ram-percent` en vez de poner `got = true` (antes provocaba un
+  vuelcado completo cada ~1,5 s *aunque no pasara nada*).
+- **Paneles ocultos no se refrescan** (`dock_visible`): si el dock de la terminal
+  o del agente está cerrado o su región está apagada, se saltea el trabajo; al
+  volver, el `sync` completo los pone al día.
+- **Pruebas**: `vt::tests::el_refresco_incremental_solo_trae_las_filas_cambiadas`
+  fija que el refresco incremental devuelva lo mismo que el snapshot completo y
+  que no reconstruya toda la pantalla.
+
+**Queda pendiente** (diagnóstico hecho, no implementado): `push_undo` clona el
+documento entero por carácter; `decorations()` es O(documento) por fila
+actualizada; la selección y `Enter` ponen `editor_full` (re-render total); el
+editor no virtualiza (20k componentes reales); `git::diff`/`branches`/`status`
+corren subprocesses síncronos en el hilo UI; la búsqueda en proyecto no tiene
+*debounce* (un escaneo completo por tecla).
+
 ---
 
 ## 4. Limitaciones conocidas

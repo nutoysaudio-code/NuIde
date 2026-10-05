@@ -508,6 +508,34 @@ slint-viewer --screenshot ui.png ui/nuide_ui.slint
 - La **CI** (`.gitlab-ci.yml`) corre `fmt`/`clippy -D warnings`/`test` en Linux y
   publica el `.exe` de release como artefacto en Windows.
 
+### Rendimiento
+
+Medido con la app abierta y el panel de OpenCode redibujando (**CPU en reposo /
+memoria**):
+
+| | antes | después |
+|---|---:|---:|
+| CPU de un núcleo (mediana) | ~77 % | ~10 % |
+| Memoria (working set) | 113 MB | 40 MB |
+
+Qué lo cambiaba, en orden de impacto:
+
+1. **Renderer**: Slint elegía FemtoVG (OpenGL) por defecto y ése repinta toda la
+   escena en cada cambio. `pick_renderer()` (`src/main.rs`) usa el renderer
+   **software** de Slint (partial rendering) si no se seteó `SLINT_BACKEND`.
+   Para probar la vía GPU: `$env:SLINT_BACKEND = "winit-femtovg"`.
+2. **Recreación de elementos**: las filas de terminal se cambiaban con
+   `remove`+`insert` (`row_removed`/`row_added` → Slint destruía y creaba el
+   elemento y sus `Text`). Ahora hay un modelo propio, `TermRows`, que muta la
+   fila y avisa con `row_changed`.
+3. **Refresco acotado**: la salida del PTY refresca **sólo** los paneles de
+   terminal (`sync_terms`), no los ~20 modelos de la ventana; `Screen` calcula
+   una huella por fila y `changed_rows()` entrega sólo las que cambiaron; el
+   medidor de CPU/RAM escribe sus dos propiedades sin provocar un vuelcado; y un
+   panel oculto no se refresca.
+
+Detalle en [`docs/ESTADO.md`](docs/ESTADO.md) (§3.25), con lo que queda pendiente.
+
 ## Interacción
 
 - **Divisores arrastrables**: un `TouchArea` estacionario detrás de los paneles

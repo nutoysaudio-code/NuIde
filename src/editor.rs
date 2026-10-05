@@ -25,7 +25,7 @@ use std::rc::Rc;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::time::Duration;
 
-use slint::{ComponentHandle, Model, ModelRc, Timer, TimerMode, VecModel};
+use slint::{ComponentHandle, Model, ModelNotify, ModelRc, Timer, TimerMode, VecModel};
 
 use crate::build;
 use crate::config::Config;
@@ -42,7 +42,7 @@ use crate::ui::{
     IdeCodeLine, IdeDiffLine, IdeGitFile, IdeMenuEntry, IdeOutlineItem, IdePaletteItem, IdePrefRow,
     IdeRecent, IdeSearchHit, IdeTab, IdeToken, IdeTreeNode, NuIdeWindow, TermLine, TermRun,
 };
-use crate::vt::{Screen, Selection};
+use crate::vt::{Run, Screen, Selection};
 
 /// Tope de líneas que se abren de un archivo. Un archivo enorme no puede
 /// congelar la UI; lo que sobra no se muestra.
@@ -262,6 +262,73 @@ struct LocalSession {
     /// Último botón de mouse apretado (0/1/2) o 3 = ninguno (para el modo
     /// "motion" del mouse reporting).
     mouse_button: u8,
+    /// Filas para la UI. Es **siempre el mismo `Rc`**: el refresco reemplaza
+    /// sólo las filas que cambiaron y avisa con `row_changed` (ver `TermRows`),
+    /// así Slint no destruye ni vuelve a crear los elementos del panel en cada
+    /// chunk de salida de una TUI.
+    term_model: Rc<TermRows>,
+}
+
+/// Modelo de filas de una terminal, **mutable en su sitio**.
+///
+/// `VecModel` no tiene un "cambiar fila": lo que hay es `remove` + `insert`, que
+/// mandan `row_removed`/`row_added` y hacen que Slint **destruya el elemento del
+/// `for` y cree uno nuevo** (con sus `Text` y el shaping de cada tramo). Medido
+/// en reposo con el panel de OpenCode abierto, eso era el ~70 % del CPU.
+///
+/// `TermRows` guarda el mismo `Vec` y avisa con `row_changed`: Slint re-usa el
+/// elemento existente y sólo re-evalúa sus bindings.
+#[derive(Default)]
+struct TermRows {
+    rows: RefCell<Vec<TermLine>>,
+    notify: ModelNotify,
+}
+
+impl TermRows {
+    fn len(&self) -> usize {
+        self.rows.borrow().len()
+    }
+
+    /// Reemplaza una fila y avisa el cambio. Se suelta el borrow antes de
+    /// notificar: el cambio re-ingresa a `row_data`.
+    fn set_row(&self, index: usize, line: TermLine) {
+        {
+            let mut rows = self.rows.borrow_mut();
+            if index >= rows.len() {
+                return;
+            }
+            rows[index] = line;
+        }
+        self.notify.row_changed(index);
+    }
+
+    /// Cambia el contenido y el conteo (arranque, o cambió el alto del panel).
+    fn set_all(&self, lines: Vec<TermLine>) {
+        *self.rows.borrow_mut() = lines;
+        self.notify.reset();
+    }
+
+    /// Copia de las filas; la usan sólo las pruebas.
+    #[cfg(test)]
+    fn snapshot(&self) -> Vec<TermLine> {
+        self.rows.borrow().clone()
+    }
+}
+
+impl Model for TermRows {
+    type Data = TermLine;
+
+    fn row_count(&self) -> usize {
+        self.rows.borrow().len()
+    }
+
+    fn row_data(&self, row: usize) -> Option<TermLine> {
+        self.rows.borrow().get(row).cloned()
+    }
+
+    fn model_tracker(&self) -> &dyn slint::ModelTracker {
+        &self.notify
+    }
 }
 
 /// Ancla y extremo de una selección de terminal: dos celdas `(fila, columna)`
@@ -1391,6 +1458,7 @@ impl Ide {
                 alive: false,
                 sel: None,
                 mouse_button: 3,
+                term_model: Rc::new(TermRows::default()),
             });
             return;
         };
@@ -1421,6 +1489,7 @@ impl Ide {
             alive,
             sel: None,
             mouse_button: 3,
+            term_model: Rc::new(TermRows::default()),
         });
     }
 
@@ -1746,6 +1815,7 @@ impl Ide {
             alive: true,
             sel: None,
             mouse_button: 3,
+            term_model: Rc::new(TermRows::default()),
         });
         self.local_active = self.local.len() - 1;
     }
@@ -2051,6 +2121,7 @@ impl Ide {
             alive: true,
             sel: None,
             mouse_button: 3,
+            term_model: Rc::new(TermRows::default()),
         });
         self.build_session = Some(id);
         self.local.len() - 1
@@ -5195,43 +5266,71 @@ impl Ide {
 
 impl Ide {
     /// Arma el modelo de una terminal para la UI: las filas (con la selección
-    /// pintada) y el estado de la barra de scrollback. Lo comparten la terminal
-    /// local y el panel del agente.
+    /// pintada) y el estado de la barra de scrollback. Solo lo usan las pruebas:
+    /// en runtime el vuelcado va por `sync_terms`, que escribe los modelos en
+    /// la ventana.
+    #[cfg(test)]
     fn term_view(&mut self, target: Target) -> (Vec<TermLine>, i32, f32, f32) {
         match self.session_mut(target) {
-            Some(session) => Self::term_view_of(session),
+            Some(session) => {
+                Self::refresh_term_model(session);
+                let (total, pos, thumb) = Self::term_scroll(session);
+                (session.term_model.snapshot(), total, pos, thumb)
+            }
             None => (Vec::new(), 0, 1.0, 1.0),
         }
     }
 
-    /// Arma el modelo de una sesión de terminal (filas + estado del scrollback).
-    fn term_view_of(session: &mut LocalSession) -> (Vec<TermLine>, i32, f32, f32) {
-        let (visible_rows, cols) = session.screen.size();
+    /// Deja el modelo de filas de la sesión al día, **en el mismo `Rc`**: sólo
+    /// se reemplazan las filas cuya huella cambió, avisando con `row_changed`.
+    /// Reconstruir las 24-200 filas con `remove`+`insert` por chunk de salida era
+    /// el costo dominante del refresco (Slint recreaba el elemento y su texto).
+    fn refresh_term_model(session: &mut LocalSession) {
+        let (rows, cols) = session.screen.size();
+        let want = rows as usize;
         let sel = session.sel.and_then(|s| s.region(cols));
+        if session.term_model.len() != want {
+            // Cambió el alto del panel: se reconstruye de una (pasa al
+            // redimensionar o al arrancar, no en el refresco normal).
+            let (all, _cursor) = session.screen.snapshot(sel);
+            let lines: Vec<TermLine> = all.into_iter().map(Self::term_line).collect();
+            session.term_model.set_all(lines);
+            // Se guardan las huellas de las filas recién pintadas.
+            session.screen.changed_rows(sel);
+            return;
+        }
+        for (index, runs) in session.screen.changed_rows(sel) {
+            session.term_model.set_row(index, Self::term_line(runs));
+        }
+    }
+
+    /// Un tramo por fila, con el ancho en celdas ya contado.
+    fn term_line(runs: Vec<Run>) -> TermLine {
+        TermLine {
+            runs: ModelRc::from(Rc::new(VecModel::from(
+                runs.into_iter()
+                    .map(|run| {
+                        let cols = run.text.chars().count() as i32;
+                        TermRun {
+                            text: run.text.into(),
+                            col: run.col as i32,
+                            cols,
+                            fg: to_color(run.fg),
+                            bg: to_color(run.bg),
+                            bold: run.bold,
+                        }
+                    })
+                    .collect::<Vec<_>>(),
+            ))),
+        }
+    }
+
+    /// Estado de la barra de scrollback de la sesión: `(total, posición,
+    /// pasador)`. La posición va de 0 (lo más viejo arriba) a 1 (el final).
+    fn term_scroll(session: &mut LocalSession) -> (i32, f32, f32) {
+        let (visible_rows, _cols) = session.screen.size();
         let total = session.screen.scrollback_total();
         let offset = session.screen.scrollback();
-        let (rows, _cursor) = session.screen.snapshot(sel);
-        let lines: Vec<TermLine> = rows
-            .into_iter()
-            .map(|runs| TermLine {
-                runs: ModelRc::from(Rc::new(VecModel::from(
-                    runs.into_iter()
-                        .map(|run| {
-                            let cols = run.text.chars().count() as i32;
-                            TermRun {
-                                text: run.text.into(),
-                                col: run.col as i32,
-                                cols,
-                                fg: to_color(run.fg),
-                                bg: to_color(run.bg),
-                                bold: run.bold,
-                            }
-                        })
-                        .collect::<Vec<_>>(),
-                ))),
-            })
-            .collect();
-        // Posición de la barra: 0 arriba (lo más viejo), 1 abajo.
         let total_f = total as f32;
         let pos = if total == 0 {
             1.0
@@ -5244,7 +5343,85 @@ impl Ide {
         } else {
             (visible_f / (visible_f + total_f)).clamp(0.08, 1.0)
         };
-        (lines, total as i32, pos, thumb)
+        (total as i32, pos, thumb)
+    }
+
+    /// ¿El panel está a la vista? Lo que no se ve no se refresca: cuando el dock
+    /// o la región vuelven a abrirse pasa un `sync` completo y lo pone al día.
+    fn dock_visible(&self, dock: Dock) -> bool {
+        match dock {
+            Dock::Hidden => false,
+            Dock::Left => self.show_left,
+            Dock::Right => self.show_right,
+            Dock::Bottom => self.show_bottom,
+        }
+    }
+
+    /// Refresco **sólo de los paneles de terminal**: filas, barras de
+    /// scrollback y banderas de mouse. Es el camino que dispara la salida del
+    /// PTY (varias veces por segundo con una TUI), así que no toca el
+    /// explorador, la búsqueda, el diff ni el resto de la ventana.
+    fn sync_terms(&mut self, w: &NuIdeWindow) {
+        // Docks: 1 = agente, 2 = terminal (ver `sync`).
+        let term_visible = self.dock_visible(self.docks[2]);
+        let agent_visible = self.dock_visible(self.docks[1]);
+
+        if term_visible {
+            // Terminal local: la sesión activa.
+            if let Some(session) = self.session_mut(Target::Local) {
+                Self::refresh_term_model(session);
+                let (total, pos, thumb) = Self::term_scroll(session);
+                w.set_term_lines(ModelRc::from(session.term_model.clone()));
+                w.set_term_scroll_total(total);
+                w.set_term_scroll_pos(pos);
+                w.set_term_scroll_thumb(thumb);
+            } else {
+                w.set_term_lines(ModelRc::from(Rc::new(TermRows::default())));
+                w.set_term_scroll_total(0);
+                w.set_term_scroll_pos(1.0);
+                w.set_term_scroll_thumb(1.0);
+            }
+            // Mouse reporting: sólo la vista que pidió el proceso lo recibe.
+            w.set_term_mouse(self.session_mouse(self.local_active));
+            w.set_term_mouse_2(self.split.map(|i| self.session_mouse(i)).unwrap_or(false));
+
+            // Segunda vista de la terminal (si está dividida).
+            let split_model: Rc<TermRows> = match self.split {
+                Some(index) => match self.local.get_mut(index) {
+                    Some(session) => {
+                        Self::refresh_term_model(session);
+                        Rc::clone(&session.term_model)
+                    }
+                    None => Rc::new(TermRows::default()),
+                },
+                None => Rc::new(TermRows::default()),
+            };
+            w.set_term_split(self.split.is_some());
+            w.set_term_lines_2(ModelRc::from(split_model));
+        }
+
+        if agent_visible {
+            if let Some(session) = self.session_mut(Target::Agent) {
+                Self::refresh_term_model(session);
+                let (total, pos, thumb) = Self::term_scroll(session);
+                w.set_agent_lines(ModelRc::from(session.term_model.clone()));
+                w.set_agent_scroll_total(total);
+                w.set_agent_scroll_pos(pos);
+                w.set_agent_scroll_thumb(thumb);
+            } else {
+                w.set_agent_lines(ModelRc::from(Rc::new(TermRows::default())));
+                w.set_agent_scroll_total(0);
+                w.set_agent_scroll_pos(1.0);
+                w.set_agent_scroll_thumb(1.0);
+            }
+            w.set_agent_mouse_tracking(
+                self.agent
+                    .as_ref()
+                    .map(|a| a.screen.mouse_protocol_mode() != vt100::MouseProtocolMode::None)
+                    .unwrap_or(false),
+            );
+            w.set_agent_connected(self.agent.as_ref().is_some_and(|a| a.alive));
+        }
     }
 
     /// Vuelca el estado a la ventana. Idempotente.
@@ -5322,40 +5499,9 @@ impl Ide {
             self.local.iter().map(|s| s.name.clone().into()).collect();
         w.set_term_sessions(ModelRc::from(Rc::new(VecModel::from(sessions))));
         w.set_active_session(self.local_active as i32);
-
-        let (term_lines, scroll_total, scroll_pos, scroll_thumb) = self.term_view(Target::Local);
-        w.set_term_lines(ModelRc::from(Rc::new(VecModel::from(term_lines))));
-        w.set_term_scroll_total(scroll_total);
-        w.set_term_scroll_pos(scroll_pos);
-        w.set_term_scroll_thumb(scroll_thumb);
-        // Mouse reporting: sólo la vista que pidió el proceso lo recibe.
-        w.set_term_mouse(self.session_mouse(self.local_active));
-        w.set_term_mouse_2(self.split.map(|i| self.session_mouse(i)).unwrap_or(false));
-
-        // Segunda vista de la terminal (si está dividida).
-        let split_lines: Vec<TermLine> = match self.split {
-            Some(index) => match self.local.get_mut(index) {
-                Some(session) => Self::term_view_of(session).0,
-                None => Vec::new(),
-            },
-            None => Vec::new(),
-        };
-        w.set_term_split(self.split.is_some());
-        w.set_term_lines_2(ModelRc::from(Rc::new(VecModel::from(split_lines))));
-
-        // --- panel del agente ---
-        let (agent_lines, agent_total, agent_pos, agent_thumb) = self.term_view(Target::Agent);
-        w.set_agent_lines(ModelRc::from(Rc::new(VecModel::from(agent_lines))));
-        w.set_agent_scroll_total(agent_total);
-        w.set_agent_scroll_pos(agent_pos);
-        w.set_agent_scroll_thumb(agent_thumb);
-        w.set_agent_mouse_tracking(
-            self.agent
-                .as_ref()
-                .map(|a| a.screen.mouse_protocol_mode() != vt100::MouseProtocolMode::None)
-                .unwrap_or(false),
-        );
-        w.set_agent_connected(self.agent.as_ref().is_some_and(|a| a.alive));
+        // Filas, barras de scroll y mouse: es el mismo refresco que corre cuando
+        // sale el PTY, así que se comparte (ver `sync_terms`).
+        self.sync_terms(w);
         w.set_agent_version(self.agent_version.clone().into());
         w.set_agent_model(self.agent_model.clone().into());
 
@@ -5674,19 +5820,32 @@ impl Ide {
     /// Drena los mensajes pendientes de los hilos. Se llama desde el timer.
     fn drain(&mut self, w: &NuIdeWindow) {
         let mut got = false;
-        // Medidor de sistema cada ~1.5 s (25 ticks de 60 ms).
+        // Salida nueva de algún PTY: con refrescar los paneles de terminal
+        // alcanza, no hace falta volcar los otros ~20 modelos de la ventana.
+        let mut terms = false;
+        // Medidor de sistema cada ~1.5 s (25 ticks de 60 ms). Son dos números del
+        // pie: se escriben directo, sin arrastrar un `sync` completo.
         self.drain_tick = self.drain_tick.wrapping_add(1);
         if self.drain_tick.is_multiple_of(25) {
             self.metrics = self.monitor.sample();
-            got = true;
+            w.set_cpu_percent((self.metrics.cpu * 100.0).round() as i32);
+            w.set_ram_percent((self.metrics.ram * 100.0).round() as i32);
         }
         while let Ok(event) = self.local_rx.try_recv() {
+            match &event {
+                PtyEvent::Output { .. } => terms = true,
+                // El proceso se cayó: cambia la lista de sesiones y el estado del
+                // panel, eso sí va por el camino completo.
+                PtyEvent::Exit { .. } => got = true,
+            }
             self.apply_pty_event(Target::Local, event);
-            got = true;
         }
         while let Ok(event) = self.agent_rx.try_recv() {
+            match &event {
+                PtyEvent::Output { .. } => terms = true,
+                PtyEvent::Exit { .. } => got = true,
+            }
             self.apply_pty_event(Target::Agent, event);
-            got = true;
         }
         while let Ok(result) = self.lint_rx.try_recv() {
             let active = self.tabs.get(self.active_tab).map(|t| t.path.clone());
@@ -5740,6 +5899,8 @@ impl Ide {
         }
         if got {
             self.sync(w);
+        } else if terms {
+            self.sync_terms(w);
         }
     }
 

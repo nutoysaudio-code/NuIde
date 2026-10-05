@@ -14,6 +14,8 @@ use nuide::ui::NuIdeWindow;
 use slint::ComponentHandle;
 
 fn main() -> Result<(), slint::PlatformError> {
+    pick_renderer();
+
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.iter().any(|a| a == "--version" || a == "-v") {
         attach_console();
@@ -33,6 +35,28 @@ fn main() -> Result<(), slint::PlatformError> {
     let ide = Ide::shared();
     editor::attach(&window, ide);
     window.run()
+}
+
+/// Elige el renderer por defecto: el **software** de Slint.
+///
+/// Medido en NuIde con el panel de OpenCode abierto (una TUI que redibuja varias
+/// veces por segundo), mismo binario, cambiando sólo `SLINT_BACKEND`:
+///
+/// | Renderer            | CPU en reposo | Memoria |
+/// |---------------------|--------------:|--------:|
+/// | `winit-femtovg`     |        ~77 %  | 113 MB  |
+/// | `winit-software`    |        ~10 %  |  30 MB  |
+///
+/// FemtoVG (OpenGL) repinta la escena **completa** ante cualquier cambio; el
+/// renderer software trae *partial rendering* (sólo la región dañada) y acá es
+/// muchísimo más barato. Tampoco depende del driver OpenGL de la máquina.
+///
+/// Se puede seguir probando el camino GPU sin recompilar:
+/// `$env:SLINT_BACKEND = "winit-femtovg"`.
+fn pick_renderer() {
+    if std::env::var_os("SLINT_BACKEND").is_none() {
+        std::env::set_var("SLINT_BACKEND", "winit-software");
+    }
 }
 
 /// Escribe en stdout sin pifiarla si no hay nadie del otro lado: con el

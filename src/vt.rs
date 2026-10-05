@@ -48,6 +48,11 @@ pub struct Screen {
     parser: vt100::Parser,
     rows: u16,
     cols: u16,
+    /// Huella de cada fila visible en el último `changed_rows`. Con ella el
+    /// refresco deja de ser "toda la pantalla": sólo se reconstruyen las filas
+    /// cuyo texto o estilo cambió (una TUI que mueve un spinner paga una fila,
+    /// no las 24-200 que se ven).
+    sigs: Vec<u64>,
 }
 
 impl Screen {
@@ -56,6 +61,7 @@ impl Screen {
             parser: vt100::Parser::new(rows.max(1), cols.max(1), SCROLLBACK),
             rows: rows.max(1),
             cols: cols.max(1),
+            sigs: Vec::new(),
         }
     }
 
@@ -70,6 +76,8 @@ impl Screen {
     pub fn resize(&mut self, rows: u16, cols: u16) {
         self.rows = rows.max(1);
         self.cols = cols.max(1);
+        // El reflujo del texto invalida cualquier huella guardada.
+        self.sigs.clear();
         self.parser.screen_mut().set_size(self.rows, self.cols);
     }
 
@@ -138,65 +146,122 @@ impl Screen {
     }
 
     /// Devuelve las filas (como tramos) y la posición del cursor, si se ve.
-    /// `sel` pinta el fondo de las celdas seleccionadas.
+    /// `sel` pinta el fondo de las celdas seleccionadas. Reconstruye **todo**:
+    /// para el refresco periódico está `changed_rows`.
     pub fn snapshot(&self, sel: Option<Selection>) -> (Vec<Vec<Run>>, Option<(u16, u16)>) {
-        let screen = self.parser.screen();
         let cursor = self.cursor();
-
-        let mut lines: Vec<Vec<Run>> = Vec::with_capacity(self.rows as usize);
-        for row in 0..self.rows {
-            let mut runs: Vec<Run> = Vec::new();
-            let mut current: Option<Run> = None;
-
-            for col in 0..self.cols {
-                let Some(cell) = screen.cell(row, col) else {
-                    continue;
-                };
-                let mut text = cell.contents().to_string();
-                if text.is_empty() {
-                    text.push(' ');
-                }
-                let mut fg = color_to_rgb(cell.fgcolor(), DEFAULT_FG);
-                let mut bg = color_to_rgb(cell.bgcolor(), DEFAULT_BG);
-                if cell.inverse() {
-                    std::mem::swap(&mut fg, &mut bg);
-                }
-                let is_cursor = cursor == Some((row, col));
-                if is_cursor {
-                    std::mem::swap(&mut fg, &mut bg);
-                }
-                // La selección gana sobre el cursor: el fondo elegido indica
-                // qué se va a copiar.
-                if sel.is_some_and(|s| in_selection(s, row, col)) {
-                    bg = SELECTION_BG;
-                }
-                let bold = cell.bold();
-
-                match &mut current {
-                    Some(run) if run.fg == fg && run.bg == bg && run.bold == bold => {
-                        run.text.push_str(&text);
-                    }
-                    _ => {
-                        if let Some(run) = current.take() {
-                            runs.push(run);
-                        }
-                        current = Some(Run {
-                            text,
-                            col,
-                            fg,
-                            bg,
-                            bold,
-                        });
-                    }
-                }
-            }
-            if let Some(run) = current {
-                runs.push(run);
-            }
-            lines.push(runs);
-        }
-
+        let lines = (0..self.rows)
+            .map(|row| self.build_row(row, sel, cursor))
+            .collect();
         (lines, cursor)
+    }
+
+    /// Filas que cambiaron desde la llamada anterior, como `(índice, tramos)`.
+    /// La primera vez (o tras un `resize`) devuelve todas.
+    pub fn changed_rows(&mut self, sel: Option<Selection>) -> Vec<(usize, Vec<Run>)> {
+        let cursor = self.cursor();
+        let previous = std::mem::take(&mut self.sigs);
+        let mut sigs: Vec<u64> = Vec::with_capacity(self.rows as usize);
+        let mut changed: Vec<(usize, Vec<Run>)> = Vec::new();
+        for row in 0..self.rows {
+            let hash = self.row_hash(row, sel, cursor);
+            if previous.get(row as usize).copied().unwrap_or(0) != hash {
+                changed.push((row as usize, self.build_row(row, sel, cursor)));
+            }
+            sigs.push(hash);
+        }
+        self.sigs = sigs;
+        changed
+    }
+
+    /// Colores y negrita de una celda, ya con inversión, cursor y selección.
+    fn cell_paint(cell: &vt100::Cell, is_cursor: bool, selected: bool) -> (Rgb, Rgb, bool) {
+        let mut fg = color_to_rgb(cell.fgcolor(), DEFAULT_FG);
+        let mut bg = color_to_rgb(cell.bgcolor(), DEFAULT_BG);
+        if cell.inverse() {
+            std::mem::swap(&mut fg, &mut bg);
+        }
+        if is_cursor {
+            std::mem::swap(&mut fg, &mut bg);
+        }
+        // La selección gana sobre el cursor: el fondo elegido indica
+        // qué se va a copiar.
+        if selected {
+            bg = SELECTION_BG;
+        }
+        (fg, bg, cell.bold())
+    }
+
+    /// Huella de la fila: recorre las celdas leyendo texto y estilo **sin
+    /// asignar memoria** (el `contents()` de `vt100` es un `&str` prestado por
+    /// la pantalla). Es el filtro barato para saber si hay que reconstruirla.
+    fn row_hash(&self, row: u16, sel: Option<Selection>, cursor: Option<(u16, u16)>) -> u64 {
+        use std::hash::{Hash, Hasher};
+
+        let screen = self.parser.screen();
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        for col in 0..self.cols {
+            let Some(cell) = screen.cell(row, col) else {
+                continue;
+            };
+            cell.contents().hash(&mut hasher);
+            let (fg, bg, bold) = Self::cell_paint(
+                cell,
+                cursor == Some((row, col)),
+                sel.is_some_and(|s| in_selection(s, row, col)),
+            );
+            (fg, bg, bold).hash(&mut hasher);
+        }
+        hasher.finish()
+    }
+
+    /// Tramos de una fila: agrupa celdas consecutivas del mismo estilo.
+    fn build_row(&self, row: u16, sel: Option<Selection>, cursor: Option<(u16, u16)>) -> Vec<Run> {
+        let screen = self.parser.screen();
+        let mut runs: Vec<Run> = Vec::new();
+        let mut current: Option<Run> = None;
+
+        for col in 0..self.cols {
+            let Some(cell) = screen.cell(row, col) else {
+                continue;
+            };
+            let (fg, bg, bold) = Self::cell_paint(
+                cell,
+                cursor == Some((row, col)),
+                sel.is_some_and(|s| in_selection(s, row, col)),
+            );
+            match &mut current {
+                Some(run) if run.fg == fg && run.bg == bg && run.bold == bold => {
+                    // La celda vacía se manda como espacio para que el `Text`
+                    // de Slint ocupe su columna.
+                    if cell.contents().is_empty() {
+                        run.text.push(' ');
+                    } else {
+                        run.text.push_str(cell.contents());
+                    }
+                }
+                _ => {
+                    if let Some(run) = current.take() {
+                        runs.push(run);
+                    }
+                    let mut text = String::from(cell.contents());
+                    if text.is_empty() {
+                        text.push(' ');
+                    }
+                    current = Some(Run {
+                        text,
+                        col,
+                        fg,
+                        bg,
+                        bold,
+                    });
+                }
+            }
+        }
+        if let Some(run) = current {
+            runs.push(run);
+        }
+        runs
     }
 }
 
@@ -364,5 +429,45 @@ mod tests {
         let multi = screen.text_between(0, 5, 1, 3);
         assert!(multi.starts_with("mundo"), "multilínea: {multi:?}");
         assert!(multi.trim_end().ends_with("seg"), "multilínea: {multi:?}");
+    }
+
+    #[test]
+    fn el_refresco_incremental_solo_trae_las_filas_cambiadas() {
+        let mut screen = Screen::new(6, 20);
+        // La primera vez no hay huellas: trae todas las filas.
+        assert_eq!(screen.changed_rows(None).len(), 6);
+        // Sin salida nueva y sin cambio de estilo: no se redrawa nada.
+        assert!(screen.changed_rows(None).is_empty());
+
+        // Salida en una fila: cambian ésa y la que queda bajo el cursor.
+        screen.process(b"holamundo\r\n");
+        let changed = screen.changed_rows(None);
+        let indices: Vec<usize> = changed.iter().map(|(i, _)| *i).collect();
+        assert!(indices.contains(&0), "la fila escrita cambió: {indices:?}");
+        assert!(
+            changed.len() < 6,
+            "no se reconstruyó toda la pantalla: {}",
+            changed.len()
+        );
+
+        // El tramo que devuelve es exactamente el que daría el snapshot completo:
+        // reusar filas no cambia lo que se ve.
+        assert!(!changed.is_empty());
+        let (all, _) = screen.snapshot(None);
+        for (i, runs) in &changed {
+            assert_eq!(
+                runs, &all[*i],
+                "fila {i} distinta entre refresco e incremental"
+            );
+        }
+
+        // La selección entra en la huella: seleccionar redrawa las filas tocadas.
+        assert!(screen
+            .changed_rows(Some((0, 0, 0, 4)))
+            .iter()
+            .any(|(i, _)| *i == 0));
+        // Y el resize vuelve a traer todo.
+        screen.resize(4, 20);
+        assert_eq!(screen.changed_rows(None).len(), 4);
     }
 }
