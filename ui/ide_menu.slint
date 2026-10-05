@@ -1,0 +1,80 @@
+import { IdeTheme } from "ide_theme.slint";
+import { IdeMenuEntry } from "ide_types.slint";
+
+// Fila de un menú desplegable. Una fila con `id` vacío es un separador.
+component MenuRow inherits Rectangle {
+    in property <string> id: "";
+    in property <string> label: "";
+    in property <string> detail: "";
+    in property <bool> enabled: true;
+    callback activated();
+
+    height: root.id == "" ? 9px : 26px;
+    border-radius: IdeTheme.radius-sm;
+    background: (root.enabled && ta.has-hover) ? IdeTheme.control-hi : transparent;
+
+    // Separador.
+    if root.id == "": Rectangle {
+        x: 8px;
+        y: (parent.height - 1px) / 2;
+        width: parent.width - 16px;
+        height: 1px;
+        background: IdeTheme.border-faint;
+    }
+
+    if root.id != "": Text {
+        x: 10px;
+        y: (parent.height - self.height) / 2;
+        text: root.label;
+        color: root.enabled ? (ta.has-hover ? IdeTheme.text : IdeTheme.text-soft) : IdeTheme.text-dim;
+        font-family: IdeTheme.sans;
+        font-size: 12px;
+        vertical-alignment: center;
+    }
+
+    if root.id != "": Text {
+        x: parent.width - 10px - self.width;
+        y: (parent.height - self.height) / 2;
+        text: root.detail;
+        color: IdeTheme.text-dim;
+        font-family: IdeTheme.mono;
+        font-size: 11px;
+        vertical-alignment: center;
+    }
+
+    ta := TouchArea {
+        enabled: root.enabled && root.id != "";
+        mouse-cursor: MouseCursor.pointer;
+        clicked => { root.activated(); }
+    }
+}
+
+// Menú desplegable genérico (Archivo / Editar). Las filas las arma Rust.
+export component IdeMenu inherits Rectangle {
+    in property <[IdeMenuEntry]> items: [];
+    callback activated(string);
+
+    width: 264px;
+    height: menu.preferred-height + 12px;
+    background: IdeTheme.panel;
+    border-width: 1px;
+    border-color: IdeTheme.border-soft;
+    border-radius: IdeTheme.radius-sm;
+
+    menu := VerticalLayout {
+        x: 6px;
+        y: 6px;
+        width: parent.width - 12px;
+        height: self.preferred-height;
+        spacing: 0;
+        alignment: start;
+
+        for entry in root.items: MenuRow {
+            id: entry.id;
+            label: entry.label;
+            detail: entry.detail;
+            enabled: entry.enabled;
+            activated => { root.activated(entry.id); }
+        }
+    }
+}

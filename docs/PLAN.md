@@ -52,7 +52,7 @@ automáticos antes de sumar features grandes.
 
 ---
 
-## Fase 1 — Menús y flujo de archivos  ·  M  ·  must
+## Fase 1 — Menús y flujo de archivos  ·  M  ·  must  ·  ✅ hecha (3.16)
 
 **Objetivo:** que los menús **Archivo** y **Editar** hagan lo que se espera
 (hoy no hacen nada) y que no se pierdan cambios.

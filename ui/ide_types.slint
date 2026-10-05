@@ -80,3 +80,11 @@ export struct IdePaletteItem {
     label: string,
     detail: string,
 }
+
+// Fila de un menú desplegable (Archivo/Editar). `id` vacío = separador.
+export struct IdeMenuEntry {
+    id: string,
+    label: string,
+    detail: string,
+    enabled: bool,
+}

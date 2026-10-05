@@ -127,7 +127,7 @@ component IdeLayoutButton inherits Rectangle {
 // Barra superior: icono + marca, menú, proyecto centrado y controles.
 export component IdeTopBar inherits Rectangle {
     in property <string> project: "coquito";
-    in property <bool> view-active: false;
+    in property <string> active-menu: "";
     in property <bool> show-left: true;
     in property <bool> show-right: true;
     in property <bool> show-bottom: true;
@@ -136,7 +136,9 @@ export component IdeTopBar inherits Rectangle {
     callback close-requested();
     // Se clickeó el nombre del proyecto: abrir el selector de carpeta.
     callback project-clicked();
-    // Posición del ítem "Ver": la ventana ancla ahí el menú desplegable.
+    // Posición de cada ítem de menú: la ventana ancla ahí el desplegable.
+    out property <length> file-menu-x: file-item.x;
+    out property <length> edit-menu-x: edit-item.x;
     out property <length> view-menu-x: view-item.x;
 
     height: IdeTheme.topbar-h;
@@ -186,9 +188,9 @@ export component IdeTopBar inherits Rectangle {
 
         Rectangle { width: 8px; background: transparent; }
 
-        IdeMenuItem { label: "Archivo"; activated => { root.menu-activated(self.label); } }
-        IdeMenuItem { label: "Editar";  activated => { root.menu-activated(self.label); } }
-        view-item := IdeMenuItem { label: "Ver"; active: root.view-active; activated => { root.menu-activated(self.label); } }
+        file-item := IdeMenuItem { label: "Archivo"; active: root.active-menu == "Archivo"; activated => { root.menu-activated(self.label); } }
+        edit-item := IdeMenuItem { label: "Editar";  active: root.active-menu == "Editar"; activated => { root.menu-activated(self.label); } }
+        view-item := IdeMenuItem { label: "Ver"; active: root.active-menu == "Ver"; activated => { root.menu-activated(self.label); } }
         IdeMenuItem { label: "Ejecutar"; activated => { root.menu-activated(self.label); } }
         IdeMenuItem { label: "Compilar"; activated => { root.menu-activated(self.label); } }
     }
@@ -236,7 +238,7 @@ export component IdeTopBar inherits Rectangle {
         IdeLayoutButton { area: 0; active: root.show-left;   activated => { root.toggle-region(0); } }
         IdeLayoutButton { area: 1; active: root.show-right;  activated => { root.toggle-region(1); } }
         IdeLayoutButton { area: 2; active: root.show-bottom; activated => { root.toggle-region(2); } }
-        IdeLayoutButton { area: 3; active: root.view-active; activated => { root.menu-activated("Ver"); } }
+        IdeLayoutButton { area: 3; active: root.active-menu == "Ver"; activated => { root.menu-activated("Ver"); } }
     }
 
     // Controles de ventana (decorativos en este esqueleto; cerrar sí cierra).

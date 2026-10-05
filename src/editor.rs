@@ -36,8 +36,8 @@ use crate::lint;
 use crate::pty::{self, Pty, PtyEvent};
 use crate::spasm::Toolchain;
 use crate::ui::{
-    IdeCodeLine, IdeGitFile, IdeOutlineItem, IdePaletteItem, IdeRecent, IdeTab, IdeToken,
-    IdeTreeNode, NuIdeWindow, TermLine, TermRun,
+    IdeCodeLine, IdeGitFile, IdeMenuEntry, IdeOutlineItem, IdePaletteItem, IdeRecent, IdeTab,
+    IdeToken, IdeTreeNode, NuIdeWindow, TermLine, TermRun,
 };
 use crate::vt::{Screen, Selection};
 
@@ -376,8 +376,18 @@ enum Command {
     Find,
     Replace,
     GotoDef,
+    GoToLine,
+    Undo,
+    Redo,
+    Cut,
+    Copy,
+    Paste,
+    SelectAll,
     Preview,
     Save,
+    SaveAs,
+    CloseTab,
+    CloseAll,
     OpenProject,
     OpenFile,
     NewFile,
@@ -395,7 +405,7 @@ enum Command {
 
 impl Command {
     /// Todos, en el orden en que se muestran.
-    const ALL: [Command; 22] = [
+    const ALL: [Command; 32] = [
         Command::Run,
         Command::Build,
         Command::Lint,
@@ -403,8 +413,18 @@ impl Command {
         Command::Find,
         Command::Replace,
         Command::GotoDef,
+        Command::GoToLine,
+        Command::Undo,
+        Command::Redo,
+        Command::Cut,
+        Command::Copy,
+        Command::Paste,
+        Command::SelectAll,
         Command::Preview,
         Command::Save,
+        Command::SaveAs,
+        Command::CloseTab,
+        Command::CloseAll,
         Command::FindFiles,
         Command::OpenProject,
         Command::OpenFile,
@@ -429,8 +449,18 @@ impl Command {
             Command::Find => "Buscar",
             Command::Replace => "Buscar y reemplazar",
             Command::GotoDef => "Ir a definición",
+            Command::GoToLine => "Ir a línea…",
+            Command::Undo => "Deshacer",
+            Command::Redo => "Rehacer",
+            Command::Cut => "Cortar",
+            Command::Copy => "Copiar",
+            Command::Paste => "Pegar",
+            Command::SelectAll => "Seleccionar todo",
             Command::Preview => "Vista previa de Markdown",
             Command::Save => "Guardar",
+            Command::SaveAs => "Guardar como…",
+            Command::CloseTab => "Cerrar pestaña",
+            Command::CloseAll => "Cerrar todas las pestañas",
             Command::FindFiles => "Buscar archivos",
             Command::OpenProject => "Abrir carpeta del proyecto…",
             Command::OpenFile => "Abrir archivo…",
@@ -456,8 +486,17 @@ impl Command {
             Command::Find => "Ctrl+F",
             Command::Replace => "Ctrl+H",
             Command::GotoDef => "F12",
+            Command::GoToLine => "Ctrl+G",
+            Command::Undo => "Ctrl+Z",
+            Command::Redo => "Ctrl+Y",
+            Command::Cut => "Ctrl+X",
+            Command::Copy => "Ctrl+C",
+            Command::Paste => "Ctrl+V",
+            Command::SelectAll => "Ctrl+A",
             Command::Preview => "Ctrl+Shift+M",
             Command::Save => "Ctrl+S",
+            Command::SaveAs => "Ctrl+Shift+S",
+            Command::CloseTab => "Ctrl+W",
             Command::FindFiles => "Ctrl+P",
             Command::NewTerminal | Command::SplitTerminal => "terminal",
             Command::ToggleExplorer
@@ -484,12 +523,34 @@ fn filter_commands(query: &str) -> Vec<Command> {
         .collect()
 }
 
+/// Fila con acción para un menú desplegable.
+fn menu_entry(id: &str, label: &str, detail: &str, enabled: bool) -> IdeMenuEntry {
+    IdeMenuEntry {
+        id: id.into(),
+        label: label.into(),
+        detail: detail.into(),
+        enabled,
+    }
+}
+
+/// Separador de menú.
+fn menu_sep() -> IdeMenuEntry {
+    IdeMenuEntry {
+        id: "".into(),
+        label: "".into(),
+        detail: "".into(),
+        enabled: false,
+    }
+}
+
 /// Tipo de paleta abierta.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 enum PaletteKind {
     #[default]
     Commands,
     Files,
+    /// "Ir a línea…": el texto es un número.
+    GoToLine,
 }
 
 /// Acción de una fila de la paleta.
@@ -497,6 +558,7 @@ enum PaletteKind {
 enum PaletteAction {
     Command(Command),
     File(PathBuf),
+    GoToLine(usize),
 }
 
 /// Una fila ya resuelta para dibujar (texto + acción).
@@ -517,6 +579,17 @@ struct Palette {
     selected: usize,
     /// Archivos del proyecto, juntados al abrir el buscador.
     files: Vec<PathBuf>,
+}
+
+/// Acción pendiente de confirmar cuando hay cambios sin guardar.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Confirm {
+    /// Cerrar la pestaña activa.
+    CloseTab,
+    /// Cerrar todas las pestañas.
+    CloseAll,
+    /// Salir de la aplicación.
+    Quit,
 }
 
 /// Estado completo de la IDE.
@@ -559,8 +632,12 @@ pub struct Ide {
     /// Dónde vive cada panel (Explorador, OpenCode, Terminal, Git). Los que
     /// comparten región se apilan.
     docks: [Dock; 4],
-    /// El menú desplegable de "Ver" está abierto.
-    view_menu_open: bool,
+    /// El menú desplegable abierto ("Archivo", "Editar", "Ver") o vacío.
+    menu_open: String,
+    /// Diálogo de "cambios sin guardar" pendiente.
+    confirm: Option<Confirm>,
+    /// Pestaña objetivo de la confirmación (para "Cerrar pestaña").
+    confirm_tab: Option<usize>,
     /// Paleta de comandos / buscador de archivos.
     palette: Palette,
     /// Configuración persistida (proyecto, paneles, ventana, pestañas).
@@ -671,7 +748,9 @@ impl Ide {
             show_right,
             show_bottom,
             docks,
-            view_menu_open: false,
+            menu_open: String::new(),
+            confirm: None,
+            confirm_tab: None,
             palette: Palette::default(),
             config,
             code_model: Rc::new(VecModel::default()),
@@ -1389,8 +1468,14 @@ impl Ide {
         match label {
             "Ejecutar" => self.run(None),
             "Compilar" => self.build(""),
-            // "Ver" abre/cierra el desplegable de paneles.
-            "Ver" => self.view_menu_open = !self.view_menu_open,
+            // Archivo/Editar/Ver abren su desplegable (y lo cierran si ya está).
+            "Archivo" | "Editar" | "Ver" => {
+                self.menu_open = if self.menu_open == label {
+                    String::new()
+                } else {
+                    label.to_string()
+                };
+            }
             _ => {}
         }
     }
@@ -1413,9 +1498,9 @@ impl Ide {
         }
     }
 
-    /// Cierra el menú desplegable de "Ver".
-    fn close_view_menu(&mut self) {
-        self.view_menu_open = false;
+    /// Cierra el menú desplegable abierto.
+    fn close_menu(&mut self) {
+        self.menu_open.clear();
     }
 }
 
@@ -1489,6 +1574,14 @@ impl Ide {
                     })
                     .collect()
             }
+            PaletteKind::GoToLine => match self.palette.query.trim().parse::<usize>() {
+                Ok(line) if line >= 1 => vec![PaletteRow {
+                    label: format!("Ir a la línea {line}"),
+                    detail: String::new(),
+                    action: PaletteAction::GoToLine(line),
+                }],
+                _ => Vec::new(),
+            },
         };
         let len = self.palette.rows.len();
         self.palette.selected = if len == 0 {
@@ -1521,8 +1614,15 @@ impl Ide {
             }
             _ => {
                 if !control && !text.is_empty() && !text.starts_with('\u{F7}') {
-                    self.palette.query.push_str(text);
-                    self.palette_recompute();
+                    // "Ir a línea" sólo acepta dígitos.
+                    if self.palette.kind == PaletteKind::GoToLine
+                        && !text.chars().all(|c| c.is_ascii_digit())
+                    {
+                        // Se ignora lo que no sea número.
+                    } else {
+                        self.palette.query.push_str(text);
+                        self.palette_recompute();
+                    }
                 }
             }
         }
@@ -1554,6 +1654,7 @@ impl Ide {
             Some(row) => match row.action {
                 PaletteAction::Command(c) => self.run_command(c),
                 PaletteAction::File(p) => self.open_file(p),
+                PaletteAction::GoToLine(n) => self.goto_line_number(n),
             },
             None => {}
         }
@@ -1577,8 +1678,18 @@ impl Ide {
             Command::Find => self.find_open(false),
             Command::Replace => self.find_open(true),
             Command::GotoDef => self.go_to_definition(),
+            Command::GoToLine => self.palette_open(PaletteKind::GoToLine),
+            Command::Undo => self.undo_active(),
+            Command::Redo => self.redo_active(),
+            Command::Cut => self.cut_active(),
+            Command::Copy => self.copy_active(),
+            Command::Paste => self.paste_active(),
+            Command::SelectAll => self.select_all(),
             Command::Preview => self.toggle_preview(),
             Command::Save => self.save_active(),
+            Command::SaveAs => self.save_as(),
+            Command::CloseTab => self.request_close_tab(self.active_tab as i32),
+            Command::CloseAll => self.request_close_all(),
             Command::FindFiles => self.palette_open(PaletteKind::Files),
             Command::OpenProject => self.pick_project(),
             Command::OpenFile => self.pick_file(),
@@ -1616,6 +1727,266 @@ impl Ide {
         } else {
             *dock = Dock::Hidden;
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Menús, archivos y confirmación
+// ---------------------------------------------------------------------------
+
+impl Ide {
+    /// Salta a la línea `line` (1-based) del archivo activo (paleta "Ir a línea").
+    fn goto_line_number(&mut self, line: usize) {
+        if self.tabs.is_empty() {
+            return;
+        }
+        let last = self.tabs[self.active_tab].lines.len().saturating_sub(1);
+        let new = line.saturating_sub(1).min(last);
+        let old = self.tabs[self.active_tab].cursor.line;
+        self.set_cursor(Cursor { line: new, col: 0 }, old, false);
+    }
+
+    /// Diálogo "Guardar como": escribe en otra ruta y reapunta la pestaña.
+    fn save_as(&mut self) {
+        let (start, name, data) = {
+            let Some(t) = self.tabs.get(self.active_tab) else {
+                return;
+            };
+            if t.kind == DocKind::Image {
+                return;
+            }
+            let mut data = t.lines.join("\n");
+            if t.trailing_newline {
+                data.push('\n');
+            }
+            let start = t
+                .path
+                .parent()
+                .map(|p| p.to_path_buf())
+                .unwrap_or_else(|| self.explorer.root().to_path_buf());
+            (start, file_name(&t.path), data)
+        };
+        let Some(path) = rfd::FileDialog::new()
+            .set_title("Guardar como")
+            .set_directory(&start)
+            .set_file_name(&name)
+            .save_file()
+        else {
+            return;
+        };
+        if std::fs::write(&path, data).is_err() {
+            return;
+        }
+        push_recent(&mut self.recent_files, path.clone());
+        {
+            let tab = &mut self.tabs[self.active_tab];
+            tab.path = path.clone();
+            tab.language = highlight::Language::from_path(&path);
+            tab.dirty = false;
+            tab.read_only = false;
+        }
+        self.active_file = Some(path);
+        self.editor_full = true;
+        self.explorer.rebuild();
+        self.lint_active();
+        if !cfg!(test) {
+            self.git_refresh();
+        }
+    }
+
+    /// Guarda la pestaña `i` (sin diálogos). Devuelve si se escribió.
+    fn save_tab(&mut self, i: usize) -> bool {
+        let Some(t) = self.tabs.get(i) else {
+            return false;
+        };
+        if t.read_only {
+            return false;
+        }
+        let mut data = t.lines.join("\n");
+        if t.trailing_newline {
+            data.push('\n');
+        }
+        let path = t.path.clone();
+        if std::fs::write(&path, data).is_ok() {
+            self.tabs[i].dirty = false;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Hay al menos un archivo con cambios sin guardar.
+    fn has_dirty(&self) -> bool {
+        self.tabs.iter().any(|t| t.dirty)
+    }
+
+    /// Cierra la pestaña `i`, pidiendo confirmación si tiene cambios.
+    fn request_close_tab(&mut self, i: i32) {
+        if i < 0 || i as usize >= self.tabs.len() {
+            return;
+        }
+        if self.tabs[i as usize].dirty {
+            self.confirm = Some(Confirm::CloseTab);
+            self.confirm_tab = Some(i as usize);
+        } else {
+            self.tab_closed(i);
+        }
+    }
+
+    /// Cierra todas las pestañas, pidiendo confirmación si hay cambios.
+    fn request_close_all(&mut self) {
+        if self.tabs.is_empty() {
+            return;
+        }
+        if self.has_dirty() {
+            self.confirm = Some(Confirm::CloseAll);
+            self.confirm_tab = None;
+        } else {
+            self.close_all_tabs();
+        }
+    }
+
+    /// Decide si salir ya o pedir confirmación. `true` = salir ya.
+    fn request_quit(&mut self) -> bool {
+        if self.has_dirty() {
+            self.confirm = Some(Confirm::Quit);
+            self.confirm_tab = None;
+            false
+        } else {
+            true
+        }
+    }
+
+    /// Cierra todas las pestañas sin preguntar.
+    fn close_all_tabs(&mut self) {
+        self.tabs.clear();
+        self.active_tab = 0;
+        self.active_file = None;
+        self.editor_full = true;
+        self.undo.clear();
+        self.redo.clear();
+    }
+
+    /// El usuario eligió "Guardar" en el diálogo. `true` = salir.
+    fn confirm_save(&mut self) -> bool {
+        match self.confirm {
+            Some(Confirm::CloseTab) => {
+                if let Some(i) = self.confirm_tab {
+                    let _ = self.save_tab(i);
+                }
+            }
+            Some(Confirm::CloseAll) | Some(Confirm::Quit) => {
+                let dirty: Vec<usize> = self
+                    .tabs
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, t)| t.dirty)
+                    .map(|(i, _)| i)
+                    .collect();
+                for i in dirty {
+                    let _ = self.save_tab(i);
+                }
+                self.lint_active();
+                if !cfg!(test) {
+                    self.git_refresh();
+                }
+            }
+            None => {}
+        }
+        self.finish_confirm()
+    }
+
+    /// El usuario eligió "Descartar". `true` = salir.
+    fn confirm_discard(&mut self) -> bool {
+        self.finish_confirm()
+    }
+
+    /// El usuario canceló: se cierra el diálogo y no pasa nada.
+    fn confirm_cancel(&mut self) {
+        self.confirm = None;
+        self.confirm_tab = None;
+    }
+
+    /// Aplica la acción confirmada. `true` = salir.
+    fn finish_confirm(&mut self) -> bool {
+        let what = self.confirm.take();
+        let tab = self.confirm_tab.take();
+        match what {
+            Some(Confirm::CloseTab) => {
+                if let Some(i) = tab {
+                    self.tab_closed(i as i32);
+                }
+                false
+            }
+            Some(Confirm::CloseAll) => {
+                self.close_all_tabs();
+                false
+            }
+            Some(Confirm::Quit) => true,
+            None => false,
+        }
+    }
+
+    /// Ejecuta una acción de los menús Archivo/Editar. `true` = salir.
+    fn menu_command(&mut self, id: &str) -> bool {
+        self.close_menu();
+        match id {
+            "file.new" => self.new_file(),
+            "file.open" => self.pick_file(),
+            "file.open-folder" => self.pick_project(),
+            "file.save" => self.save_active(),
+            "file.save-as" => self.save_as(),
+            "file.close" => self.request_close_tab(self.active_tab as i32),
+            "file.close-all" => self.request_close_all(),
+            "file.exit" => return self.request_quit(),
+            "edit.undo" => self.undo_active(),
+            "edit.redo" => self.redo_active(),
+            "edit.cut" => self.cut_active(),
+            "edit.copy" => self.copy_active(),
+            "edit.paste" => self.paste_active(),
+            "edit.select-all" => self.select_all(),
+            "edit.find" => self.find_open(false),
+            "edit.replace" => self.find_open(true),
+            "edit.goto-line" => self.palette_open(PaletteKind::GoToLine),
+            _ => {}
+        }
+        false
+    }
+
+    /// Filas del menú Archivo.
+    fn file_menu_items(&self) -> Vec<IdeMenuEntry> {
+        let has = !self.tabs.is_empty();
+        vec![
+            menu_entry("file.new", "Nuevo archivo…", "Ctrl+N", true),
+            menu_entry("file.open", "Abrir archivo…", "Ctrl+O", true),
+            menu_entry("file.open-folder", "Abrir carpeta…", "", true),
+            menu_sep(),
+            menu_entry("file.save", "Guardar", "Ctrl+S", has),
+            menu_entry("file.save-as", "Guardar como…", "Ctrl+Shift+S", has),
+            menu_sep(),
+            menu_entry("file.close", "Cerrar pestaña", "Ctrl+W", has),
+            menu_entry("file.close-all", "Cerrar todas", "", has),
+            menu_sep(),
+            menu_entry("file.exit", "Salir", "", true),
+        ]
+    }
+
+    /// Filas del menú Editar.
+    fn edit_menu_items(&self) -> Vec<IdeMenuEntry> {
+        let has = !self.tabs.is_empty();
+        vec![
+            menu_entry("edit.undo", "Deshacer", "Ctrl+Z", has),
+            menu_entry("edit.redo", "Rehacer", "Ctrl+Y", has),
+            menu_sep(),
+            menu_entry("edit.cut", "Cortar", "Ctrl+X", has),
+            menu_entry("edit.copy", "Copiar", "Ctrl+C", has),
+            menu_entry("edit.paste", "Pegar", "Ctrl+V", has),
+            menu_entry("edit.select-all", "Seleccionar todo", "Ctrl+A", has),
+            menu_sep(),
+            menu_entry("edit.find", "Buscar", "Ctrl+F", has),
+            menu_entry("edit.replace", "Reemplazar", "Ctrl+H", has),
+            menu_entry("edit.goto-line", "Ir a línea…", "Ctrl+G", has),
+        ]
     }
 }
 
@@ -1955,6 +2326,11 @@ impl Ide {
             self.toggle_preview();
             return;
         }
+        if control && shift && text.eq_ignore_ascii_case("s") {
+            // Ctrl+Shift+S: guardar como.
+            self.save_as();
+            return;
+        }
         if control {
             match text.to_ascii_lowercase().as_str() {
                 "s" => {
@@ -1991,6 +2367,10 @@ impl Ide {
                 "c" => self.copy_active(),
                 "x" => self.cut_active(),
                 "v" => self.paste_active(),
+                "n" => self.new_file(),
+                "o" => self.pick_file(),
+                "w" => self.request_close_tab(self.active_tab as i32),
+                "g" => self.palette_open(PaletteKind::GoToLine),
                 _ => {}
             }
             return;
@@ -3045,7 +3425,33 @@ impl Ide {
         w.set_dock_agent(self.docks[1].code());
         w.set_dock_terminal(self.docks[2].code());
         w.set_dock_git(self.docks[3].code());
-        w.set_view_open(self.view_menu_open);
+        w.set_menu_open(self.menu_open.clone().into());
+        let menu_items: Vec<IdeMenuEntry> = match self.menu_open.as_str() {
+            "Archivo" => self.file_menu_items(),
+            "Editar" => self.edit_menu_items(),
+            _ => Vec::new(),
+        };
+        w.set_menu_items(ModelRc::from(Rc::new(VecModel::from(menu_items))));
+        // Diálogo de cambios sin guardar.
+        w.set_confirm_open(self.confirm.is_some());
+        if let Some(c) = self.confirm {
+            w.set_confirm_title(
+                match c {
+                    Confirm::CloseTab => "Cerrar pestaña",
+                    Confirm::CloseAll => "Cerrar todas las pestañas",
+                    Confirm::Quit => "Salir de NuIde",
+                }
+                .into(),
+            );
+            let verb = match c {
+                Confirm::CloseTab => "cerrar",
+                Confirm::CloseAll => "cerrar todas",
+                Confirm::Quit => "salir",
+            };
+            w.set_confirm_message(
+                format!("Hay cambios sin guardar. ¿Querés guardarlos antes de {verb}?").into(),
+            );
+        }
 
         // --- bienvenida del editor ---
         w.set_welcome(self.tabs.is_empty());
@@ -3157,6 +3563,7 @@ impl Ide {
             match self.palette.kind {
                 PaletteKind::Commands => "Comandos",
                 PaletteKind::Files => "Archivos del proyecto",
+                PaletteKind::GoToLine => "Ir a línea",
             }
             .into(),
         );
@@ -4140,26 +4547,87 @@ pub fn attach(window: &NuIdeWindow, ide: Rc<RefCell<Ide>>) {
     {
         let ide = Rc::clone(&ide);
         let weak = window.as_weak();
-        window.on_view_menu_close(move || {
+        window.on_menu_close(move || {
             if let Some(w) = weak.upgrade() {
                 let mut e = ide.borrow_mut();
-                e.close_view_menu();
+                e.close_menu();
                 e.sync(&w);
             }
         });
     }
 
-    // Cerrar desde el control de la barra superior: guarda el estado.
+    // Acción de un ítem de los menús Archivo/Editar.
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_menu_command(move |id| {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                let quit = e.menu_command(&id);
+                e.sync(&w);
+                if quit {
+                    let _ = slint::quit_event_loop();
+                }
+            }
+        });
+    }
+
+    // Diálogo de "cambios sin guardar".
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_confirm_save(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                let quit = e.confirm_save();
+                e.sync(&w);
+                if quit {
+                    let _ = slint::quit_event_loop();
+                }
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_confirm_discard(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                let quit = e.confirm_discard();
+                e.sync(&w);
+                if quit {
+                    let _ = slint::quit_event_loop();
+                }
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_confirm_cancel(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.confirm_cancel();
+                e.sync(&w);
+            }
+        });
+    }
+
+    // Cerrar desde el control de la barra superior: guarda el estado y, si hay
+    // cambios sin guardar, pide confirmación antes de salir.
     {
         let ide = Rc::clone(&ide);
         let weak = window.as_weak();
         window.on_close_requested(move || {
             if let Some(w) = weak.upgrade() {
-                if let Ok(mut e) = ide.try_borrow_mut() {
-                    e.save_state(&w);
+                let mut e = ide.borrow_mut();
+                e.save_state(&w);
+                let quit = e.request_quit();
+                e.sync(&w);
+                if quit {
+                    let _ = slint::quit_event_loop();
                 }
             }
-            let _ = slint::quit_event_loop();
         });
     }
 
@@ -4317,7 +4785,7 @@ pub fn attach(window: &NuIdeWindow, ide: Rc<RefCell<Ide>>) {
         window.on_tab_closed(move |i| {
             if let Some(w) = weak.upgrade() {
                 let mut e = ide.borrow_mut();
-                e.tab_closed(i);
+                e.request_close_tab(i);
                 e.sync(&w);
             }
         });
@@ -4904,10 +5372,18 @@ mod tests {
     fn el_menu_ver_alterna_los_paneles() {
         let mut ide = Ide::new();
         assert!(ide.show_left && ide.show_right && ide.show_bottom);
-        assert!(!ide.view_menu_open);
+        assert!(ide.menu_open.is_empty());
 
         ide.menu("Ver");
-        assert!(ide.view_menu_open);
+        assert_eq!(ide.menu_open, "Ver");
+        // Volver a abrir el mismo menú lo cierra.
+        ide.menu("Ver");
+        assert!(ide.menu_open.is_empty());
+        // Archivo y Editar abren su menú.
+        ide.menu("Archivo");
+        assert_eq!(ide.menu_open, "Archivo");
+        assert!(!ide.file_menu_items().is_empty());
+
         ide.toggle_region(0);
         assert!(!ide.show_left);
         ide.toggle_region(1);
@@ -4917,8 +5393,8 @@ mod tests {
         // Un tipo desconocido no rompe.
         ide.toggle_region(9);
 
-        ide.close_view_menu();
-        assert!(!ide.view_menu_open);
+        ide.close_menu();
+        assert!(ide.menu_open.is_empty());
     }
 
     #[test]
@@ -5216,5 +5692,86 @@ mod tests {
         assert_eq!(ide.palette.query, "x");
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn cerrar_pestana_con_cambios_pide_confirmacion() {
+        let dir = temp_dir("confirm");
+        let a = dir.join("a.spasm");
+        std::fs::write(&a, "end;").unwrap();
+        let mut ide = Ide::new();
+        ide.open_file(a.clone());
+
+        // Sin cambios: cierra directo.
+        ide.request_close_tab(0);
+        assert!(ide.tabs.is_empty());
+
+        // Con cambios: pide confirmación.
+        ide.open_file(a.clone());
+        ide.tabs[0].dirty = true;
+        ide.request_close_tab(0);
+        assert_eq!(ide.confirm, Some(Confirm::CloseTab));
+        assert_eq!(ide.tabs.len(), 1);
+
+        // Cancelar no cierra.
+        ide.confirm_cancel();
+        assert!(ide.confirm.is_none());
+        assert_eq!(ide.tabs.len(), 1);
+
+        // Descartar cierra.
+        ide.request_close_tab(0);
+        assert!(!ide.confirm_discard());
+        assert!(ide.tabs.is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn confirmar_guardar_escribe_el_archivo() {
+        let dir = temp_dir("confirm-save");
+        let a = dir.join("a.spasm");
+        std::fs::write(&a, "end;").unwrap();
+        let mut ide = Ide::new();
+        ide.open_file(a.clone());
+        ide.tabs[0].lines = vec!["end;".to_string(), "; nuevo".to_string()];
+        ide.tabs[0].dirty = true;
+
+        ide.request_close_tab(0);
+        assert_eq!(ide.confirm, Some(Confirm::CloseTab));
+        assert!(!ide.confirm_save());
+        assert!(ide.tabs.is_empty());
+        assert!(std::fs::read_to_string(&a).unwrap().contains("; nuevo"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn la_paleta_ir_a_linea_mueve_el_cursor() {
+        let dir = temp_dir("palette-goto");
+        let a = dir.join("a.spasm");
+        std::fs::write(&a, "l1\nl2\nl3\nl4\n").unwrap();
+        let mut ide = Ide::new();
+        ide.open_file(a.clone());
+
+        ide.run_command(Command::GoToLine);
+        assert_eq!(ide.palette.kind, PaletteKind::GoToLine);
+        assert!(ide.palette.rows.is_empty());
+
+        ide.palette_key("3", false);
+        assert_eq!(ide.palette.rows.len(), 1);
+        ide.palette_key("\n", false);
+        assert!(!ide.palette.open);
+        assert_eq!(ide.tabs[0].cursor.line, 2); // línea 3 → índice 2
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn el_menu_ejecuta_y_cierra() {
+        let mut ide = Ide::new();
+        ide.menu("Editar");
+        assert_eq!(ide.menu_open, "Editar");
+        assert!(!ide.edit_menu_items().is_empty());
+
+        ide.menu_command("edit.find");
+        assert!(ide.menu_open.is_empty());
+        assert!(ide.find.open);
     }
 }

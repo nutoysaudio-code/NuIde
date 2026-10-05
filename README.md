@@ -52,6 +52,7 @@ abiertos es una **página de bienvenida** real (accesos y atajos).
 | 21 | bienvenida: recientes (proyectos/archivos) + nuevo archivo | ✅ |
 | 22 | control de código (Git): rama, stage, commit y push | ✅ |
 | 23 | paleta de comandos (`Ctrl+Shift+P`) + buscar archivos (`Ctrl+P`) | ✅ |
+| 24 | menús Archivo/Editar + guardar como / cerrar con confirmación | ✅ |
 
 > El parte de estado detallado —qué se cambió en cada iteración, limitaciones y
 > pendientes con su enfoque— está en [`docs/ESTADO.md`](docs/ESTADO.md).
@@ -287,6 +288,24 @@ archivos**; se cierran con `Esc` y se navegan con `↑`/`↓` + `Enter` (o clic)
 **Limitación:** el filtrado es por subcadena (sin *fuzzy* ni regex); la lista
 muestra hasta 50 archivos.
 
+### Menús y flujo de archivos
+
+**Archivo** y **Editar** tienen su desplegable real (`ui/ide_menu.slint`), con
+las filas que arma Rust:
+
+- **Archivo:** Nuevo archivo… (`Ctrl+N`), Abrir archivo… (`Ctrl+O`), Abrir
+  carpeta…, Guardar (`Ctrl+S`), Guardar como… (`Ctrl+Shift+S`), Cerrar pestaña
+  (`Ctrl+W`), Cerrar todas y Salir.
+- **Editar:** Deshacer/Rehacer, Cortar/Copiar/Pegar, Seleccionar todo, Buscar
+  (`Ctrl+F`), Reemplazar (`Ctrl+H`) e Ir a línea… (`Ctrl+G`).
+- **Guardar como** escribe en la ruta elegida y reapunta la pestaña (idioma,
+  miga de pan y diagnósticos incluidos).
+- **Cerrar** (pestaña, todas, salir o la ventana) con cambios sin guardar abre un
+  diálogo `ui/ide_confirm.slint` (**Guardar / Descartar / Cancelar**).
+
+Ir a línea reusa la paleta en modo numérico. Todo esto también está en la paleta
+de comandos (`Ctrl+Shift+P`).
+
 ## Estructura
 
 ```
@@ -320,6 +339,8 @@ nuide/
     ide_opencode.slint     panel de OpenCode CLI (TUI en PTY)
     ide_git.slint          panel de control de código (Git)
     ide_palette.slint      paleta de comandos / buscador de archivos
+    ide_menu.slint         menú desplegable (Archivo / Editar)
+    ide_confirm.slint      diálogo de cambios sin guardar
     ide_viewmenu.slint     desplegable del menú Ver (paneles)
     ide_welcome.slint      bienvenida del editor (accesos + atajos)
     nuide_ui.slint         la ventana: layout, divisores y datos demo
@@ -384,10 +405,11 @@ Ordenados por impacto para usar el IDE día a día; el **plan en fases** complet
 
 ### Estado al 2026-10-04
 
-Compilado y publicado: `gitlab.com/nutoys-group/nuide` (`main`). 75 tests OK;
+Compilado y publicado: `gitlab.com/nutoys-group/nuide` (`main`). 79 tests OK;
 clon limpio genera `nuide.exe`. Las dos terminales son PTY reales (shell local y
 TUI de `opencode`), el proyecto se elige con diálogo nativo y se recuerda, el
 editor tiene buscar/reemplazar, resaltados, **resaltado por lenguaje y visores**
 (imagen y vista previa de Markdown), **diagnóstico con el parser de SpASM**,
-**control de código (Git)** y **paleta de comandos / buscador de archivos**; los
-paneles se acoplan/apilan por lado. Falta local: los ítems de arriba.
+**control de código (Git)**, **paleta de comandos / buscador de archivos** y
+**menús Archivo/Editar** con guardar como y cierre confirmado; los paneles se
+acoplan/apilan por lado. Falta local: los ítems de arriba.

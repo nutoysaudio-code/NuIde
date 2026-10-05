@@ -1,6 +1,6 @@
 import { IdeTheme } from "ide_theme.slint";
 export { IdeTheme }
-import { IdeTreeNode, IdeTab, IdeCodeLine, TermLine, IdeOutlineItem, IdeRecent, IdeGitFile, IdePaletteItem } from "ide_types.slint";
+import { IdeTreeNode, IdeTab, IdeCodeLine, TermLine, IdeOutlineItem, IdeRecent, IdeGitFile, IdePaletteItem, IdeMenuEntry } from "ide_types.slint";
 import { IdeTopBar } from "ide_topbar.slint";
 import { IdeStatusBar } from "ide_statusbar.slint";
 import { IdeExplorer } from "ide_explorer.slint";
@@ -10,6 +10,8 @@ import { IdeOpenCode } from "ide_opencode.slint";
 import { IdeGit } from "ide_git.slint";
 import { IdeViewMenu } from "ide_viewmenu.slint";
 import { IdePalette } from "ide_palette.slint";
+import { IdeMenu } from "ide_menu.slint";
+import { IdeConfirm } from "ide_confirm.slint";
 
 // ---------------------------------------------------------------------------
 // NuIde — SpASM Studio (walking skeleton)
@@ -47,7 +49,13 @@ export component NuIdeWindow inherits Window {
     in-out property <int> dock-agent: 1;
     in-out property <int> dock-terminal: 2;
     in-out property <int> dock-git: 0;
-    in-out property <bool> view-open: false;
+    // Menú desplegable abierto ("Archivo", "Editar", "Ver") o vacío.
+    in-out property <string> menu-open: "";
+    in-out property <[IdeMenuEntry]> menu-items: [];
+    // Diálogo de "cambios sin guardar".
+    in-out property <bool> confirm-open: false;
+    in-out property <string> confirm-title: "";
+    in-out property <string> confirm-message: "";
 
     // Selección de la UI (índices, no modelos reconstruidos).
     in-out property <int> explorer-selected: 2;
@@ -150,7 +158,12 @@ export component NuIdeWindow inherits Window {
     // Menú "Ver": mostrar/ocultar regiones y cambiar el dock de cada panel.
     callback toggle-region(int);
     callback cycle-dock(int);
-    callback view-menu-close();
+    callback menu-close();
+    callback menu-command(string);
+    // Diálogo de cambios sin guardar.
+    callback confirm-save();
+    callback confirm-discard();
+    callback confirm-cancel();
     // Explorador y editor.
     callback node-activated(int);
     callback tab-activated(int);
@@ -206,6 +219,10 @@ export component NuIdeWindow inherits Window {
 
     // --- geometría derivada (todo relativo al área de contenido) ---
     private property <length> view-menu-x: topbar.view-menu-x;
+    // Dónde anclar el desplegable abierto, según cuál sea.
+    private property <length> menu-anchor: root.menu-open == "Archivo" ? topbar.file-menu-x
+        : root.menu-open == "Editar" ? topbar.edit-menu-x
+        : topbar.view-menu-x;
     private property <length> content-w: self.width;
     private property <length> content-h: max(0px, self.height - IdeTheme.topbar-h - IdeTheme.statusbar-h);
 
@@ -301,7 +318,7 @@ export component NuIdeWindow inherits Window {
         y: 0;
         width: parent.width;
         project: root.project-name;
-        view-active: root.view-open;
+        active-menu: root.menu-open;
         show-left: root.show-left;
         show-right: root.show-right;
         show-bottom: root.show-bottom;
@@ -529,8 +546,8 @@ export component NuIdeWindow inherits Window {
         }
     }
 
-    // --- capa que cierra el menú "Ver" al hacer clic fuera ---
-    if root.view-open: Rectangle {
+    // --- capa que cierra el menú abierto al hacer clic fuera ---
+    if root.menu-open != "": Rectangle {
         x: 0;
         y: 0;
         width: parent.width;
@@ -538,19 +555,40 @@ export component NuIdeWindow inherits Window {
         background: transparent;
 
         TouchArea {
-            clicked => { root.view-menu-close(); }
+            clicked => { root.menu-close(); }
         }
     }
 
-    // --- menú desplegable del ítem "Ver" ---
-    if root.view-open: IdeViewMenu {
-        x: root.view-menu-x;
+    // --- desplegable de "Ver" (paneles) ---
+    if root.menu-open == "Ver": IdeViewMenu {
+        x: root.menu-anchor;
         y: IdeTheme.topbar-h;
         dock-explorer: root.dock-explorer;
         dock-agent: root.dock-agent;
         dock-terminal: root.dock-terminal;
         dock-git: root.dock-git;
         cycle-dock(kind) => { root.cycle-dock(kind); }
+    }
+
+    // --- desplegable de Archivo / Editar ---
+    if root.menu-open == "Archivo" || root.menu-open == "Editar": IdeMenu {
+        x: root.menu-anchor;
+        y: IdeTheme.topbar-h;
+        items: root.menu-items;
+        activated(id) => { root.menu-command(id); }
+    }
+
+    // --- diálogo de cambios sin guardar (encima de todo) ---
+    if root.confirm-open: IdeConfirm {
+        x: 0;
+        y: 0;
+        width: parent.width;
+        height: parent.height;
+        title: root.confirm-title;
+        message: root.confirm-message;
+        save => { root.confirm-save(); }
+        discard => { root.confirm-discard(); }
+        cancel => { root.confirm-cancel(); }
     }
 
     // --- paleta de comandos / buscador de archivos (encima de todo) ---

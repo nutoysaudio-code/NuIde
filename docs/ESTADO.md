@@ -275,6 +275,24 @@ ui/*.slint          la ventana, paneles y tema
   `target`/`node_modules`/`.git`/… ni carpetas ocultas); el buscador filtra por
   ruta y muestra hasta 50.
 
+### 3.16 Menús Archivo/Editar y flujo de archivos
+
+- El menú superior dejó de ser sólo "Ver": `menu()` alterna el desplegable
+  abierto en `menu_open` ("Archivo"/"Editar"/"Ver") y `sync` manda a la UI las
+  filas (`IdeMenuEntry`) y el ancla. `ui/ide_menu.slint` (`IdeMenu`) dibuja
+  cualquier menú; las filas las arma `file_menu_items`/`edit_menu_items`.
+- **Archivo:** nuevo, abrir archivo/carpeta, guardar, **guardar como** (escribe
+  y reapunta la pestaña: ruta, idioma, migas y diagnósticos), cerrar pestaña,
+  cerrar todas y salir. **Editar:** deshacer/rehacer, cortar/copiar/pegar,
+  seleccionar todo, buscar/reemplazar e **ir a línea**.
+- Atajos nuevos en `editor_key`: `Ctrl+N`, `Ctrl+O`, `Ctrl+Shift+S`, `Ctrl+W` y
+  `Ctrl+G`. Todo también está en la paleta; "Ir a línea" es la paleta en modo
+  numérico (`PaletteKind::GoToLine`, sólo dígitos).
+- **Cierre seguro:** cerrar una pestaña/todas, salir o cerrar la ventana con
+  cambios sin guardar abre `ui/ide_confirm.slint` (`IdeConfirm`) con
+  **Guardar / Descartar / Cancelar** (`Confirm`, `confirm_save/discard/cancel`,
+  `save_tab`).
+
 ---
 
 ## 4. Limitaciones conocidas
@@ -377,7 +395,7 @@ script de instalación.
 ## 6. Verificación
 
 - `cargo build` / `cargo check` sin warnings.
-- `cargo test`: **75 pruebas OK** (unitarias; las de PTY, el linter y el build
+- `cargo test`: **79 pruebas OK** (unitarias; las de PTY, el linter y el build
   lanzan `cmd`/`opencode`/Python/spasmc reales y se saltean si no están).
 - `cargo fmt --check` limpio.
 - `slint-viewer --check ui/nuide_ui.slint` OK.
