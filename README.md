@@ -24,8 +24,8 @@ cargo run --bin nuide          # o `cargo build --release`
 
 La terminal, el explorador, el editor (edición con resaltado y guardado) y el
 panel de **OpenCode CLI** ya son **reales**. La interfaz dejó de tener datos
-ilustrativos salvo la pantalla de bienvenida del editor (el código demo que se ve
-hasta abrir el primer archivo).
+ilustrativos: la pantalla del editor sin archivos abiertos es una **página de
+bienvenida** real (accesos y atajos).
 
 | Fase | Contenido | Estado |
 |---|---|---|
@@ -48,6 +48,7 @@ hasta abrir el primer archivo).
 | 17 | build/run desde la IDE con errores navegables (`F8`) | ✅ |
 | 18 | esquema (outline) + ir a definición (`F12`) | ✅ |
 | 19 | terminal inferior dividida (dos vistas) | ✅ |
+| 20 | página de bienvenida del editor (accesos + atajos) | ✅ |
 
 > El parte de estado detallado —qué se cambió en cada iteración, limitaciones y
 > pendientes con su enfoque— está en [`docs/ESTADO.md`](docs/ESTADO.md).
@@ -155,9 +156,9 @@ con lo que puede cruzar líneas; la rueda del mouse sigue scrolleando la
 `Flickable`. Cuando el cursor se mueve, `changed active-line` ajusta la
 `content-y` para dejar visible la línea activa (auto-scroll).
 
-Sin pestañas abiertas (y sin haber abierto nunca) se mantiene el contenido demo
-del `.slint` como pantalla de bienvenida; con la primera pestaña, el editor pasa
-a ser real.
+Sin pestañas abiertas se muestra una **página de bienvenida**
+(`ui/ide_welcome.slint`) con accesos (**Abrir carpeta…**, **Abrir archivo…**) y
+la lista de atajos; con la primera pestaña, el editor pasa a ser real.
 
 ### La terminal local (real)
 
@@ -272,6 +273,7 @@ nuide/
     ide_terminal.slint     terminal local + `TerminalScreen` reutilizable
     ide_opencode.slint     panel de OpenCode CLI (TUI en PTY)
     ide_viewmenu.slint     desplegable del menú Ver (paneles)
+    ide_welcome.slint      bienvenida del editor (accesos + atajos)
     nuide_ui.slint         la ventana: layout, divisores y datos demo
   docs/NUIDE_IDEA.md       especificación visual/funcional
   docs/ESTADO.md           parte de estado (hecho, limitaciones, pendientes)

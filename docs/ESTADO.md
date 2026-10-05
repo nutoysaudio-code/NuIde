@@ -227,6 +227,14 @@ ui/*.slint          la ventana, paneles y tema
   `retarget_agent`, que le manda `/cd <carpeta>` al PTY del agente (comando del
   TUI de opencode); si no está vivo, lo arranca en la raíz nueva.
 
+### 3.13 Página de bienvenida del editor
+
+- Sin pestañas abiertas, el área del editor muestra `ui/ide_welcome.slint`
+  (`IdeWelcome`) en vez del código: título, accesos **Abrir carpeta…** /
+  **Abrir archivo…** y la lista de atajos.
+- `welcome` lo setea `sync` (`tabs.is_empty()`); `pick_file` usa `rfd::pick_file`.
+- Se quitó el bloque de código demo del `.slint` (ya no hace falta).
+
 ---
 
 ## 4. Limitaciones conocidas

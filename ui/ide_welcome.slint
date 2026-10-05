@@ -1,0 +1,122 @@
+import { IdeTheme } from "ide_theme.slint";
+
+// Botón de la bienvenida.
+component WelcomeButton inherits Rectangle {
+    in property <string> label: "";
+    callback activated();
+
+    width: label-text.width + 28px;
+    height: 30px;
+    border-radius: IdeTheme.radius-sm;
+    background: ta.has-hover ? IdeTheme.control-hi : IdeTheme.control;
+    border-width: 1px;
+    border-color: IdeTheme.border-soft;
+
+    label-text := Text {
+        x: 14px;
+        y: (parent.height - self.height) / 2;
+        text: root.label;
+        color: ta.has-hover ? IdeTheme.text : IdeTheme.text-soft;
+        font-family: IdeTheme.sans;
+        font-size: 12px;
+        vertical-alignment: center;
+    }
+
+    ta := TouchArea {
+        mouse-cursor: MouseCursor.pointer;
+        clicked => { root.activated(); }
+    }
+}
+
+// Fila de atajo: acción a la izquierda, teclas a la derecha.
+component WelcomeRow inherits HorizontalLayout {
+    in property <string> action: "";
+    in property <string> keys: "";
+
+    spacing: 12px;
+
+    Text {
+        text: root.action;
+        color: IdeTheme.text-soft;
+        font-family: IdeTheme.sans;
+        font-size: 12px;
+        vertical-alignment: center;
+        width: 300px;
+    }
+    Text {
+        text: root.keys;
+        color: IdeTheme.mint;
+        font-family: IdeTheme.mono;
+        font-size: 12px;
+        vertical-alignment: center;
+        horizontal-alignment: right;
+        horizontal-stretch: 1;
+    }
+}
+
+// Pantalla de bienvenida del editor (sin archivos abiertos).
+export component IdeWelcome inherits Rectangle {
+    callback open-project();
+    callback open-file();
+
+    background: transparent;
+
+    content := VerticalLayout {
+        x: (parent.width - self.width) / 2;
+        y: 0;
+        width: 540px;
+        height: parent.height;
+        alignment: center;
+        spacing: 10px;
+
+        Text {
+            text: "NuIde";
+            color: IdeTheme.text;
+            font-family: IdeTheme.sans;
+            font-size: 30px;
+            font-weight: 600;
+            letter-spacing: 1px;
+            horizontal-alignment: center;
+        }
+        Text {
+            text: "SpASM Studio · no hay archivos abiertos";
+            color: IdeTheme.text-dim;
+            font-family: IdeTheme.sans;
+            font-size: 13px;
+            horizontal-alignment: center;
+        }
+
+        Rectangle { height: 10px; background: transparent; }
+
+        HorizontalLayout {
+            alignment: center;
+            spacing: 10px;
+            WelcomeButton { label: "Abrir carpeta…"; activated => { root.open-project(); } }
+            WelcomeButton { label: "Abrir archivo…"; activated => { root.open-file(); } }
+        }
+
+        Rectangle { height: 10px; background: transparent; }
+
+        Text {
+            text: "Atajos";
+            color: IdeTheme.text-dim;
+            font-family: IdeTheme.sans;
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 1.4px;
+            horizontal-alignment: center;
+        }
+
+        WelcomeRow { action: "Ejecutar el programa"; keys: "F5"; }
+        WelcomeRow { action: "Compilar (spasmc)"; keys: "Ctrl+B"; }
+        WelcomeRow { action: "Analizar / diagnóstico"; keys: "F6"; }
+        WelcomeRow { action: "Siguiente / anterior error"; keys: "F8 · Shift+F8"; }
+        WelcomeRow { action: "Ir a definición"; keys: "F12"; }
+        WelcomeRow { action: "Buscar y reemplazar"; keys: "Ctrl+F · Ctrl+H"; }
+        WelcomeRow { action: "Esquema de símbolos"; keys: "botón Esquema"; }
+        WelcomeRow { action: "Vista previa de Markdown"; keys: "Ctrl+Shift+M"; }
+        WelcomeRow { action: "Guardar"; keys: "Ctrl+S"; }
+        WelcomeRow { action: "Deshacer / rehacer"; keys: "Ctrl+Z · Ctrl+Y"; }
+        WelcomeRow { action: "Dividir la terminal"; keys: "botón ⬒"; }
+    }
+}

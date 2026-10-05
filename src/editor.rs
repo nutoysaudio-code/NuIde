@@ -657,6 +657,18 @@ impl Ide {
         }
     }
 
+    /// Abre el diálogo nativo para elegir un archivo y lo abre en una pestaña.
+    fn pick_file(&mut self) {
+        let start = self.explorer.root().to_path_buf();
+        if let Some(path) = rfd::FileDialog::new()
+            .set_title("Abrir archivo")
+            .set_directory(&start)
+            .pick_file()
+        {
+            self.open_file(path);
+        }
+    }
+
     /// Fija `dir` como raíz: reconstruye el explorador, reinicia el agente en la
     /// carpeta nueva y recuerda la elección.
     fn set_project(&mut self, dir: PathBuf) {
@@ -2516,6 +2528,15 @@ impl Ide {
         w.set_dock_terminal(self.docks[2].code());
         w.set_view_open(self.view_menu_open);
 
+        // --- bienvenida del editor ---
+        w.set_welcome(self.tabs.is_empty());
+        if self.tabs.is_empty() {
+            // Sin archivos no hay migas de pan (evita el demo del `.slint`).
+            w.set_breadcrumb(ModelRc::from(Rc::new(VecModel::from(Vec::<
+                slint::SharedString,
+            >::new()))));
+        }
+
         // --- terminal real ---
         let sessions: Vec<slint::SharedString> =
             self.local.iter().map(|s| s.name.clone().into()).collect();
@@ -3216,6 +3237,17 @@ pub fn attach(window: &NuIdeWindow, ide: Rc<RefCell<Ide>>) {
             if let Some(w) = weak.upgrade() {
                 let mut e = ide.borrow_mut();
                 e.pick_project();
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_open_file(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.pick_file();
                 e.sync(&w);
             }
         });

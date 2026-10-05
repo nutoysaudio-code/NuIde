@@ -1,5 +1,6 @@
 import { IdeTheme } from "ide_theme.slint";
 import { IdeTab, IdeCodeLine, IdeOutlineItem } from "ide_types.slint";
+import { IdeWelcome } from "ide_welcome.slint";
 
 // Pestaña del editor con punto de "sin guardar" y botón de cierre.
 component IdeTabButton inherits Rectangle {
@@ -209,6 +210,8 @@ export component IdeEditor inherits FocusScope {
     // Esquema de símbolos del archivo.
     in property <[IdeOutlineItem]> outline: [];
     in-out property <bool> outline-open: false;
+    // Pantalla de bienvenida (sin archivos abiertos).
+    in property <bool> welcome: false;
     callback tab-selected(int);
     callback tab-closed(int);
     // Tecla cruda: (texto, ¿control?, ¿shift?), igual que en la terminal.
@@ -235,6 +238,9 @@ export component IdeEditor inherits FocusScope {
     callback image-zoom-reset();
     // Salta a la línea de un símbolo del esquema.
     callback goto-line(int);
+    // Acciones de la bienvenida.
+    callback open-project();
+    callback open-file();
 
     focus-on-click: true;
 
@@ -569,7 +575,7 @@ export component IdeEditor inherits FocusScope {
             y: root.canvas-y;
             width: parent.width;
             height: parent.height - root.canvas-y;
-            visible: !root.show-image && !root.show-preview;
+            visible: !root.show-image && !root.show-preview && !root.welcome;
             content-width: self.width;
             content-height: code.preferred-height + 16px;
 
@@ -597,7 +603,7 @@ export component IdeEditor inherits FocusScope {
             y: root.canvas-y;
             width: parent.width;
             height: parent.height - root.canvas-y;
-            visible: !root.show-image && !root.show-preview;
+            visible: !root.show-image && !root.show-preview && !root.welcome;
             mouse-cursor: MouseCursor.text;
 
             pointer-event(event) => {
@@ -618,6 +624,16 @@ export component IdeEditor inherits FocusScope {
                     root.extend-to(self.mouse-y, self.mouse-x, code-scroll.content-y);
                 }
             }
+        }
+
+        // --- bienvenida (sin archivos abiertos) ---
+        if root.welcome: IdeWelcome {
+            x: 0;
+            y: root.canvas-y;
+            width: parent.width;
+            height: parent.height - root.canvas-y;
+            open-project => { root.open-project(); }
+            open-file => { root.open-file(); }
         }
 
         // --- visor de imagen (zoom + paneo) ---

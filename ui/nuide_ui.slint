@@ -66,6 +66,8 @@ export component NuIdeWindow inherits Window {
     in-out property <bool> is-markdown: false;
     // Esquema de símbolos del archivo activo.
     in-out property <[IdeOutlineItem]> outline: [];
+    // Pantalla de bienvenida del editor.
+    in-out property <bool> welcome: false;
     // Diagnóstico de SpASM (vacío si no hay errores).
     in-out property <string> diagnostics: "";
 
@@ -102,6 +104,7 @@ export component NuIdeWindow inherits Window {
     callback menu-activated(string);
     callback close-requested();
     callback open-project();
+    callback open-file();
     callback terminal-key(string, bool, bool, bool);
     callback terminal-resize(length, length);
     callback terminal-scroll(length);
@@ -385,6 +388,7 @@ export component NuIdeWindow inherits Window {
             preview-styled: root.preview-styled;
             is-markdown: root.is-markdown;
             outline: root.outline;
+            welcome: root.welcome;
             tab-selected(i) => { root.tab-activated(i); }
             tab-closed(i) => { root.tab-closed(i); }
             key-input(text, ctrl, shift) => { root.editor-key(text, ctrl, shift); }
@@ -404,6 +408,8 @@ export component NuIdeWindow inherits Window {
             image-zoom-out => { root.image-zoom-out(); }
             image-zoom-reset => { root.image-zoom-reset(); }
             goto-line(line) => { root.goto-line(line); }
+            open-project => { root.open-project(); }
+            open-file => { root.open-file(); }
         }
 
         // --- panel: terminal local (dock configurable) ---
@@ -503,46 +509,12 @@ export component NuIdeWindow inherits Window {
         { depth: 1, label: "config.toml", kind: 3 },
     ];
 
-    in property <[IdeTab]> editor-tabs: [
-        { title: "main.spasm", dirty: true },
-        { title: "app.slint", dirty: false },
-    ];
+    in property <[IdeTab]> editor-tabs: [];
 
     in property <[string]> breadcrumb: ["src", "main.spasm"];
 
-    in property <[IdeCodeLine]> code-lines: [
-        { indent: 0px, tokens: [{ text: "; coquito - programa principal", kind: 1 }] },
-        { indent: 0px, tokens: [{ text: "; SpASM ejemplo simple", kind: 1 }] },
-        { indent: 0px, tokens: [] },
-        { indent: 0px, tokens: [{ text: ".include", kind: 2 }, { text: " ", kind: 0 }, { text: "\"memory.spasm\"", kind: 3 }] },
-        { indent: 0px, tokens: [] },
-        { indent: 0px, tokens: [{ text: ".org", kind: 2 }, { text: " ", kind: 0 }, { text: "0x0000", kind: 4 }] },
-        { indent: 0px, tokens: [] },
-        { indent: 0px, tokens: [{ text: "start:", kind: 5 }] },
-        { indent: 26px, tokens: [{ text: "lda", kind: 2 }, { text: " ", kind: 0 }, { text: "#message", kind: 4 }, { text: "      ", kind: 0 }, { text: "; cargar direccion del mensaje", kind: 1 }] },
-        { indent: 26px, tokens: [{ text: "sta", kind: 2 }, { text: " ", kind: 0 }, { text: "$4000", kind: 4 }, { text: "         ", kind: 0 }, { text: "; escribir en puerto de salida", kind: 1 }] },
-        { indent: 26px, tokens: [{ text: "jsr", kind: 2 }, { text: " ", kind: 0 }, { text: "print_string", kind: 0 }] },
-        { indent: 26px, tokens: [{ text: "jmp", kind: 2 }, { text: " ", kind: 0 }, { text: "loop", kind: 0 }] },
-        { indent: 0px, tokens: [] },
-        { indent: 0px, tokens: [{ text: "loop:", kind: 5 }] },
-        { indent: 26px, tokens: [{ text: "jmp", kind: 2 }, { text: " ", kind: 0 }, { text: "loop", kind: 0 }, { text: "          ", kind: 0 }, { text: "; bucle infinito", kind: 1 }] },
-        { indent: 0px, tokens: [] },
-        { indent: 0px, tokens: [{ text: "; --- rutina de impresion ---", kind: 1 }] },
-        { indent: 0px, tokens: [{ text: "print_string:", kind: 5 }] },
-        { indent: 26px, tokens: [{ text: "ldy", kind: 2 }, { text: " ", kind: 0 }, { text: "#0", kind: 4 }] },
-        { indent: 0px, tokens: [{ text: ".next_char:", kind: 5 }] },
-        { indent: 26px, tokens: [{ text: "lda", kind: 2 }, { text: " ", kind: 0 }, { text: "(message),y", kind: 0 }, { text: "   ", kind: 0 }, { text: "; leer caracter", kind: 1 }] },
-        { indent: 26px, tokens: [{ text: "beq", kind: 2 }, { text: " ", kind: 0 }, { text: ".done", kind: 5 }, { text: "         ", kind: 0 }, { text: "; fin de cadena (0)", kind: 1 }] },
-        { indent: 26px, tokens: [{ text: "sta", kind: 2 }, { text: " ", kind: 0 }, { text: "$4000", kind: 4 }, { text: "         ", kind: 0 }, { text: "; escribir caracter", kind: 1 }] },
-        { indent: 26px, tokens: [{ text: "iny", kind: 2 }] },
-        { indent: 26px, tokens: [{ text: "jmp", kind: 2 }, { text: " ", kind: 0 }, { text: ".next_char", kind: 5 }] },
-        { indent: 0px, tokens: [{ text: ".done:", kind: 5 }] },
-        { indent: 26px, tokens: [{ text: "rts", kind: 2 }] },
-        { indent: 0px, tokens: [] },
-        { indent: 0px, tokens: [{ text: "; --- datos ---", kind: 1 }] },
-        { indent: 0px, tokens: [{ text: "message:", kind: 5 }] },
-        { indent: 26px, tokens: [{ text: ".byte", kind: 2 }, { text: " ", kind: 0 }, { text: "\"Hola desde SpASM!\\n\"", kind: 3 }, { text: ", ", kind: 0 }, { text: "0", kind: 4 }] },
-    ];
+    // La llena Rust al abrir archivos; la bienvenida se dibuja aparte.
+    in property <[IdeCodeLine]> code-lines: [];
 
     in property <[string]> term-sessions: ["bash", "build"];
 
