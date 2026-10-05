@@ -1,5 +1,5 @@
 import { IdeTheme } from "ide_theme.slint";
-export { IdeTheme }
+export { IdeTheme, DockDrag }
 import { IdeTreeNode, IdeTab, IdeCodeLine, TermLine, IdeOutlineItem, IdeRecent, IdeGitFile, IdePaletteItem, IdeMenuEntry, IdeSearchHit, IdeDiffLine, IdePrefRow } from "ide_types.slint";
 import { IdeTopBar } from "ide_topbar.slint";
 import { IdeStatusBar } from "ide_statusbar.slint";
@@ -8,6 +8,7 @@ import { IdeEditor } from "ide_editor.slint";
 import { IdeTerminal } from "ide_terminal.slint";
 import { IdeOpenCode } from "ide_opencode.slint";
 import { IdeGit } from "ide_git.slint";
+import { DockDrag } from "ide_dock.slint";
 import { IdeViewMenu } from "ide_viewmenu.slint";
 import { IdePalette } from "ide_palette.slint";
 import { IdeMenu } from "ide_menu.slint";
@@ -141,6 +142,7 @@ export component NuIdeWindow inherits Window {
     in-out property <bool> prefs-open: false;
     in-out property <string> prefs-mono: "";
     in-out property <string> prefs-sans: "";
+    in-out property <string> prefs-alpha: "";
     in-out property <string> prefs-editor-size: "12";
     in-out property <string> prefs-accent: "";
     in-out property <color> prefs-accent-color: #83d9cb;
@@ -228,6 +230,7 @@ export component NuIdeWindow inherits Window {
     callback prefs-dismiss();
     callback prefs-cycle-mono();
     callback prefs-cycle-sans();
+    callback prefs-cycle-alpha();
     callback prefs-font-smaller();
     callback prefs-font-bigger();
     callback prefs-cycle-accent();
@@ -409,6 +412,47 @@ export component NuIdeWindow inherits Window {
     private property <length> editor-h: root.region-visible(2) ? root.content-h * (1 - root.bottom-frac) : root.content-h;
     private property <length> bottom-gap: root.region-visible(2) ? IdeTheme.splitter : 0px;
     private property <length> bottom-h: max(0px, root.content-h - root.editor-h - root.bottom-gap);
+
+    // --- arrastrar paneles entre docks (ver ui/ide_dock.slint) ---
+    // El puntero llega en coordenadas de ventana; acá se pasan a contenido para
+    // poder comparar con las bandas de los docks.
+    private property <length> drag-px: DockDrag.px;
+    private property <length> drag-py: max(0px, DockDrag.py - IdeTheme.topbar-h);
+    // Zona bajo el cursor: 0 izquierda, 1 derecha, 2 abajo, 3 ocultar. La lee
+    // Rust al soltar el asa (`DockDrag.on_released`).
+    in-out property <int> drop-zone: DockDrag.panel >= 0 ? root.zone-at(root.drag-px, root.drag-py) : -1;
+
+    // Bordes de las bandas de destino. Si la región está visible se usa su
+    // franja real; si está apagada se reserva un borde de la ventana, así se la
+    // puede volver a encender arrastrando un panel hacia ahí.
+    private property <length> zone-left: root.region-visible(0)
+        ? root.left-w + IdeTheme.splitter : root.content-w * 0.10;
+    private property <length> zone-right: root.region-visible(1)
+        ? root.content-w - root.right-w - IdeTheme.splitter : root.content-w * 0.90;
+    private property <length> zone-bottom: root.region-visible(2)
+        ? root.editor-h + root.bottom-gap - IdeTheme.splitter : root.content-h * 0.82;
+
+    /// Qué banda le toca a un punto del área de contenido. El centro suelto
+    /// significa "ocultar".
+    function zone-at(px: length, py: length) -> int {
+        if (px <= root.zone-left) {
+            return 0;
+        }
+        if (px >= root.zone-right) {
+            return 1;
+        }
+        if (py >= root.zone-bottom) {
+            return 2;
+        }
+        return 3;
+    }
+
+    function zone-name(z: int) -> string {
+        return z == 0 ? "izquierda" : z == 1 ? "derecha" : z == 2 ? "abajo" : "ocultar";
+    }
+
+    // Se soltó el asa: lo atiende Rust (`DockDrag::global().on_released` en
+    // `editor::attach`), que lee `drop-zone` y aplica el dock.
 
     // Qué divisor está bajo el cursor: 0 nada, 1 izquierda, 2 derecha, 3 horizontal.
     // Un divisor sólo cuenta si su región está visible.
@@ -691,6 +735,132 @@ export component NuIdeWindow inherits Window {
             open-file(path) => { root.git-open(path); }
             diff(path, staged, untracked) => { root.git-diff(path, staged, untracked); }
         }
+
+        // --- capa de arrastre de paneles ---
+        // Mientras se arrastra una cabecera se resaltan las bandas de destino y
+        // una etiqueta sigue al cursor. No tiene TouchArea: no come eventos, el
+        // gesto lo sigue teniendo el asa de la cabecera.
+        if DockDrag.panel >= 0: Rectangle {
+            x: 0px;
+            y: 0px;
+            width: parent.width;
+            height: parent.height;
+            background: #00000055;
+
+            // Banda izquierda.
+            Rectangle {
+                x: 0px;
+                y: 0px;
+                width: root.zone-left;
+                height: parent.height;
+                background: root.drop-zone == 0 ? #83d9cb33 : #83d9cb14;
+                border-width: root.drop-zone == 0 ? 2px : 1px;
+                border-color: IdeTheme.mint;
+
+                Text {
+                    x: 0px;
+                    y: 12px;
+                    width: parent.width;
+                    text: "Izquierda";
+                    color: IdeTheme.text;
+                    font-family: IdeTheme.sans;
+                    font-size: 12px;
+                    horizontal-alignment: center;
+                }
+            }
+
+            // Banda derecha.
+            Rectangle {
+                x: root.zone-right;
+                y: 0px;
+                width: root.content-w - root.zone-right;
+                height: parent.height;
+                background: root.drop-zone == 1 ? #83d9cb33 : #83d9cb14;
+                border-width: root.drop-zone == 1 ? 2px : 1px;
+                border-color: IdeTheme.mint;
+
+                Text {
+                    x: 0px;
+                    y: 12px;
+                    width: parent.width;
+                    text: "Derecha";
+                    color: IdeTheme.text;
+                    font-family: IdeTheme.sans;
+                    font-size: 12px;
+                    horizontal-alignment: center;
+                }
+            }
+
+            // Banda inferior.
+            Rectangle {
+                x: root.center-x;
+                y: root.zone-bottom;
+                width: root.center-w;
+                height: parent.height - root.zone-bottom;
+                background: root.drop-zone == 2 ? #83d9cb33 : #83d9cb14;
+                border-width: root.drop-zone == 2 ? 2px : 1px;
+                border-color: IdeTheme.mint;
+
+                Text {
+                    x: 0px;
+                    y: 6px;
+                    width: parent.width;
+                    text: "Abajo";
+                    color: IdeTheme.text;
+                    font-family: IdeTheme.sans;
+                    font-size: 12px;
+                    horizontal-alignment: center;
+                }
+            }
+
+            // Centro: soltar acá oculta el panel.
+            Rectangle {
+                x: root.center-x;
+                y: 0px;
+                width: root.center-w;
+                height: root.editor-h;
+                visible: root.drop-zone == 3;
+                border-width: 2px;
+                border-color: IdeTheme.amber;
+                border-radius: IdeTheme.radius;
+                background: #e7ba7022;
+
+                Text {
+                    x: 0px;
+                    y: (parent.height - self.height) / 2;
+                    width: parent.width;
+                    text: "Soltar acá oculta el panel";
+                    color: IdeTheme.amber;
+                    font-family: IdeTheme.sans;
+                    font-size: 13px;
+                    horizontal-alignment: center;
+                }
+            }
+
+            // Etiqueta que sigue al puntero.
+            Rectangle {
+                x: min(max(root.drag-px + 14px, 0px), parent.width - 190px);
+                y: min(max(root.drag-py - 46px, 0px), parent.height - 26px);
+                width: 190px;
+                height: 24px;
+                border-radius: IdeTheme.radius-sm;
+                background: IdeTheme.control-hi;
+                border-width: 1px;
+                border-color: IdeTheme.mint;
+
+                Text {
+                    x: 8px;
+                    width: parent.width - 16px;
+                    height: parent.height;
+                    text: DockDrag.label + " → " + root.zone-name(root.drop-zone);
+                    color: IdeTheme.text;
+                    font-family: IdeTheme.sans;
+                    font-size: 12px;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+            }
+        }
     }
 
     // --- capa que cierra el menú abierto al hacer clic fuera ---
@@ -791,6 +961,7 @@ export component NuIdeWindow inherits Window {
         height: parent.height;
         mono: root.prefs-mono;
         sans: root.prefs-sans;
+        alpha: root.prefs-alpha;
         editor-size: root.prefs-editor-size;
         accent: root.prefs-accent;
         accent-color: root.prefs-accent-color;
@@ -802,6 +973,7 @@ export component NuIdeWindow inherits Window {
         dismiss => { root.prefs-dismiss(); }
         cycle-mono => { root.prefs-cycle-mono(); }
         cycle-sans => { root.prefs-cycle-sans(); }
+        cycle-alpha => { root.prefs-cycle-alpha(); }
         font-smaller => { root.prefs-font-smaller(); }
         font-bigger => { root.prefs-font-bigger(); }
         cycle-accent => { root.prefs-cycle-accent(); }

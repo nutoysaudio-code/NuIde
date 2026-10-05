@@ -1,5 +1,6 @@
 import { IdeTheme } from "ide_theme.slint";
 import { TermLine } from "ide_types.slint";
+import { DockHandle } from "ide_dock.slint";
 
 // Botón compacto de encabezado (nuevo, cerrar, dividir…).
 export component IdeHeaderButton inherits Rectangle {
@@ -271,6 +272,8 @@ export component IdeTerminal inherits FocusScope {
         width: parent.width;
         height: parent.height;
         background: IdeTheme.panel;
+        // Opacidad de la superficie del panel (Preferencias → Opacidad).
+        opacity: IdeTheme.panel-alpha;
         border-width: IdeTheme.hairline;
         border-color: IdeTheme.border-faint;
         border-radius: IdeTheme.radius;
@@ -283,6 +286,14 @@ export component IdeTerminal inherits FocusScope {
             width: parent.width;
             height: root.header-h;
             background: IdeTheme.bg;
+
+            // Asa para arrastrar el panel a otro dock (ver ui/ide_dock.slint).
+            DockHandle {
+                x: 0;
+                y: 0;
+                height: parent.height;
+                panel: 2;
+            }
 
             HorizontalLayout {
                 x: 0;

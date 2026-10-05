@@ -498,6 +498,34 @@ corren subprocesses síncronos en el hilo UI; la búsqueda en proyecto no tiene
 
 ---
 
+### 3.26 Reorganizar la ventana: arrastrar paneles y opacidad
+
+- **Drag & drop de docks** (`ui/ide_dock.slint`): un global `DockDrag`
+  (`panel`/`px`/`py`/`label` + `callback released()`) y un `DockHandle` —el asa
+  con tres rayitas— plantado en la cabecera de los cuatro paneles, declarado
+  **antes** que los botones para no comérselos. La ventana (`nuide_ui.slint`)
+  traduce el puntero a una **banda** (`zone-left` / `zone-right` / `zone-bottom`,
+  y el centro = ocultar), pinta la guía y una etiqueta que sigue al cursor.
+  Rust conecta el global con `window.global::<DockDrag>().on_released(...)`
+  (conectar un callback de un global desde el cuerpo de un componente **no** es
+  sintaxis válida en Slint) y aplica `Ide::dock_drop(panel, zona)`, que además
+  **enciende la región de destino** si estaba apagada. Persiste por el mismo
+  camino que el menú Ver: `save_state` → `panel.<i>.dock`. Prueba:
+  `soltar_un_panel_arrastrado_lo_cambia_de_dock`.
+- **Opacidad de los paneles**: `IdeTheme.panel-alpha` + `opacity:` en la superficie
+  de los cuatro paneles; **Preferencias → Opacidad de los paneles** cicla
+  `PANEL_ALPHAS` (100/92/85/75/65 %) y se guarda en `theme.panel-alpha`.
+  **Límite honesto**: no hay transparencia al escritorio — el backend winit de
+  Slint arma la ventana principal con `with_transparent(false)`
+  (`winitwindowadapter.rs`), así que sólo se compone contra el fondo de la
+  ventana.
+- **Copy/paste en la columna derecha** (venía de §3.24 pero la solución quedó
+  acá): con *mouse reporting* la TUI se queda con el mouse y no se podía
+  seleccionar. Ahora **Shift+arrastrar** libera el mouse y selecciona (se copia al
+  soltar), y el **botón del medio** pega (`paste-requested` → `paste_into`).
+
+
+
 ## 4. Limitaciones conocidas
 
 - **Persistencia parcial.** Se recuerda el proyecto, el dock/visibilidad de los

@@ -39,8 +39,9 @@ use crate::spasm::Toolchain;
 use crate::sysinfo;
 use crate::templates;
 use crate::ui::{
-    IdeCodeLine, IdeDiffLine, IdeGitFile, IdeMenuEntry, IdeOutlineItem, IdePaletteItem, IdePrefRow,
-    IdeRecent, IdeSearchHit, IdeTab, IdeToken, IdeTreeNode, NuIdeWindow, TermLine, TermRun,
+    DockDrag, IdeCodeLine, IdeDiffLine, IdeGitFile, IdeMenuEntry, IdeOutlineItem, IdePaletteItem,
+    IdePrefRow, IdeRecent, IdeSearchHit, IdeTab, IdeToken, IdeTreeNode, NuIdeWindow, TermLine,
+    TermRun,
 };
 use crate::vt::{Run, Screen, Selection};
 
@@ -104,6 +105,10 @@ const ACCENTS: &[(&str, (u8, u8, u8))] = &[
     ("violeta", (0xc9, 0xa5, 0xe0)),
     ("verde", (0x9f, 0xd9, 0x9f)),
 ];
+
+/// Pasos de opacidad de los paneles (Preferencias → Opacidad). Se cicla entre
+/// ellos; 1.0 es el aspecto sólido de siempre.
+const PANEL_ALPHAS: &[f32] = &[1.0, 0.92, 0.85, 0.75, 0.65];
 
 /// Acciones globales con atajo configurable: (id, etiqueta, por defecto).
 const KEY_ACTIONS: &[(&str, &str, &str)] = &[
@@ -1090,6 +1095,8 @@ pub struct Ide {
     mono: String,
     editor_font_size: f32,
     accent: usize,
+    /// Opacidad de las superficies de los paneles (ver `PANEL_ALPHAS`).
+    panel_alpha: f32,
     prefs_open: bool,
     /// Atajos globales: acción → combinación.
     keymap: HashMap<String, String>,
@@ -1196,6 +1203,17 @@ impl Ide {
         let accent = config
             .usize("theme.accent", 0)
             .min(ACCENTS.len().saturating_sub(1));
+        // Opacidad de los paneles: el valor guardado se acerca al paso más
+        // parecido, para que siempre sea uno de `PANEL_ALPHAS`.
+        let saved_alpha = config.f32("theme.panel-alpha", 1.0);
+        let panel_alpha = *PANEL_ALPHAS
+            .iter()
+            .min_by(|a, b| {
+                (**a - saved_alpha)
+                    .abs()
+                    .total_cmp(&(**b - saved_alpha).abs())
+            })
+            .unwrap_or(&1.0);
         let mut keymap: HashMap<String, String> = KEY_ACTIONS
             .iter()
             .map(|(id, _, d)| (id.to_string(), d.to_string()))
@@ -1273,6 +1291,7 @@ impl Ide {
             mono,
             editor_font_size,
             accent,
+            panel_alpha,
             prefs_open: false,
             keymap,
             capturing_key: None,
@@ -2415,6 +2434,31 @@ impl Ide {
         }
     }
 
+    /// Soltó un panel arrastrado de su cabecera: lo mueve a la zona elegida.
+    /// `zona`: 0 izquierda, 1 derecha, 2 abajo, 3 ocultar. Si la región estaba
+    /// apagada se enciende, porque si no el panel quedaría invisible y el gesto
+    /// parecería perdido. Se persiste con `save_state` (`panel.<i>.dock`).
+    fn dock_drop(&mut self, panel: i32, zone: i32) {
+        let Some(dock) = self.docks.get_mut(panel as usize) else {
+            return;
+        };
+        *dock = match zone {
+            0 => {
+                self.show_left = true;
+                Dock::Left
+            }
+            1 => {
+                self.show_right = true;
+                Dock::Right
+            }
+            2 => {
+                self.show_bottom = true;
+                Dock::Bottom
+            }
+            _ => Dock::Hidden,
+        };
+    }
+
     /// Cierra el menú desplegable abierto.
     fn close_menu(&mut self) {
         self.menu_open.clear();
@@ -3504,6 +3548,16 @@ impl Ide {
         self.save_prefs();
     }
 
+    /// Cicla la opacidad de los paneles (Preferencias → Opacidad).
+    fn prefs_cycle_alpha(&mut self) {
+        let idx = PANEL_ALPHAS
+            .iter()
+            .position(|a| (*a - self.panel_alpha).abs() < 0.001)
+            .unwrap_or(0);
+        self.panel_alpha = PANEL_ALPHAS[(idx + 1) % PANEL_ALPHAS.len()];
+        self.save_prefs();
+    }
+
     fn prefs_cycle_accent(&mut self) {
         if !ACCENTS.is_empty() {
             self.accent = (self.accent + 1) % ACCENTS.len();
@@ -3544,14 +3598,16 @@ impl Ide {
         theme.set_editor_font_size(self.editor_font_size);
         let (r, g, b) = self.accent_rgb();
         theme.set_mint(slint::Color::from_rgb_u8(r, g, b));
+        theme.set_panel_alpha(self.panel_alpha);
     }
 
-    /// Persiste fuentes, tamaño y acento.
+    /// Persiste fuentes, tamaño, acento y opacidad de los paneles.
     fn save_prefs(&mut self) {
         self.config.set("font.sans", &self.sans);
         self.config.set("font.mono", &self.mono);
         self.config.set("font.editor-size", self.editor_font_size);
         self.config.set("theme.accent", self.accent);
+        self.config.set("theme.panel-alpha", self.panel_alpha);
         self.config.save();
     }
 
@@ -5653,6 +5709,7 @@ impl Ide {
         w.set_prefs_sans(self.sans.clone().into());
         w.set_prefs_editor_size(format!("{}", self.editor_font_size as i32).into());
         w.set_prefs_accent(self.accent_name().into());
+        w.set_prefs_alpha(format!("{} %", (self.panel_alpha * 100.0).round() as i32).into());
         let (ar, ag, ab) = self.accent_rgb();
         w.set_prefs_accent_color(slint::Color::from_rgb_u8(ar, ag, ab));
         w.set_prefs_tab_size(self.tab_size.to_string().into());
@@ -7069,6 +7126,18 @@ pub fn attach(window: &NuIdeWindow, ide: Rc<RefCell<Ide>>) {
     {
         let ide = Rc::clone(&ide);
         let weak = window.as_weak();
+        window.on_prefs_cycle_alpha(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.prefs_cycle_alpha();
+                e.apply_theme(&w);
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
         window.on_prefs_font_smaller(move || {
             if let Some(w) = weak.upgrade() {
                 let mut e = ide.borrow_mut();
@@ -7343,6 +7412,30 @@ pub fn attach(window: &NuIdeWindow, ide: Rc<RefCell<Ide>>) {
                 e.sync(&w);
                 e.save_state(&w);
             }
+        });
+    }
+    // Arrastrar y soltar un panel de un dock a otro: el asa de la cabecera
+    // (ui/ide_dock.slint) avisa cuando se suelta; acá se aplica la zona que
+    // calculó la ventana y se persiste con `save_state` (`panel.<i>.dock`).
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.global::<DockDrag>().on_released(move || {
+            let Some(w) = weak.upgrade() else {
+                return;
+            };
+            let dock = w.global::<DockDrag>();
+            let panel = dock.get_panel();
+            // Fuera de un arrastre real no hay nada que hacer.
+            if panel < 0 {
+                return;
+            }
+            dock.set_panel(-1);
+            let zone = w.get_drop_zone();
+            let mut e = ide.borrow_mut();
+            e.dock_drop(panel, zone);
+            e.sync(&w);
+            e.save_state(&w);
         });
     }
     {
@@ -8318,6 +8411,32 @@ mod tests {
         // El panel de Git también cicla su dock.
         ide.cycle_dock(3);
         assert_eq!(ide.docks[3], Dock::Right);
+    }
+
+    /// Soltar el asa de una cabecera mueve el panel a la zona y prende la
+    /// región si estaba apagada (si no, el gesto parecería no hacer nada).
+    #[test]
+    fn soltar_un_panel_arrastrado_lo_cambia_de_dock() {
+        let mut ide = Ide::new();
+        assert_eq!(ide.docks[2], Dock::Bottom);
+
+        // Terminal al borde derecho: se va a la derecha y prende esa región.
+        ide.show_right = false;
+        ide.dock_drop(2, 1);
+        assert_eq!(ide.docks[2], Dock::Right);
+        assert!(ide.show_right, "la región del destino se enciende");
+
+        // Explorador al centro: se oculta (y no toca las regiones).
+        ide.dock_drop(0, 3);
+        assert_eq!(ide.docks[0], Dock::Hidden);
+
+        // Agente abajo.
+        ide.dock_drop(1, 2);
+        assert_eq!(ide.docks[1], Dock::Bottom);
+
+        // Un panel inexistente no rompe nada.
+        ide.dock_drop(9, 0);
+        assert_eq!(ide.docks.len(), 4);
     }
 
     #[test]

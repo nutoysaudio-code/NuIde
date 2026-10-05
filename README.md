@@ -552,6 +552,17 @@ Detalle en [`docs/ESTADO.md`](docs/ESTADO.md) (§3.25), con lo que queda pendien
   izquierda, derecha, inferior) y el menú **Ver**, donde cada fila muestra dónde
   está el panel y un clic lo cicla (izquierda → derecha → abajo → oculto). El
   editor ocupa el espacio libre y el dock elegido se recuerda entre ejecuciones.
+- **Arrastrar y soltar paneles**: cada cabecera tiene un **asa** (las tres rayitas
+  a la izquierda). Agarrarla y soltarla sobre una banda la mueve de dock: se
+  resaltan **Izquierda / Derecha / Abajo** y el centro significa **ocultar**. Una
+  etiqueta sigue al cursor con el destino. Se persiste igual que el menú **Ver**
+  (`panel.<i>.dock`), y si la región de destino estaba apagada se enciende.
+  Implementación: `ui/ide_dock.slint` (global `DockDrag` + `DockHandle`) y
+  `Ide::dock_drop` en `src/editor.rs`.
+- **Opacidad de los paneles**: **Preferencias → Opacidad de los paneles** cicla
+  100 % → 92 % → 85 % → 75 % → 65 %. Compone las superficies contra el fondo de
+  la ventana. (Transparencia *al escritorio* no está disponible: el backend winit
+  de Slint crea la ventana principal con `with_transparent(false)`.)
 - **Cada área hace su propio scroll**: el explorador y el editor con `Flickable`;
   las dos terminales con el scrollback del emulador `vt` (rueda y barra).
 - **Selección por índice**: la UI guarda índices (`explorer-selected`,

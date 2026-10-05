@@ -1,6 +1,7 @@
 import { IdeTheme } from "ide_theme.slint";
 import { TermLine } from "ide_types.slint";
 import { TerminalScreen } from "ide_terminal.slint";
+import { DockHandle } from "ide_dock.slint";
 
 // Panel derecho: la TUI de OpenCode CLI corriendo en un PTY (sin burbujas de
 // chat). Reutiliza `TerminalScreen`: mismo emulador, scrollback y selección que
@@ -58,6 +59,8 @@ export component IdeOpenCode inherits FocusScope {
         width: parent.width;
         height: parent.height;
         background: IdeTheme.panel;
+        // Opacidad de la superficie del panel (Preferencias → Opacidad).
+        opacity: IdeTheme.panel-alpha;
         border-width: IdeTheme.hairline;
         border-color: IdeTheme.border-faint;
         border-radius: IdeTheme.radius;
@@ -70,6 +73,14 @@ export component IdeOpenCode inherits FocusScope {
             width: parent.width;
             height: 34px;
             background: IdeTheme.bg;
+
+            // Asa para arrastrar el panel a otro dock (ver ui/ide_dock.slint).
+            DockHandle {
+                x: 0;
+                y: 0;
+                height: parent.height;
+                panel: 1;
+            }
 
             HorizontalLayout {
                 x: 0;

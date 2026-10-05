@@ -1,0 +1,95 @@
+import { IdeTheme } from "ide_theme.slint";
+
+// ---------------------------------------------------------------------------
+// Arrastrar y soltar paneles entre docks.
+//
+// Cada cabecera de panel lleva un `DockHandle`. Agarrarlo publica el arrastre
+// en el global `DockDrag`; la ventana (`nuide_ui.slint`) traduce la posición a
+// una zona de destino (izquierda / derecha / abajo / ocultar), dibuja la guía y
+// emite el callback `dock-drop(panel, zona)` que Rust resuelve y **persiste**
+// (`panel.<i>.dock` en el config, que ya se restaura al arrancar).
+//
+// Se usa un global a propósito: las cabeceras viven en componentes distintos y
+// rebotar tres callbacks por cada panel sería mucho cable para el mismo gesto.
+// ---------------------------------------------------------------------------
+
+/// Estado del arrastre de paneles, compartido entre la cabecera y la ventana.
+export global DockDrag {
+    /// Panel agarrado ahora mismo: -0 Explorador, 1 OpenCode, 2 Terminal,
+    /// 3 Git. -1 = no se está arrastrando nada.
+    in-out property <int> panel: -1;
+    /// Puntero en coordenadas de la *ventana* (la ventana las pasa a contenido).
+    in-out property <length> px: 0px;
+    in-out property <length> py: 0px;
+    /// Nombre del panel que se arrastra, para la etiqueta que sigue al cursor.
+    in-out property <string> label: "";
+
+    /// Se suelta el panel: la ventana decide la zona y avisa a Rust.
+    callback released();
+
+    public function name(panel: int) -> string {
+        return panel == 0 ? "Explorador"
+            : panel == 1 ? "OpenCode CLI"
+            : panel == 2 ? "Terminal"
+            : "Git";
+    }
+}
+
+/// Asa de arrastre para la cabecera de un panel.
+///
+/// Va declarada **antes** que los botones de la cabecera: en Slint gana el
+/// último hermano, así los botones siguen recibiendo sus clics y la barra se
+/// puede agarrar en el hueco que queda.
+export component DockHandle inherits Rectangle {
+    in property <int> panel: 0;
+    // Ancho del área que se puede agarrar.
+    in property <length> grip-width: 16px;
+
+    width: root.grip-width;
+
+    private property <bool> busy: DockDrag.panel == root.panel;
+
+    // Tres rayitas: invitan a agarrar. Se encienden con el hover o al arrastrar.
+    VerticalLayout {
+        x: 4px;
+        y: (parent.height - self.height) / 2;
+        width: 8px;
+        height: 12px;
+        spacing: 3px;
+        alignment: stretch;
+
+        Rectangle { height: 2px; border-radius: 1px; background: dot-color(ta.has-hover || root.busy); }
+        Rectangle { height: 2px; border-radius: 1px; background: dot-color(ta.has-hover || root.busy); }
+        Rectangle { height: 2px; border-radius: 1px; background: dot-color(ta.has-hover || root.busy); }
+
+        function dot-color(on: bool) -> color {
+            return on ? IdeTheme.mint : IdeTheme.border-soft;
+        }
+    }
+
+    ta := TouchArea {
+        mouse-cursor: MouseCursor.pointer;
+
+        pointer-event(event) => {
+            // Coordenadas de la ventana: la posición del TouchArea dentro del
+            // panel + el puntero dentro del área.
+            let wx = self.absolute-position.x + self.mouse-x;
+            let wy = self.absolute-position.y + self.mouse-y;
+            if (event.kind == PointerEventKind.down) {
+                DockDrag.panel = root.panel;
+                DockDrag.label = DockDrag.name(root.panel);
+                DockDrag.px = wx;
+                DockDrag.py = wy;
+            } else if (event.kind == PointerEventKind.move && DockDrag.panel == root.panel) {
+                DockDrag.px = wx;
+                DockDrag.py = wy;
+            } else if (event.kind == PointerEventKind.up || event.kind == PointerEventKind.cancel) {
+                if (DockDrag.panel == root.panel) {
+                    DockDrag.px = wx;
+                    DockDrag.py = wy;
+                    DockDrag.released();
+                }
+            }
+        }
+    }
+}

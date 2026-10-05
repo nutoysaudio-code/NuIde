@@ -1,5 +1,6 @@
 import { IdeTheme } from "ide_theme.slint";
 import { IdeTreeNode } from "ide_types.slint";
+import { DockHandle } from "ide_dock.slint";
 
 // Triángulo de despliegue de carpeta.
 component IdeDisclosure inherits Path {
@@ -153,6 +154,8 @@ export component IdeExplorer inherits Rectangle {
     out property <length> context-y: 32px + 4px + root.context-index * 25px + flick.content-y;
 
     background: IdeTheme.panel;
+    // Opacidad de la superficie del panel (Preferencias → Opacidad).
+    opacity: IdeTheme.panel-alpha;
     border-width: IdeTheme.hairline;
     border-color: IdeTheme.border-faint;
     border-radius: IdeTheme.radius;
@@ -165,6 +168,14 @@ export component IdeExplorer inherits Rectangle {
         width: parent.width;
         height: 32px;
         background: transparent;
+
+        // Asa para arrastrar el panel a otro dock (ver ui/ide_dock.slint).
+        DockHandle {
+            x: 0;
+            y: 0;
+            height: parent.height;
+            panel: 0;
+        }
 
         Text {
             x: 14px;

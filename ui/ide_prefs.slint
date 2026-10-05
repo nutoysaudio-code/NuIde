@@ -84,6 +84,8 @@ component PrefSection inherits Text {
 export component IdePrefs inherits Rectangle {
     in property <string> mono: "";
     in property <string> sans: "";
+    // Valor actual de la opacidad de los paneles ("100 %", "85 %", ...).
+    in property <string> alpha: "";
     in property <string> editor-size: "12";
     in property <string> accent: "";
     in property <color> accent-color: #83d9cb;
@@ -97,6 +99,7 @@ export component IdePrefs inherits Rectangle {
     callback dismiss();
     callback cycle-mono();
     callback cycle-sans();
+    callback cycle-alpha();
     callback font-smaller();
     callback font-bigger();
     callback cycle-accent();
@@ -164,6 +167,7 @@ export component IdePrefs inherits Rectangle {
                 PrefSection { title: "APARIENCIA"; }
                 PrefRow { label: "Fuente del código"; value: root.mono; activated => { root.cycle-mono(); } }
                 PrefRow { label: "Fuente de la interfaz"; value: root.sans; activated => { root.cycle-sans(); } }
+                PrefRow { label: "Opacidad de los paneles"; value: root.alpha; activated => { root.cycle-alpha(); } }
                 HorizontalLayout {
                     height: 28px;
                     spacing: 6px;

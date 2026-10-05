@@ -48,6 +48,12 @@ export global IdeTheme {
     in-out property <color> active-line: #ffffff0c;
 
     // --- métricas ---
+    // Opacidad de las superficies de los paneles (0.6 .. 1.0). Se compone contra
+    // el fondo de la ventana: al bajarla los paneles "retroceden" y se leen más
+    // suaves. Transparencia real al escritorio no se puede: el backend winit de
+    // Slint crea la ventana principal con `with_transparent(false)`.
+    in-out property <float> panel-alpha: 1.0;
+
     in-out property <length> radius: 7px;
     in-out property <length> radius-sm: 5px;
     in-out property <length> topbar-h: 42px;

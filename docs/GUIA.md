@@ -65,7 +65,9 @@ El flujo de SpASM es **desarrollar con el intérprete** y **compilar para releas
 - Rueda y `Shift+PageUp/Down` recorren el **scrollback**; arrastrar **selecciona**
   y copia; `Ctrl+Shift+C`/`V` copian/pegan.
 - Si un programa pide el mouse (`vim`, la TUI de OpenCode…), los clics y la rueda
-  se le **reenvían**.
+  se le **reenvían**. En ese caso **mantené `Shift` mientras arrastrás para
+  seleccionar** (y se copia al soltar); el **botón del medio pega** el
+  portapapeles. Vale igual para el panel derecho.
 - La paleta permite **renombrar** la sesión y **reiniciarla** (arranca en la raíz
   del proyecto).
 - El panel derecho corre **`opencode`** en un PTY, con el mismo comportamiento.
@@ -92,8 +94,12 @@ El flujo de SpASM es **desarrollar con el intérprete** y **compilar para releas
 - **`Ctrl+Shift+P`** paleta de comandos; **`Ctrl+P`** buscar archivos (por ruta).
 - **`F1`** ayuda de sintaxis SpASM (lista palabras clave/builtins filtradas por la
   palabra bajo el cursor; al elegir, la inserta).
-- **`Ctrl+,`** Preferencias: fuentes, tamaño del código, acento, tab, compilar al
-  guardar y **atajos** (clic en uno y presioná la combinación nueva).
+- **`Ctrl+,`** Preferencias: fuentes, tamaño del código, acento, **opacidad de los
+  paneles**, tab, compilar al guardar y **atajos** (clic en uno y presioná la
+  combinación nueva).
+- **Reordenar la ventana**: arrastrá el **asa** (las tres rayitas) de la cabecera
+  de cualquier panel y soltala sobre la banda **Izquierda / Derecha / Abajo**;
+  soltar en el centro lo **oculta**. Se recuerda entre ejecuciones.
 - Menú **Ayuda → Acerca de NuIde** (versión y créditos) y **Ver en GitLab**.
 - El pie muestra, discreto, el uso de **CPU y RAM**.
 
