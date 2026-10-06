@@ -41,7 +41,7 @@ abiertos es una **página de bienvenida** real (accesos y atajos).
 | 5 | terminal real (PTY/ConPTY) + panel de OpenCode CLI | ✅ |
 | 6 | integración con el toolchain `spasm`/`spasmc` (build/run) | ✅ |
 | 7 | terminal: scrollback + selección y copia con el mouse | ✅ |
-| 8 | panel del agente: `opencode` en un PTY (TUI real) | ✅ |
+| 8 | panel del agente: shell con `opencode` inyectado (TUI real) | ✅ |
 | 9 | elegir proyecto (diálogo nativo) + recordarlo | ✅ |
 | 10 | editor: buscar/reemplazar + resaltados de contexto | ✅ |
 | 11 | layout modular: controles en la barra + menú Ver | ✅ |
@@ -311,15 +311,20 @@ pruebas de integración del toolchain). El panel del agente ya no la usa.
 
 ### El panel del agente (OpenCode CLI, TUI real)
 
-El panel derecho corre **`opencode` en un PTY**, igual que la terminal local:
-su TUI interactiva se renderiza con el mismo emulador (`vt`), con scrollback,
-selección/copia y las mismas teclas. El canal es propio (`agent_tx`/`agent_rx`)
-para no mezclar la salida con la terminal inferior.
+El panel derecho es una **terminal con shell** (como la inferior) que lanza
+`opencode` automáticamente al arrancar. Si salís de opencode (Ctrl+C, :q),
+queda en la shell y podés relanzarlo cuando quieras. Su TUI interactiva se
+renderiza con el mismo emulador (`vt`), con scrollback, selección/copia y las
+mismas teclas. El canal es propio (`agent_tx`/`agent_rx`) para no mezclar la
+salida con la terminal inferior.
 
-- Al arrancar se lanza `opencode` (sin argumentos) en la raíz del proyecto; si
-  el CLI no está, la pantalla muestra el motivo.
-- El encabezado dice «Conectado» mientras el proceso vive; al salir pasa a
-  «Desconectado».
+- Al arrancar se lanza una shell (pwsh/cmd) en la raíz del proyecto y se
+  inyecta el comando `opencode` después de 500ms; si el CLI no está, la shell
+  muestra el error.
+- Si salís de opencode, queda en la shell y podés tipear `opencode` para
+  relanzarlo, o usar la shell normalmente.
+- Al cambiar de proyecto, se reinicia la sesión completa: la nueva shell
+  arranca en el cwd del proyecto y lanza opencode automáticamente.
 - El encabezado y el modelo son configurables con `NUIDE_AGENT_VERSION` y
   `NUIDE_AGENT_MODEL`.
 - El CLI se descubre como `opencode.cmd` (Windows), `opencode.exe` u `opencode`.

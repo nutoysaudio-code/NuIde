@@ -1,6 +1,6 @@
 # NuIde — estado y pendientes
 
-**Actualizado:** 2026-10-04.
+**Actualizado:** 2026-10-06.
 Este es el *parte de estado*: qué está hecho, qué se cambió en la última
 iteración, qué limitaciones quedan y qué falta. El [README](../README.md) es la
 guía de uso; la especificación visual/funcional es
@@ -604,6 +604,25 @@ dependencia al build.
 **Límites honestos**: el servidor escucha sólo en `127.0.0.1`, atiende una
 petición por conexión (`Connection: close`) y no tiene rangos, caché ni
 compresión; el visor muestra hasta 200 filas por tabla y no edita.
+
+
+### 3.29 Panel del agente como terminal con opencode inyectado (`7f52ed4`)
+
+- El panel derecho deja de ser un PTY que corre `opencode` directamente y pasa
+  a ser una **shell normal** (como la terminal inferior) que lanza `opencode`
+  automáticamente al arrancar.
+- `start_agent()` lanza `pwsh`/`cmd` en el cwd del proyecto y, después de
+  500ms (para que la shell muestre el prompt), inyecta el comando de opencode
+  al PTY.
+- Si el usuario sale de opencode (Ctrl+C, :q), queda en la shell y puede
+  relanzarlo tipeando `opencode`, o usar la shell normalmente.
+- `retarget_agent()` simplemente reinicia la sesión completa: la nueva shell
+  arranca en el cwd del proyecto y lanza opencode automáticamente. Ya no
+  dependemos del comando `/cd` de OpenCode (que es reciente y no todas las
+  versiones lo tienen).
+- **Ventaja**: al cambiar de proyecto, el agente siempre queda en el directorio
+  correcto sin depender de comandos especiales. Si sale de opencode, tiene una
+  terminal funcional.
 
 ## 4. Limitaciones conocidas
 
