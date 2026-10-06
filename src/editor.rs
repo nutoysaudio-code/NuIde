@@ -29,12 +29,14 @@ use slint::{ComponentHandle, Model, ModelNotify, ModelRc, Timer, TimerMode, VecM
 
 use crate::build;
 use crate::config::Config;
+use crate::deploy::{self, DeployMsg};
 use crate::explorer::{Action, Explorer};
 use crate::git;
 use crate::highlight;
 use crate::lint;
 use crate::pty::{self, Pty, PtyEvent};
 use crate::search;
+use crate::site::{Site, Transport};
 use crate::spasm::Toolchain;
 use crate::sysinfo;
 use crate::templates;
@@ -1002,6 +1004,8 @@ enum PromptKind {
     NewBranch,
     /// Argumentos extra para ejecutar (F5).
     RunArgs,
+    /// Editar un campo del sitio de despliegue ("host", "user", ...).
+    SiteField(&'static str),
 }
 
 /// Diálogo de entrada de texto pendiente.
@@ -1132,6 +1136,13 @@ pub struct Ide {
     build_rx: Receiver<build::BuildResult>,
     /// Id de la sesión de terminal dedicada a la salida de build.
     build_session: Option<u64>,
+    /// Sitio de despliegue del proyecto abierto (FTP/FTPS/SFTP, ver `site.rs`).
+    site: Site,
+    /// Despliegue en curso: canal del hilo de transferencias.
+    deploy_tx: Sender<DeployMsg>,
+    deploy_rx: Receiver<DeployMsg>,
+    /// `true` mientras hay un despliegue o una prueba corriendo.
+    deploy_busy: bool,
     /// Nota para agregar a la salida del próximo build (p. ej. falta de cc).
     build_note: Option<String>,
     /// Git del proyecto: estado, nota, hilo de operaciones.
@@ -1237,6 +1248,8 @@ impl Ide {
         let (build_tx, build_rx) = mpsc::channel();
         let (git_tx, git_rx) = mpsc::channel();
         let (search_tx, search_rx) = mpsc::channel();
+        // Despliegue: el hilo de transferencias (curl/scp) habla por este canal.
+        let (deploy_tx, deploy_rx) = mpsc::channel();
         // En las pruebas no se consulta Git (mantiene los tests rápidos y ajenos
         // al estado del repo; el parseo se cubre en `git::tests`).
         let git_status = if cfg!(test) {
@@ -1244,6 +1257,10 @@ impl Ide {
         } else {
             git::status(&root)
         };
+
+        // El sitio de despliegue del proyecto que estaba abierto (el config se
+        // mueve más abajo en el literal, así que se lee acá).
+        let site = Site::load(&root, &config);
 
         let mut ide = Self {
             toolchain: Toolchain::discover(),
@@ -1313,6 +1330,10 @@ impl Ide {
             build_tx,
             build_rx,
             build_session: None,
+            site,
+            deploy_tx,
+            deploy_rx,
+            deploy_busy: false,
             build_note: None,
             git_status,
             git_note: String::new(),
@@ -1772,6 +1793,8 @@ impl Ide {
         self.explorer.set_root(dir.clone());
         // El estado de Git es por proyecto: se relee al cambiar de carpeta.
         self.git_status = git::status(&dir);
+        // El sitio de despliegue también es por proyecto.
+        self.site = Site::load(&dir, &self.config);
         self.git_note.clear();
         self.git_error = false;
         self.config.set("project", dir.display());
@@ -3141,10 +3164,13 @@ impl Ide {
             return;
         };
         let name = p.text.trim().to_string();
-        if name.is_empty() {
+        // Un campo del sitio puede quedar vacío (limpiar la contraseña, el script)
+        // y admite caracteres que `valid_name` rechaza por ser nombres de archivo.
+        let site_field = matches!(p.kind, PromptKind::SiteField(_));
+        if name.is_empty() && !site_field {
             return;
         }
-        if p.kind != PromptKind::SessionName && !valid_name(&name) {
+        if !site_field && p.kind != PromptKind::SessionName && !valid_name(&name) {
             return;
         }
         match p.kind {
@@ -3188,6 +3214,7 @@ impl Ide {
                 self.config.set("run.args", &self.run_args);
                 self.config.save();
             }
+            PromptKind::SiteField(field) => self.site_field_set(field, p.text.clone()),
         }
     }
 
@@ -3531,6 +3558,165 @@ impl Ide {
     /// Cierra "Acerca de".
     fn about_close(&mut self) {
         self.about_open = false;
+    }
+
+    // --- despliegue (sitio del proyecto) ---
+
+    /// Guarda el sitio en el config, indexado por proyecto.
+    fn save_site(&mut self) {
+        let project = self.explorer.root().to_path_buf();
+        let site = self.site.clone();
+        site.save(&project, &mut self.config);
+        self.config.save();
+    }
+
+    /// Cicla el transporte del sitio (FTP → FTPS → SFTP).
+    fn prefs_cycle_transport(&mut self) {
+        self.site.transport = match self.site.transport {
+            Transport::Ftp => Transport::Ftps,
+            Transport::Ftps => Transport::Sftp,
+            Transport::Sftp => Transport::Ftp,
+        };
+        self.save_site();
+    }
+
+    /// Abre el diálogo de entrada para editar un campo del sitio.
+    fn prefs_edit_site(&mut self, field: &str) {
+        let current = self.site.field(field).to_string();
+        self.prompt = Some(Prompt {
+            kind: PromptKind::SiteField(match field {
+                "user" => "user",
+                "pass" => "pass",
+                "remote" => "remote",
+                "local-sub" => "local-sub",
+                "include" => "include",
+                "script" => "script",
+                _ => "host",
+            }),
+            target: PathBuf::new(),
+            text: current,
+        });
+    }
+
+    /// Aplica el valor editado a un campo del sitio.
+    fn site_field_set(&mut self, field: &str, value: String) {
+        let value = value.trim().to_string();
+        match field {
+            "user" => self.site.user = value,
+            "pass" => self.site.pass = value,
+            "remote" => self.site.remote_root = value,
+            "local-sub" => self.site.local_sub = value,
+            "include" => self.site.include = value,
+            "script" => self.site.script = value,
+            "port" => self.site.port = value.parse().unwrap_or(0),
+            _ => self.site.host = value,
+        }
+        self.save_site();
+    }
+
+    /// Prueba el sitio sin subir nada (curl `--list-only`).
+    fn deploy_test(&mut self) {
+        if self.deploy_busy {
+            self.write_build_output("ya hay un despliegue en curso.\n");
+            return;
+        }
+        self.deploy_busy = true;
+        self.local_active = self.ensure_build_session();
+        self.resize_local();
+        let tx = self.deploy_tx.clone();
+        deploy::spawn_test(self.site.clone(), tx);
+    }
+
+    /// Sube los cambios: corre el script del proyecto (o el escaneo por
+    /// extensión) y ejecuta las transferencias.
+    fn deploy_upload(&mut self) {
+        if self.deploy_busy {
+            self.write_build_output("ya hay un despliegue en curso.\n");
+            return;
+        }
+        self.deploy_busy = true;
+        self.local_active = self.ensure_build_session();
+        self.resize_local();
+        let tx = self.deploy_tx.clone();
+        deploy::spawn_deploy(
+            self.explorer.root().to_path_buf(),
+            self.site.clone(),
+            self.toolchain.clone(),
+            tx,
+        );
+    }
+
+    /// Abre una sesión de terminal contra el servidor (`ssh user@host`).
+    fn deploy_ssh_terminal(&mut self) {
+        if self.site.host.trim().is_empty() {
+            self.write_build_output(
+                "el sitio no tiene host: completá Preferencias → Despliegue.\n",
+            );
+            self.local_active = self.ensure_build_session();
+            self.resize_local();
+            return;
+        }
+        let id = self.next_local_id;
+        self.next_local_id += 1;
+        let (program, args) = match pty::on_path(&["ssh.exe", "ssh"]) {
+            Some(p) => (p, self.site.ssh_args()),
+            None => ("ssh.exe".to_string(), self.site.ssh_args()),
+        };
+        let name = format!("ssh {}", self.site.host);
+        let mut screen = Screen::new(self.local_rows, self.local_cols);
+        let cwd = self.explorer.root().to_path_buf();
+        let pty = match Pty::spawn(
+            id,
+            &program,
+            &args,
+            &cwd,
+            self.local_cols,
+            self.local_rows,
+            self.local_tx.clone(),
+        ) {
+            Ok(p) => Some(p),
+            Err(e) => {
+                screen.process(format!("no se pudo abrir ssh ({program}): {e}\r\n").as_bytes());
+                None
+            }
+        };
+        self.local.push(LocalSession {
+            id,
+            name,
+            pty,
+            screen,
+            alive: true,
+            sel: None,
+            mouse_button: 3,
+            term_model: Rc::new(TermRows::default()),
+        });
+        self.local_active = self.local.len() - 1;
+        self.resize_local();
+    }
+
+    /// Vuelca un mensaje del hilo de despliegue en la sesión `build`.
+    fn deploy_message(&mut self, msg: DeployMsg) {
+        let line = match msg {
+            DeployMsg::Log(text) => format!("{text}\n"),
+            DeployMsg::Sent { path, ok } => {
+                format!("{} {}\n", if ok { "  ok  " } else { "  FAIL" }, path)
+            }
+            DeployMsg::Aborted(text) => {
+                self.deploy_busy = false;
+                format!("[despliegue abortado: {text}]\n")
+            }
+            DeployMsg::Finished {
+                sent,
+                skipped,
+                failed,
+            } => {
+                self.deploy_busy = false;
+                format!(
+                    "\n[despliegue: {sent} subido(s), {skipped} saltado(s), {failed} fallido(s)]\n"
+                )
+            }
+        };
+        self.write_build_output(&line);
     }
 
     fn prefs_cycle_mono(&mut self) {
@@ -5614,6 +5800,18 @@ impl Ide {
                 PromptKind::SessionName => ("Renombrar terminal", "sesión"),
                 PromptKind::NewBranch => ("Nueva rama", "nombre-rama"),
                 PromptKind::RunArgs => ("Argumentos para ejecutar", "--flag valor"),
+                PromptKind::SiteField(field) => match field {
+                    "user" => ("Usuario del sitio", "ftp-usuario"),
+                    "pass" => (
+                        "Contraseña del sitio",
+                        "se guarda en %APPDATA%, no en el repo",
+                    ),
+                    "remote" => ("Carpeta remota", "public_html"),
+                    "local-sub" => ("Subcarpeta local a subir", "build"),
+                    "include" => ("Extensiones a subir", "html,css,js,png,svg"),
+                    "script" => ("Script de despliegue", "deploy.spasm"),
+                    _ => ("Host del sitio", "ftp.midominio.com"),
+                },
             };
             w.set_prompt_title(title.into());
             w.set_prompt_placeholder(placeholder.into());
@@ -5710,6 +5908,15 @@ impl Ide {
         w.set_prefs_editor_size(format!("{}", self.editor_font_size as i32).into());
         w.set_prefs_accent(self.accent_name().into());
         w.set_prefs_alpha(format!("{} %", (self.panel_alpha * 100.0).round() as i32).into());
+        // Sitio de despliegue del proyecto (Preferencias → Despliegue).
+        w.set_site_transport(self.site.transport.label().into());
+        w.set_site_host(self.site.host.clone().into());
+        w.set_site_user(self.site.user.clone().into());
+        w.set_site_pass(self.site.pass.clone().into());
+        w.set_site_remote(self.site.remote_root.clone().into());
+        w.set_site_local_sub(self.site.local_sub.clone().into());
+        w.set_site_include(self.site.include.clone().into());
+        w.set_site_script(self.site.script.clone().into());
         let (ar, ag, ab) = self.accent_rgb();
         w.set_prefs_accent_color(slint::Color::from_rgb_u8(ar, ag, ab));
         w.set_prefs_tab_size(self.tab_size.to_string().into());
@@ -5970,9 +6177,17 @@ impl Ide {
                 got = true;
             }
         }
+        // Despliegue: se muestra en la sesión `build`; si terminó, se refresca la
+        // barra de estado (el indicador de "ocupado").
+        let mut deploy_done = false;
+        while let Ok(msg) = self.deploy_rx.try_recv() {
+            let finished = matches!(msg, DeployMsg::Finished { .. } | DeployMsg::Aborted(_));
+            self.deploy_message(msg);
+            deploy_done |= finished;
+        }
         if got {
             self.sync(w);
-        } else if terms {
+        } else if terms || deploy_done {
             self.sync_terms(w);
         }
     }
@@ -7131,6 +7346,62 @@ pub fn attach(window: &NuIdeWindow, ide: Rc<RefCell<Ide>>) {
                 let mut e = ide.borrow_mut();
                 e.prefs_cycle_alpha();
                 e.apply_theme(&w);
+                e.sync(&w);
+            }
+        });
+    }
+    // Despliegue del proyecto (Preferencias → Despliegue).
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_prefs_cycle_transport(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.prefs_cycle_transport();
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_prefs_edit_site(move |field| {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.prefs_edit_site(&field);
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_prefs_test_site(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.deploy_test();
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_prefs_upload_site(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.deploy_upload();
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_prefs_ssh_terminal(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.deploy_ssh_terminal();
                 e.sync(&w);
             }
         });

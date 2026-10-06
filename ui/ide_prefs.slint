@@ -1,5 +1,6 @@
 import { IdeTheme } from "ide_theme.slint";
 import { IdePrefRow } from "ide_types.slint";
+import { TipContent } from "ide_tooltip.slint";
 
 // Botón pequeño de Preferencias.
 component PrefButton inherits Rectangle {
@@ -96,6 +97,16 @@ export component IdePrefs inherits Rectangle {
     // Acción que está esperando una combinación de teclas ("" = ninguna).
     in property <string> capturing: "";
 
+    // --- sitio de despliegue del proyecto abierto ---
+    in property <string> site-transport: "FTP";
+    in property <string> site-host: "";
+    in property <string> site-user: "";
+    in property <string> site-pass: "";
+    in property <string> site-remote: "";
+    in property <string> site-local-sub: "";
+    in property <string> site-include: "";
+    in property <string> site-script: "";
+
     callback dismiss();
     callback cycle-mono();
     callback cycle-sans();
@@ -107,6 +118,13 @@ export component IdePrefs inherits Rectangle {
     callback toggle-spaces();
     callback toggle-build();
     callback capture(string);
+    // Despliegue: ciclar transporte, editar un campo (el id del `Site`), probar,
+    // subir y abrir la terminal SSH.
+    callback cycle-transport();
+    callback edit-site(string);
+    callback test-site();
+    callback upload-site();
+    callback ssh-terminal();
 
     Rectangle {
         x: 0;
@@ -227,6 +245,78 @@ export component IdePrefs inherits Rectangle {
 
                 PrefSection { title: "EJECUTAR"; }
                 PrefRow { label: "Compilar al guardar"; value: root.build-on-save ? "Sí" : "No"; activated => { root.toggle-build(); } }
+
+                PrefSection { title: "DESPLIEGUE (sitio de este proyecto)"; }
+                PrefRow {
+                    label: "Transporte";
+                    value: root.site-transport;
+                    activated => { root.cycle-transport(); }
+                    Tooltip { TipContent { text: "FTP (21), FTPS (FTP + TLS, curl valida el certificado) o SFTP (SSH, 22)"; } }
+                }
+                PrefRow {
+                    label: "Host";
+                    value: root.site-host == "" ? "sin configurar" : root.site-host;
+                    activated => { root.edit-site("host"); }
+                    Tooltip { TipContent { text: "Servidor del sitio, ej. ftp.midominio.com"; } }
+                }
+                PrefRow {
+                    label: "Usuario";
+                    value: root.site-user == "" ? "—" : root.site-user;
+                    activated => { root.edit-site("user"); }
+                    Tooltip { TipContent { text: "Usuario de FTP/SFTP del hosting"; } }
+                }
+                PrefRow {
+                    label: "Contraseña";
+                    value: root.site-pass == "" ? "—" : "••••••••";
+                    activated => { root.edit-site("pass"); }
+                    Tooltip { TipContent { text: "Se guarda en el config de NuIde (%APPDATA%), indexada por proyecto: no toca el repositorio"; } }
+                }
+                PrefRow {
+                    label: "Carpeta remota";
+                    value: root.site-remote == "" ? "—" : root.site-remote;
+                    activated => { root.edit-site("remote"); }
+                    Tooltip { TipContent { text: "Ruta en el servidor donde cae el sitio, ej. public_html o /www/mi-sitio"; } }
+                }
+                PrefRow {
+                    label: "Subcarpeta local";
+                    value: root.site-local-sub == "" ? "raíz del proyecto" : root.site-local-sub;
+                    activated => { root.edit-site("local-sub"); }
+                    Tooltip { TipContent { text: "Qué carpeta del proyecto se sube, ej. build o dist (vacío = todo el proyecto)"; } }
+                }
+                PrefRow {
+                    label: "Extensiones";
+                    value: root.site-include;
+                    activated => { root.edit-site("include"); }
+                    Tooltip { TipContent { text: "Lista separada por coma de extensiones que se suben"; } }
+                }
+                PrefRow {
+                    label: "Script de despliegue";
+                    value: root.site-script == "" ? "deploy.spasm (si existe)" : root.site-script;
+                    activated => { root.edit-site("script"); }
+                    Tooltip {
+                        TipContent { text: "Script SpASM que decide qué subir. Imprime líneas «UPLOAD <local> [<remota>]», «SKIP <local>», «LOG <texto>». Sin script se sube la subcarpeta filtrando por extensión."; }
+                    }
+                }
+                HorizontalLayout {
+                    height: 30px;
+                    spacing: 6px;
+                    alignment: start;
+                    cross-axis-alignment: center;
+
+                    PrefButton {
+                        label: "Probar conexión";
+                        activated => { root.test-site(); }
+                    }
+                    PrefButton {
+                        label: "Subir cambios";
+                        activated => { root.upload-site(); }
+                    }
+                    PrefButton {
+                        label: "Terminal SSH";
+                        activated => { root.ssh-terminal(); }
+                    }
+                    Rectangle { horizontal-stretch: 1; background: transparent; }
+                }
 
                 PrefSection { title: "ATAJOS (clic para reasignar)"; }
                 for key in root.keys: PrefRow {

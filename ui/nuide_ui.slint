@@ -231,6 +231,22 @@ export component NuIdeWindow inherits Window {
     callback prefs-cycle-mono();
     callback prefs-cycle-sans();
     callback prefs-cycle-alpha();
+    // Despliegue del proyecto abierto (ver `src/site.rs` y `src/deploy.rs`).
+    callback prefs-cycle-transport();
+    callback prefs-edit-site(string);
+    callback prefs-test-site();
+    callback prefs-upload-site();
+    callback prefs-ssh-terminal();
+
+    // Sitio de despliegue del proyecto, para el panel de Preferencias.
+    in-out property <string> site-transport: "FTP";
+    in-out property <string> site-host: "";
+    in-out property <string> site-user: "";
+    in-out property <string> site-pass: "";
+    in-out property <string> site-remote: "";
+    in-out property <string> site-local-sub: "";
+    in-out property <string> site-include: "";
+    in-out property <string> site-script: "";
     callback prefs-font-smaller();
     callback prefs-font-bigger();
     callback prefs-cycle-accent();
@@ -962,6 +978,14 @@ export component NuIdeWindow inherits Window {
         mono: root.prefs-mono;
         sans: root.prefs-sans;
         alpha: root.prefs-alpha;
+        site-transport: root.site-transport;
+        site-host: root.site-host;
+        site-user: root.site-user;
+        site-pass: root.site-pass;
+        site-remote: root.site-remote;
+        site-local-sub: root.site-local-sub;
+        site-include: root.site-include;
+        site-script: root.site-script;
         editor-size: root.prefs-editor-size;
         accent: root.prefs-accent;
         accent-color: root.prefs-accent-color;
@@ -974,6 +998,11 @@ export component NuIdeWindow inherits Window {
         cycle-mono => { root.prefs-cycle-mono(); }
         cycle-sans => { root.prefs-cycle-sans(); }
         cycle-alpha => { root.prefs-cycle-alpha(); }
+        cycle-transport => { root.prefs-cycle-transport(); }
+        edit-site(field) => { root.prefs-edit-site(field); }
+        test-site => { root.prefs-test-site(); }
+        upload-site => { root.prefs-upload-site(); }
+        ssh-terminal => { root.prefs-ssh-terminal(); }
         font-smaller => { root.prefs-font-smaller(); }
         font-bigger => { root.prefs-font-bigger(); }
         cycle-accent => { root.prefs-cycle-accent(); }

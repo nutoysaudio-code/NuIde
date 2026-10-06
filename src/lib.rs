@@ -8,6 +8,7 @@
 
 pub mod build;
 pub mod config;
+pub mod deploy;
 pub mod editor;
 pub mod explorer;
 pub mod git;
@@ -15,6 +16,7 @@ pub mod highlight;
 pub mod lint;
 pub mod pty;
 pub mod search;
+pub mod site;
 pub mod spasm;
 pub mod sysinfo;
 pub mod templates;

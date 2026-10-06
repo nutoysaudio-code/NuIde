@@ -147,7 +147,7 @@ pub fn is_powershell(shell: &str) -> bool {
 }
 
 /// Busca uno de los nombres en el `PATH`.
-fn on_path(names: &[&str]) -> Option<String> {
+pub fn on_path(names: &[&str]) -> Option<String> {
     let path = std::env::var_os("PATH")?;
     for dir in std::env::split_paths(&path) {
         for name in names {

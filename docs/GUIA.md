@@ -120,7 +120,26 @@ El flujo de SpASM es **desarrollar con el intérprete** y **compilar para releas
 Los atajos de la paleta, búsqueda de archivos, buscar en el proyecto y ayuda se
 pueden reasignar desde Preferencias.
 
-## 10. Problemas frecuentes
+## 10. Desplegar el sitio
+
+- **`Ctrl+,` → Despliegue**: cargá Host, Usuario, Contraseña, Carpeta remota y, si
+  corresponde, Subcarpeta local (p. ej. `build`) y Transporte (FTP / FTPS / SFTP).
+  Se guarda **por proyecto** en el config de NuIde, no en el repositorio.
+- **Probar conexión** lista el directorio remoto con `curl` sin subir nada.
+- **Subir cambios** corre `deploy.spasm` si el proyecto lo tiene (o sube la
+  subcarpeta filtrando por extensión) y muestra el progreso en la terminal
+  `build`.
+- **Terminal SSH** abre una sesión `ssh user@host` en una pestaña de terminal.
+- El script decide qué se sube con líneas simples:
+
+  ```text
+  UPLOAD css/site.css
+  UPLOAD build/app.js public/app.js
+  SKIP build/grande.wasm pesado
+  LOG 3 archivos pendientes
+  ```
+
+## 11. Problemas frecuentes
 
 - **«no se encontró el intérprete spasm.exe»**: definí `NUIDE_SPASM` o instalá
   SpASM.

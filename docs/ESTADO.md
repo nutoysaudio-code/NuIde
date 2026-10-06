@@ -526,12 +526,57 @@ corren subprocesses síncronos en el hilo UI; la búsqueda en proyecto no tiene
 
 
 
+### 3.27 Despliegue del sitio (FTP/FTPS/SFTP) sin crates de red
+
+**Decisión**: nada de `suppaftp`/`ssh2`/`russh` (el usuario lo pidió explícito:
+"las librerías de Rust son un infierno"). Windows ya trae `curl.exe`
+(`System32`, habla `ftp`/`ftps`/`sftp`) y OpenSSH (`ssh`, `scp`, `sftp`). Las
+transferencias son procesos hijos, como el resto del toolchain.
+
+- `src/site.rs`: `Site` (transporte, host, puerto, usuario, contraseña, carpeta
+  remota, subcarpeta local, extensiones, script, `cacert`) y `Transport`
+  (FTP/FTPS/SFTP con puerto y esquema propios). **Se guarda en el config de NuIde
+  indexado por proyecto** (`site.<ruta>.host`), así dos proyectos no se pisan y
+  nunca se escribe dentro del repositorio (donde una credencial se comitearía).
+  `url_for` / `curl_args` / `scp_args` / `ssh_args` arman los comandos; FTPS usa
+  la validación de certificado que hace curl por defecto y acepta una CA propia
+  con `--cacert`.
+- `src/deploy.rs`: el trabajo pesado en un hilo que habla por canal
+  (`DeployMsg::{Log,Sent,Aborted,Finished}`) y se drena en la sesión `build` de
+  la terminal. `collect()` filtra por extensión evitando `.git`, `target`,
+  `node_modules`; `plan()` resuelve las rutas que pidió el script.
+  `spawn_test()` prueba el sitio con `curl --list-only` sin subir nada.
+- **La lógica de *qué* subir puede ser un script SpASM del proyecto**
+  (`deploy.spasm`, ejecutado con el intérprete que ya detecta `spasm.rs`, igual
+  que F5). El protocolo es por líneas — el mismo estilo que el host de SpASM usa
+  con `popen` (`spasm-gui.c:1984`):
+  `UPLOAD <local> [<remota>]`, `SKIP <local> [motivo]`, `LOG <texto>`,
+  `ERROR <texto>`, con `>` opcional. NuIde ejecuta la transferencia, así el script
+  no necesita un builtin para lanzar procesos. Sin script: se sube la subcarpeta
+  filtrando por extensión.
+- UI: sección **Despliegue** en Preferencias (clic en un campo abre el diálogo de
+  entrada existente; `PromptKind::SiteField`, exenta de `valid_name` porque un
+  host o una contraseña no son nombres de archivo) con Transporte/Host/Usuario/
+  Contraseña/Carpeta remota/Subcarpeta local/Extensiones/Script y los botones
+  **Probar conexión**, **Subir cambios** y **Terminal SSH** (esta última abre una
+  sesión `ssh user@host` en el PTY real).
+- 13 pruebas nuevas entre `site::tests` y `deploy::tests` (125 en total). Una de
+  ellas detectó un bug real: `scp_args` reaplicaba `remote_root` sobre una ruta
+  ya resuelta y duplicaba el prefijo.
+
+
+
 ## 4. Limitaciones conocidas
 
 - **Persistencia parcial.** Se recuerda el proyecto, el dock/visibilidad de los
   paneles, la geometría de la ventana, las pestañas abiertas, el filtro de
   generados y el cursor de cada archivo. Las **sesiones de terminal, el
   scrollback** y el estado de la búsqueda no.
+- **Despliegue**: la contraseña queda en texto plano en `%APPDATA%\NuIde\config`
+  (fuera del repositorio, a propósito; migrable al almacén de Windows). `scp` no
+  crea carpetas remotas, por eso SFTP usa `curl` salvo que se pida `scp`
+  explícitamente. FTPS valida el certificado con el almacén del sistema o con la
+  CA que se indique; no hay UI para aceptar un certificado en el primer contacto.
 - **Apilado básico.** Cada región apila hasta 3 paneles repartiendo la altura en
   partes iguales (sin divisor arrastrable entre los apilados), y un panel existe
   una sola vez: no se puede duplicar para llenar más de 3 por lado.

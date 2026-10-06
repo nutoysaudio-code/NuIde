@@ -511,7 +511,36 @@ slint-viewer --screenshot ui.png ui/nuide_ui.slint
 - La **CI** (`.gitlab-ci.yml`) corre `fmt`/`clippy -D warnings`/`test` en Linux y
   publica el `.exe` de release como artefacto en Windows.
 
-### Rendimiento
+### Despliegue del sitio
+
+Cada proyecto tiene su **sitio** (host, usuario, contraseña, carpeta remota),
+guardado en el config de NuIde **indexado por proyecto** — nunca dentro del
+repositorio. Se configura en **Preferencias (`Ctrl+,`) → Despliegue** y se prueba
+o sube desde ahí mismo.
+
+- **Transportes**: FTP (21), FTPS (FTP + TLS; curl valida el certificado y acepta
+  una CA propia) y SFTP (SSH, 22).
+- **Sin crates de red**: las transferencias las hace `curl.exe` (viene con
+  Windows, habla `ftp`/`ftps`/`sftp`) o `scp` de OpenSSH, como procesos hijos.
+- **Terminal SSH**: abre una sesión `ssh user@host` en una pestaña de terminal
+  real (ConPTY).
+- **La lógica de qué subir puede ser un script SpASM** del proyecto
+  (`deploy.spasm`, con el intérprete que ya detecta la IDE). El protocolo es por
+  líneas:
+
+  ```text
+  UPLOAD css/site.css              # sube a <carpeta-remota>/css/site.css
+  UPLOAD build/app.js public/app.js
+  SKIP build/grande.wasm pesado
+  LOG 3 archivos pendientes
+  ```
+
+  Sin script, se sube la *subcarpeta local* (p. ej. `build`) filtrando por
+  extensión. El progreso se ve en la sesión `build` de la terminal.
+
+`src/site.rs` (modelo, rutas, argv) y `src/deploy.rs` (hilo, escaneo, protocolo).
+
+
 
 Medido con la app abierta y el panel de OpenCode redibujando (**CPU en reposo /
 memoria**):
