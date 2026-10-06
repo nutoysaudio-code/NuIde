@@ -9,9 +9,10 @@
 //! Las dos terminales —la local inferior y el panel del agente— son un **PTY**
 //! (ConPTY en Windows) con un proceso persistente; los bytes crudos los
 //! interpreta el emulador de `vt`. Escribir es mandarle teclas al proceso. En la
-//! terminal local corre una shell; en el panel del agente corre `opencode` (su
-//! TUI interactiva). Los menús Ejecutar/Compilar escriben la orden en la shell
-//! local, así la salida aparece ahí.
+//! terminal local corre una shell; en el panel del agente corre una shell que
+//! lanza `opencode` al arrancar (si sale de opencode, queda en la shell). Los
+//! menús Ejecutar/Compilar escriben la orden en la shell local, así la salida
+//! aparece ahí.
 //!
 //! Los procesos corren en hilos y avisan por canales. Como los callbacks de
 //! Slint viven en el hilo de la UI, un `Timer` de 60 ms drena los canales y
@@ -1595,34 +1596,22 @@ impl Ide {
 // ---------------------------------------------------------------------------
 
 impl Ide {
-    /// Lanza `opencode` en un PTY para el panel del agente.
-    ///
-    /// Si no está el CLI, o el PTY no se abre, deja la pantalla con el motivo.
+    /// Lanza una shell en el panel del agente e inyecta `opencode` al arrancar.
+    /// Si sale de opencode, queda en la shell y puede relanzarlo cuando quiera.
     fn start_agent(&mut self) {
-        let mut screen = Screen::new(self.agent_rows, self.agent_cols);
-        let Some(bin) = self.toolchain.agent.clone() else {
-            screen.process(
-                b"CLI de OpenCode no encontrado (defini NUIDE_AGENT).\r\n\
-                  \r\nopencode: https://opencode.ai\r\n"
-                    .as_ref(),
-            );
-            self.agent = Some(LocalSession {
-                id: 0,
-                name: "opencode".to_string(),
-                pty: None,
-                screen,
-                alive: false,
-                sel: None,
-                mouse_button: 3,
-                term_model: Rc::new(TermRows::default()),
-            });
-            return;
+        let (shell, args) = pty::default_shell();
+        let powershell = pty::is_powershell(&shell);
+        let name = if powershell {
+            "pwsh agente".to_string()
+        } else {
+            "shell agente".to_string()
         };
         let cwd = self.explorer.root().to_path_buf();
+        let mut screen = Screen::new(self.agent_rows, self.agent_cols);
         let pty = match Pty::spawn(
             0,
-            &bin.display().to_string(),
-            &[],
+            &shell,
+            &args,
             &cwd,
             self.agent_cols,
             self.agent_rows,
@@ -1630,16 +1619,14 @@ impl Ide {
         ) {
             Ok(p) => Some(p),
             Err(e) => {
-                screen.process(
-                    format!("no se pudo abrir opencode ({}): {e}\r\n", bin.display()).as_bytes(),
-                );
+                screen.process(format!("no se pudo abrir la shell ({shell}): {e}\r\n").as_bytes());
                 None
             }
         };
         let alive = pty.is_some();
         self.agent = Some(LocalSession {
             id: 0,
-            name: "opencode".to_string(),
+            name,
             pty,
             screen,
             alive,
@@ -1647,6 +1634,19 @@ impl Ide {
             mouse_button: 3,
             term_model: Rc::new(TermRows::default()),
         });
+        // Inyectar el comando de opencode después de que la shell arranque.
+        if alive {
+            if let Some(bin) = self.toolchain.agent.as_ref() {
+                // Esperar un poco a que la shell muestre el prompt.
+                std::thread::sleep(std::time::Duration::from_millis(500));
+                let command = format!("{}\r", bin.display());
+                if let Some(session) = self.agent.as_mut() {
+                    if let Some(pty) = session.pty.as_mut() {
+                        let _ = pty.write(command.as_bytes());
+                    }
+                }
+            }
+        }
     }
 
     /// Abre el diálogo nativo para elegir la carpeta del proyecto y la fija como
@@ -1917,11 +1917,11 @@ impl Ide {
         self.editor_full = true;
     }
 
-    /// Reinicia el agente en la carpeta nueva. El agente trabaja sobre la raíz
-    /// del proyecto, así que cambiar de proyecto implica arrancarlo de nuevo en
-    /// esa raíz (el comando `/cd` de OpenCode es reciente y no todas las
-    /// versiones lo tienen).
+    /// Reinicia el agente en la carpeta nueva. Como el agente es una shell que
+    /// lanza opencode al arrancar, simplemente lo reiniciamos: la nueva shell
+    /// arranca en el cwd del proyecto y lanza opencode automáticamente.
     fn retarget_agent(&mut self, _dir: &Path) {
+        self.agent = None;
         self.start_agent();
     }
 
