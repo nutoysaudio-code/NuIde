@@ -1917,23 +1917,12 @@ impl Ide {
         self.editor_full = true;
     }
 
-    /// Cambia la carpeta del agente sin reiniciar el proceso: le manda `/cd` al
-    /// PTY de `opencode`. Si no está vivo, lo arranca en la raíz nueva.
-    fn retarget_agent(&mut self, dir: &Path) {
-        let live = self
-            .agent
-            .as_ref()
-            .is_some_and(|s| s.alive && s.pty.is_some());
-        if live {
-            let command = format!("/cd {}\r", dir.display());
-            if let Some(session) = self.agent.as_mut() {
-                if let Some(pty) = session.pty.as_mut() {
-                    let _ = pty.write(command.as_bytes());
-                }
-            }
-        } else {
-            self.start_agent();
-        }
+    /// Reinicia el agente en la carpeta nueva. El agente trabaja sobre la raíz
+    /// del proyecto, así que cambiar de proyecto implica arrancarlo de nuevo en
+    /// esa raíz (el comando `/cd` de OpenCode es reciente y no todas las
+    /// versiones lo tienen).
+    fn retarget_agent(&mut self, _dir: &Path) {
+        self.start_agent();
     }
 
     /// Abre una shell nueva en un PTY y la deja activa.
