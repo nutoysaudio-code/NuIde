@@ -1,0 +1,273 @@
+import { IdeTheme } from "ide_theme.slint";
+import { TipContent } from "ide_tooltip.slint";
+
+// ---------------------------------------------------------------------------
+// Visor de SQLite (módulo opt-in).
+//
+// Panel en dos columnas: a la izquierda las tablas y vistas de la base, a la
+// derecha las filas de la seleccionada. Los datos llegan ya como texto desde
+// Rust (`src/sqlite.rs`, que le pregunta a `sqlite3.exe` o a Python), así que
+// acá sólo hay listas de strings: sin modelo de filas ni parsing en la UI.
+// ---------------------------------------------------------------------------
+
+export component IdeSqlite inherits Rectangle {
+    in property <string> db: "";
+    in property <string> tool: "";
+    in property <[string]> tables: [];
+    in property <int> selected: 0;
+    in property <[string]> headers: [];
+    in property <string> header: "";
+    in property <[string]> lines: [];
+    in property <string> note: "";
+    in property <bool> busy: false;
+
+    callback table-selected(int);
+    callback pick-db();
+    callback refresh();
+    callback dismiss();
+
+    // Fondo que cierra al clic fuera.
+    Rectangle {
+        x: 0;
+        y: 0;
+        width: parent.width;
+        height: parent.height;
+        background: #000000aa;
+
+        TouchArea {
+            clicked => { root.dismiss(); }
+        }
+    }
+
+    box := Rectangle {
+        x: (parent.width - self.width) / 2;
+        y: 56px;
+        width: min(980px, parent.width - 80px);
+        height: min(600px, parent.height - 100px);
+        background: IdeTheme.panel;
+        border-width: 1px;
+        border-color: IdeTheme.border-soft;
+        border-radius: IdeTheme.radius;
+        clip: true;
+
+        // --- encabezado ---
+        Rectangle {
+            x: 0;
+            y: 0;
+            width: parent.width;
+            height: 40px;
+            background: IdeTheme.bg;
+
+            Text {
+                x: 16px;
+                y: (parent.height - self.height) / 2;
+                text: "SQLite";
+                color: IdeTheme.text;
+                font-family: IdeTheme.sans;
+                font-size: 14px;
+                font-weight: 600;
+                vertical-alignment: center;
+            }
+            Text {
+                x: 78px;
+                y: (parent.height - self.height) / 2;
+                width: parent.width - 320px;
+                text: root.db == "" ? "sin base elegida" : root.db;
+                color: IdeTheme.text-soft;
+                font-family: IdeTheme.mono;
+                font-size: 11px;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+            Text {
+                x: parent.width - 236px;
+                y: (parent.height - self.height) / 2;
+                text: root.busy ? "consultando..." : (root.tool == "" ? "" : "vía " + root.tool);
+                color: IdeTheme.text-dim;
+                font-family: IdeTheme.mono;
+                font-size: 10px;
+                vertical-alignment: center;
+            }
+
+            HorizontalLayout {
+                x: parent.width - 156px;
+                y: 7px;
+                height: 26px;
+                spacing: 6px;
+                alignment: end;
+                cross-axis-alignment: center;
+
+                btn-pick := Rectangle {
+                    width: pick-text.width + 20px;
+                    height: 26px;
+                    border-radius: IdeTheme.radius-sm;
+                    background: pick-hit.has-hover ? IdeTheme.control-hi : IdeTheme.control;
+                    Text {
+                        pick-text := Text {
+                            x: 10px;
+                            y: (parent.height - self.height) / 2;
+                            text: "Elegir base";
+                            color: IdeTheme.text;
+                            font-family: IdeTheme.sans;
+                            font-size: 11px;
+                        }
+                    }
+                    pick-hit := TouchArea {
+                        mouse-cursor: MouseCursor.pointer;
+                        clicked => { root.pick-db(); }
+                    }
+                    Tooltip { TipContent { text: "Buscar un archivo .db / .sqlite del proyecto"; } }
+                }
+
+                btn-refresh := Rectangle {
+                    width: refresh-text.width + 20px;
+                    height: 26px;
+                    border-radius: IdeTheme.radius-sm;
+                    background: pick-hit.has-hover ? IdeTheme.control-hi : IdeTheme.control;
+                    Text {
+                        refresh-text := Text {
+                            x: 10px;
+                            y: (parent.height - self.height) / 2;
+                            text: "Refrescar";
+                            color: IdeTheme.text;
+                            font-family: IdeTheme.sans;
+                            font-size: 11px;
+                        }
+                    }
+                    refresh-hit := TouchArea {
+                        mouse-cursor: MouseCursor.pointer;
+                        clicked => { root.refresh(); }
+                    }
+                    Tooltip { TipContent { text: "Vuelve a leer tablas y filas de la base"; } }
+                }
+            }
+
+            Rectangle {
+                y: parent.height - IdeTheme.hairline;
+                width: parent.width;
+                height: IdeTheme.hairline;
+                background: IdeTheme.border-soft;
+            }
+        }
+
+        // --- tablas ---
+        Rectangle {
+            x: 0;
+            y: 40px;
+            width: 240px;
+            height: parent.height - 40px;
+            background: transparent;
+
+            Text {
+                x: 14px;
+                y: 10px;
+                text: "TABLAS";
+                color: IdeTheme.text-dim;
+                font-family: IdeTheme.sans;
+                font-size: 10px;
+                font-weight: 600;
+                letter-spacing: 1.4px;
+            }
+
+            Flickable {
+                x: 0;
+                y: 30px;
+                width: parent.width;
+                height: parent.height - 30px;
+                content-width: self.width;
+                content-height: root.tables.length * 26px + 8px;
+
+                for t[i] in root.tables: tab := Rectangle {
+                    height: 26px;
+                    y: i * 26px + 4px;
+                    width: parent.width;
+                    background: root.selected == i ? IdeTheme.selection : (hit.has-hover ? IdeTheme.control : transparent);
+
+                    Text {
+                        x: 14px;
+                        width: parent.width - 22px;
+                        height: parent.height;
+                        text: t;
+                        color: root.selected == i ? IdeTheme.text : IdeTheme.text-soft;
+                        font-family: IdeTheme.mono;
+                        font-size: 11px;
+                        vertical-alignment: center;
+                        overflow: elide;
+                    }
+                    hit := TouchArea {
+                        mouse-cursor: MouseCursor.pointer;
+                        clicked => { root.table-selected(i); }
+                    }
+                }
+            }
+
+            Rectangle {
+                x: parent.width - IdeTheme.hairline;
+                y: 0;
+                width: IdeTheme.hairline;
+                height: parent.height;
+                background: IdeTheme.border-faint;
+            }
+        }
+
+        // --- filas ---
+        Rectangle {
+            x: 240px;
+            y: 40px;
+            width: parent.width - 240px;
+            height: parent.height - 40px;
+            background: transparent;
+
+            Text {
+                x: 14px;
+                y: 10px;
+                width: parent.width - 28px;
+                text: root.header;
+                color: IdeTheme.mint;
+                font-family: IdeTheme.mono;
+                font-size: 11px;
+                overflow: elide;
+            }
+
+            Flickable {
+                x: 0;
+                y: 32px;
+                width: parent.width;
+                height: parent.height - 32px;
+                content-width: self.width;
+                content-height: root.lines.length * 20px + 8px;
+
+                for line[i] in root.lines: Rectangle {
+                    height: 20px;
+                    y: i * 20px;
+                    width: parent.width;
+                    background: Math.mod(i, 2) == 1 ? #ffffff06 : transparent;
+
+                    Text {
+                        x: 14px;
+                        width: parent.width - 28px;
+                        height: parent.height;
+                        text: line;
+                        color: IdeTheme.text-soft;
+                        font-family: IdeTheme.mono;
+                        font-size: 11px;
+                        vertical-alignment: center;
+                        overflow: elide;
+                    }
+                }
+            }
+
+            // Aviso (sin base, error de la consulta, tabla vacía).
+            if root.note != "": Text {
+                x: 14px;
+                y: (parent.height - self.height) / 2;
+                width: parent.width - 28px;
+                text: root.note;
+                color: IdeTheme.amber;
+                font-family: IdeTheme.sans;
+                font-size: 12px;
+                horizontal-alignment: center;
+            }
+        }
+    }
+}

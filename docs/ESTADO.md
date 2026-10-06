@@ -566,6 +566,45 @@ transferencias son procesos hijos, como el resto del toolchain.
 
 
 
+### 3.28 Módulos opt-in: servidor web con CORS y visor de SQLite
+
+Los dos se prenden/apagan desde **Preferencias → Módulos** y no agregan ni una
+dependencia al build.
+
+- **`src/webserver.rs`** — HTTP/1.1 con `std::net`, sin crates. Parseo y respuesta
+  son funciones puras (`parse_request`, `respond`) y el hilo sólo acepta
+  conexiones. Sirve la subcarpeta elegida del proyecto con MIME por extensión,
+  `index.html` para directorios, y **CORS** configurable
+  (`Access-Control-Allow-Origin/-Methods/-Headers`, preflight `OPTIONS` con
+  `Max-Age`, y `Allow-Credentials` + `Vary: Origin` sólo cuando el origen no es
+  `*`). El camino se resuelve **léxicamente** con `sanitize`: `..`, unidad (`C:`)
+  o separador embebido devuelven 403 y no tocan el disco.
+  - **Bug que encontró la prueba end-to-end**: `Server::stop()` hacía `join()` de
+    un hilo clavado en `accept()` bloqueante → nunca volvía. Ahora el listener es
+    no-bloqueante y sondea el flag de parada cada 20 ms.
+  - `tests/webserver_e2e.rs` (`#[ignore]`, corre con `--ignored`): levanta el
+    servidor en un puerto alto, pide un CSS, un directorio, un preflight, un
+    traversal y un 404, y verifica status y cabeceras CORS de verdad.
+- **`src/sqlite.rs`** — el visor **no** implementa el formato de SQLite (páginas
+  B-tree, freeblocks: otro proyecto). Le pregunta a un binario que ya existe y le
+  lee **TSV**: `sqlite3.exe` (PATH o `Android\Sdk\platform-tools`) o, si no,
+  `python` con el módulo `sqlite3` de su biblioteca estándar (reusa el
+  descubrimiento del toolchain SpASM, así respeta `NUIDE_PYTHON`). Mismo estilo de
+  contrato por líneas que el despliegue. `probe()` valida el magic
+  `SQLite format 3\0` antes de abrir nada, y `quote_ident()` escapa los nombres.
+- **`ui/ide_sqlite.slint`** — panel modal en dos columnas (tablas | filas) con
+  "Elegir base" y "Refrescar"; Rust manda los datos ya como texto, así que la UI
+  no parsea ni modela filas.
+- Cables en `editor.rs`: estado por módulo (`web`, `sqlite_*`), handlers de los
+  callbacks, drenaje en `drain()` (las peticiones servidas se ven en la sesión
+  `build`) y persistencia (`web.<proyecto>.*`, `module.sqlite`).
+- 15 pruebas nuevas (10 de `webserver`, 5 de `sqlite`) más el e2e ignorado →
+  **140** en la suite normal.
+
+**Límites honestos**: el servidor escucha sólo en `127.0.0.1`, atiende una
+petición por conexión (`Connection: close`) y no tiene rangos, caché ni
+compresión; el visor muestra hasta 200 filas por tabla y no edita.
+
 ## 4. Limitaciones conocidas
 
 - **Persistencia parcial.** Se recuerda el proyecto, el dock/visibilidad de los

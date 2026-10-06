@@ -17,6 +17,7 @@ import { IdePrompt } from "ide_prompt.slint";
 import { IdeSearch } from "ide_search.slint";
 import { IdeDiff } from "ide_diff.slint";
 import { IdePrefs } from "ide_prefs.slint";
+import { IdeSqlite } from "ide_sqlite.slint";
 import { IdeAbout } from "ide_about.slint";
 
 // ---------------------------------------------------------------------------
@@ -247,6 +248,36 @@ export component NuIdeWindow inherits Window {
     in-out property <string> site-local-sub: "";
     in-out property <string> site-include: "";
     in-out property <string> site-script: "";
+
+    // --- módulos: servidor web local y visor de SQLite ---
+    // El servidor se prende/apaga desde Preferencias; la URL se ve en el pie.
+    in-out property <bool> web-enabled: false;
+    in-out property <string> web-url: "";
+    in-out property <string> web-port: "8080";
+    in-out property <string> web-root: "";
+    in-out property <string> web-cors: "*";
+    // Visor de SQLite: panel modal con tablas y filas.
+    in-out property <bool> sqlite-open: false;
+    in-out property <bool> sqlite-module: false;
+    in-out property <string> sqlite-db: "";
+    in-out property <string> sqlite-tool: "";
+    in-out property <[string]> sqlite-tables: [];
+    in-out property <int> sqlite-selected: 0;
+    in-out property <string> sqlite-header: "";
+    in-out property <[string]> sqlite-lines: [];
+    in-out property <string> sqlite-note: "";
+    in-out property <bool> sqlite-busy: false;
+
+    callback toggle-web();
+    callback edit-web-port();
+    callback edit-web-root();
+    callback edit-web-cors();
+    callback toggle-sqlite-module();
+    callback sqlite-open-panel();
+    callback sqlite-dismiss();
+    callback sqlite-pick-db();
+    callback sqlite-refresh();
+    callback sqlite-table-selected(int);
     callback prefs-font-smaller();
     callback prefs-font-bigger();
     callback prefs-cycle-accent();
@@ -986,6 +1017,12 @@ export component NuIdeWindow inherits Window {
         site-local-sub: root.site-local-sub;
         site-include: root.site-include;
         site-script: root.site-script;
+        web-enabled: root.web-enabled;
+        web-port: root.web-port;
+        web-root: root.web-root;
+        web-cors: root.web-cors;
+        sqlite-module: root.sqlite-module;
+        sqlite-db-name: root.sqlite-db;
         editor-size: root.prefs-editor-size;
         accent: root.prefs-accent;
         accent-color: root.prefs-accent-color;
@@ -1003,6 +1040,11 @@ export component NuIdeWindow inherits Window {
         test-site => { root.prefs-test-site(); }
         upload-site => { root.prefs-upload-site(); }
         ssh-terminal => { root.prefs-ssh-terminal(); }
+        toggle-web => { root.toggle-web(); }
+        edit-web-port => { root.edit-web-port(); }
+        edit-web-root => { root.edit-web-root(); }
+        edit-web-cors => { root.edit-web-cors(); }
+        toggle-sqlite => { root.toggle-sqlite-module(); }
         font-smaller => { root.prefs-font-smaller(); }
         font-bigger => { root.prefs-font-bigger(); }
         cycle-accent => { root.prefs-cycle-accent(); }
@@ -1010,6 +1052,26 @@ export component NuIdeWindow inherits Window {
         toggle-spaces => { root.prefs-toggle-spaces(); }
         toggle-build => { root.prefs-toggle-build(); }
         capture(id) => { root.prefs-capture(id); }
+    }
+
+    // --- módulo: visor de SQLite ---
+    if root.sqlite-open: IdeSqlite {
+        x: 0;
+        y: 0;
+        width: parent.width;
+        height: parent.height;
+        db: root.sqlite-db;
+        tool: root.sqlite-tool;
+        tables: root.sqlite-tables;
+        selected: root.sqlite-selected;
+        header: root.sqlite-header;
+        lines: root.sqlite-lines;
+        note: root.sqlite-note;
+        busy: root.sqlite-busy;
+        table-selected(i) => { root.sqlite-table-selected(i); }
+        pick-db => { root.sqlite-pick-db(); }
+        refresh => { root.sqlite-refresh(); }
+        dismiss => { root.sqlite-dismiss(); }
     }
 
     // --- acerca de ---

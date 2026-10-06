@@ -540,7 +540,24 @@ o sube desde ahí mismo.
 
 `src/site.rs` (modelo, rutas, argv) y `src/deploy.rs` (hilo, escaneo, protocolo).
 
+### Módulos (Preferencias → Módulos)
 
+Dos extras que se prenden y apagan, **sin dependencias nuevas**:
+
+- **Servidor web local con CORS**: HTTP/1.1 hecho con `std::net`, sirve la
+  subcarpeta que elijas del proyecto en `http://localhost:<puerto>/`. Cabeceras
+  `Access-Control-Allow-*` configurables (origen, métodos, encabezados),
+  preflight `OPTIONS`, `index.html` en directorios y bloqueo de *path traversal*
+  (403). Escucha sólo en `127.0.0.1`; cada petición servida se ve en la terminal
+  `build`.
+- **Visor de SQLite**: panel con las tablas de una base `.db` y sus filas (hasta
+  200). No implementa el formato de SQLite: le pregunta a `sqlite3.exe` o a
+  Python (módulo `sqlite3`) y le lee TSV, el mismo estilo de contrato por líneas
+  del despliegue.
+
+`src/webserver.rs`, `src/sqlite.rs` y `ui/ide_sqlite.slint`.
+
+### Rendimiento
 
 Medido con la app abierta y el panel de OpenCode redibujando (**CPU en reposo /
 memoria**):

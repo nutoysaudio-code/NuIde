@@ -139,7 +139,21 @@ pueden reasignar desde Preferencias.
   LOG 3 archivos pendientes
   ```
 
-## 11. Problemas frecuentes
+## 11. Módulos
+
+Se activan en **Preferencias (`Ctrl+,`) → Módulos**.
+
+- **Servidor web local**: prendelo y abrí `http://localhost:<puerto>/` en el
+  navegador. **Puerto**, **Carpeta servida** (por ejemplo `build` o `dist`) y
+  **CORS: origen permitido** se editan en esa misma lista. Con `*` cualquier
+  origen puede leer el servidor; si la página manda credenciales, poné el dominio
+  exacto. Cada pedido aparece en la terminal `build` con su código y tamaño.
+- **Visor de SQLite**: al activarlo pide un archivo `.db`/`.sqlite`; el panel
+  muestra las tablas a la izquierda y hasta 200 filas a la derecha. **Refrescar**
+  vuelve a leer la base. Necesita `sqlite3.exe` o Python en la máquina (se avisa
+  si no hay ninguno).
+
+## 12. Problemas frecuentes
 
 - **«no se encontró el intérprete spasm.exe»**: definí `NUIDE_SPASM` o instalá
   SpASM.

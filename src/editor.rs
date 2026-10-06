@@ -38,6 +38,7 @@ use crate::pty::{self, Pty, PtyEvent};
 use crate::search;
 use crate::site::{Site, Transport};
 use crate::spasm::Toolchain;
+use crate::sqlite::{self, Tool as SqliteTool};
 use crate::sysinfo;
 use crate::templates;
 use crate::ui::{
@@ -46,6 +47,7 @@ use crate::ui::{
     TermRun,
 };
 use crate::vt::{Run, Screen, Selection};
+use crate::webserver::{Server as WebServer, WebConfig, WebEvent};
 
 /// Tope de líneas que se abren de un archivo. Un archivo enorme no puede
 /// congelar la UI; lo que sobra no se muestra.
@@ -1006,6 +1008,8 @@ enum PromptKind {
     RunArgs,
     /// Editar un campo del sitio de despliegue ("host", "user", ...).
     SiteField(&'static str),
+    /// Editar un campo del módulo de servidor web ("port", "root", "cors").
+    WebField(&'static str),
 }
 
 /// Diálogo de entrada de texto pendiente.
@@ -1143,6 +1147,26 @@ pub struct Ide {
     deploy_rx: Receiver<DeployMsg>,
     /// `true` mientras hay un despliegue o una prueba corriendo.
     deploy_busy: bool,
+    /// --- módulo: servidor web local con CORS ---
+    web: WebConfig,
+    /// El servidor en marcha (`None` = apagado).
+    web_server: Option<WebServer>,
+    web_tx: Sender<WebEvent>,
+    web_rx: Receiver<WebEvent>,
+    /// --- módulo: visor de SQLite ---
+    sqlite_enabled: bool,
+    sqlite_open: bool,
+    sqlite_db: Option<PathBuf>,
+    sqlite_tool: Option<SqliteTool>,
+    sqlite_tables: Vec<String>,
+    sqlite_selected: usize,
+    /// Columnas y filas ya como texto, listas para el panel.
+    sqlite_header: String,
+    sqlite_lines: Vec<String>,
+    sqlite_note: String,
+    sqlite_busy: bool,
+    sqlite_tx: Sender<sqlite::Loaded>,
+    sqlite_rx: Receiver<sqlite::Loaded>,
     /// Nota para agregar a la salida del próximo build (p. ej. falta de cc).
     build_note: Option<String>,
     /// Git del proyecto: estado, nota, hilo de operaciones.
@@ -1250,6 +1274,9 @@ impl Ide {
         let (search_tx, search_rx) = mpsc::channel();
         // Despliegue: el hilo de transferencias (curl/scp) habla por este canal.
         let (deploy_tx, deploy_rx) = mpsc::channel();
+        // Módulos: servidor web y visor de SQLite.
+        let (web_tx, web_rx) = mpsc::channel();
+        let (sqlite_tx, sqlite_rx) = mpsc::channel();
         // En las pruebas no se consulta Git (mantiene los tests rápidos y ajenos
         // al estado del repo; el parseo se cubre en `git::tests`).
         let git_status = if cfg!(test) {
@@ -1261,6 +1288,11 @@ impl Ide {
         // El sitio de despliegue del proyecto que estaba abierto (el config se
         // mueve más abajo en el literal, así que se lee acá).
         let site = Site::load(&root, &config);
+
+        // El config y la raíz se mueven dentro del literal: los valores de los
+        // módulos se leen antes.
+        let web = WebConfig::load(&root, &config);
+        let sqlite_enabled = config.bool("module.sqlite", false);
 
         let mut ide = Self {
             toolchain: Toolchain::discover(),
@@ -1334,6 +1366,22 @@ impl Ide {
             deploy_tx,
             deploy_rx,
             deploy_busy: false,
+            web,
+            web_server: None,
+            web_tx,
+            web_rx,
+            sqlite_enabled,
+            sqlite_open: false,
+            sqlite_db: None,
+            sqlite_tool: None,
+            sqlite_tables: Vec::new(),
+            sqlite_selected: 0,
+            sqlite_header: String::new(),
+            sqlite_lines: Vec::new(),
+            sqlite_note: String::new(),
+            sqlite_busy: false,
+            sqlite_tx,
+            sqlite_rx,
             build_note: None,
             git_status,
             git_note: String::new(),
@@ -3166,7 +3214,7 @@ impl Ide {
         let name = p.text.trim().to_string();
         // Un campo del sitio puede quedar vacío (limpiar la contraseña, el script)
         // y admite caracteres que `valid_name` rechaza por ser nombres de archivo.
-        let site_field = matches!(p.kind, PromptKind::SiteField(_));
+        let site_field = matches!(p.kind, PromptKind::SiteField(_) | PromptKind::WebField(_));
         if name.is_empty() && !site_field {
             return;
         }
@@ -3215,6 +3263,7 @@ impl Ide {
                 self.config.save();
             }
             PromptKind::SiteField(field) => self.site_field_set(field, p.text.clone()),
+            PromptKind::WebField(field) => self.web_field_set(field, p.text.clone()),
         }
     }
 
@@ -3570,6 +3619,11 @@ impl Ide {
         self.config.save();
     }
 
+    /// Raíz del proyecto abierto (las claves por proyecto del config la usan).
+    fn site_root(&self) -> PathBuf {
+        self.explorer.root().to_path_buf()
+    }
+
     /// Cicla el transporte del sitio (FTP → FTPS → SFTP).
     fn prefs_cycle_transport(&mut self) {
         self.site.transport = match self.site.transport {
@@ -3692,6 +3746,189 @@ impl Ide {
         });
         self.local_active = self.local.len() - 1;
         self.resize_local();
+    }
+
+    // --- módulos: servidor web y visor de SQLite ---
+
+    /// Prende o apaga el servidor web local.
+    fn toggle_web(&mut self) {
+        if self.web.enabled {
+            self.stop_web();
+            return;
+        }
+        let root = self.site_root();
+        let cfg = self.web.clone();
+        let tx = self.web_tx.clone();
+        match WebServer::start(cfg.clone(), self.web.root(&root), tx) {
+            Ok(server) => {
+                self.web.enabled = true;
+                self.web_server = Some(server);
+                self.write_build_output(&format!(
+                    "servidor web activo en {} (raíz: {}, CORS: {})\n",
+                    cfg.url(),
+                    cfg.root(&root).display(),
+                    cfg.cors_origin
+                ));
+                self.local_active = self.ensure_build_session();
+                self.resize_local();
+            }
+            Err(e) => {
+                self.write_build_output(&format!("no se pudo prender el servidor: {e}\n"));
+                self.local_active = self.ensure_build_session();
+                self.resize_local();
+                return;
+            }
+        }
+        self.save_web();
+    }
+
+    /// Apaga el servidor (destruye el listener y espera al hilo).
+    fn stop_web(&mut self) {
+        self.web.enabled = false;
+        if let Some(server) = self.web_server.take() {
+            server.stop();
+        }
+        self.save_web();
+    }
+
+    fn save_web(&mut self) {
+        let project = self.site_root();
+        let web = self.web.clone();
+        web.save(&project, &mut self.config);
+        self.config.save();
+    }
+
+    /// Abre el diálogo para editar puerto / carpeta / CORS.
+    fn edit_web(&mut self, field: &str) {
+        let current = match field {
+            "port" => self.web.port.to_string(),
+            "root" => self.web.root_sub.clone(),
+            _ => self.web.cors_origin.clone(),
+        };
+        self.prompt = Some(Prompt {
+            kind: PromptKind::WebField(match field {
+                "port" => "port",
+                "root" => "root",
+                _ => "cors",
+            }),
+            target: PathBuf::new(),
+            text: current,
+        });
+    }
+
+    /// Aplica un campo del servidor; si estaba prendido, lo reinicia.
+    fn web_field_set(&mut self, field: &str, value: String) {
+        let value = value.trim().to_string();
+        match field {
+            "port" => {
+                if let Ok(p) = value.parse::<u16>() {
+                    if p >= 1024 {
+                        self.web.port = p;
+                    }
+                }
+            }
+            "root" => self.web.root_sub = value,
+            _ => self.web.cors_origin = if value.is_empty() { "*".into() } else { value },
+        }
+        if self.web.enabled {
+            self.stop_web();
+            self.web.enabled = true;
+            self.toggle_web();
+        } else {
+            self.save_web();
+        }
+    }
+
+    /// Prende/apaga el visor de SQLite; al prenderlo pide la base si no hay.
+    fn toggle_sqlite_module(&mut self) {
+        self.sqlite_enabled = !self.sqlite_enabled;
+        self.config
+            .set("module.sqlite", if self.sqlite_enabled { "1" } else { "0" });
+        self.config.save();
+        if !self.sqlite_enabled {
+            self.sqlite_open = false;
+            return;
+        }
+        if self.sqlite_db.is_none() {
+            self.sqlite_pick_db();
+        } else {
+            self.sqlite_reload();
+        }
+    }
+
+    /// Elegidor nativo de archivo de base.
+    fn sqlite_pick_db(&mut self) {
+        let start = self.site_root();
+        let Some(path) = rfd::FileDialog::new()
+            .set_title("Base de datos SQLite")
+            .set_directory(&start)
+            .add_filter("SQLite", &["db", "sqlite", "sqlite3"])
+            .add_filter("Todos", &["*"])
+            .pick_file()
+        else {
+            return;
+        };
+        if !sqlite::probe(&path) {
+            self.sqlite_note = "el archivo no parece una base SQLite".to_string();
+            self.sqlite_db = Some(path);
+            self.sqlite_open = true;
+            return;
+        }
+        self.sqlite_db = Some(path);
+        self.sqlite_open = true;
+        self.sqlite_reload();
+    }
+
+    /// Vuelve a leer tablas y filas en un hilo (nunca en el de la UI).
+    fn sqlite_reload(&mut self) {
+        let Some(path) = self.sqlite_db.clone() else {
+            self.sqlite_note = "elegí una base primero".to_string();
+            self.sqlite_open = true;
+            return;
+        };
+        let Some(tool) = sqlite::Tool::discover().or_else(|| self.sqlite_tool.clone()) else {
+            self.sqlite_note = "no se encontró sqlite3.exe ni python para leer la base".to_string();
+            self.sqlite_open = true;
+            self.sqlite_busy = false;
+            return;
+        };
+        self.sqlite_tool = Some(tool.clone());
+        self.sqlite_busy = true;
+        self.sqlite_note = String::new();
+        let table = self
+            .sqlite_tables
+            .get(self.sqlite_selected)
+            .cloned()
+            .or_else(|| self.sqlite_last_table());
+        let tx = self.sqlite_tx.clone();
+        sqlite::spawn_load(tool, path, table, tx);
+    }
+
+    /// Tabla elegida antes de cerrar el panel (para reabrirla en la misma).
+    fn sqlite_last_table(&self) -> Option<String> {
+        None
+    }
+
+    /// Cambia la tabla mostrada.
+    fn sqlite_select(&mut self, index: usize) {
+        self.sqlite_selected = index;
+        self.sqlite_reload();
+    }
+
+    /// Cierra el panel del visor.
+    fn sqlite_close(&mut self) {
+        self.sqlite_open = false;
+    }
+
+    /// Recibe el resultado de una lectura del visor.
+    fn sqlite_loaded(&mut self, msg: sqlite::Loaded) {
+        self.sqlite_busy = false;
+        let index = msg.tables.iter().position(|t| *t == msg.table).unwrap_or(0);
+        self.sqlite_selected = index;
+        self.sqlite_tables = msg.tables;
+        self.sqlite_header = msg.header;
+        self.sqlite_lines = msg.lines;
+        self.sqlite_note = msg.note;
     }
 
     /// Vuelca un mensaje del hilo de despliegue en la sesión `build`.
@@ -5812,6 +6049,11 @@ impl Ide {
                     "script" => ("Script de despliegue", "deploy.spasm"),
                     _ => ("Host del sitio", "ftp.midominio.com"),
                 },
+                PromptKind::WebField(field) => match field {
+                    "port" => ("Puerto del servidor local", "8080"),
+                    "root" => ("Carpeta servida", "build"),
+                    _ => ("Origen permitido (CORS)", "*"),
+                },
             };
             w.set_prompt_title(title.into());
             w.set_prompt_placeholder(placeholder.into());
@@ -5907,7 +6149,56 @@ impl Ide {
         w.set_prefs_sans(self.sans.clone().into());
         w.set_prefs_editor_size(format!("{}", self.editor_font_size as i32).into());
         w.set_prefs_accent(self.accent_name().into());
+        // Módulos: servidor web y visor de SQLite.
         w.set_prefs_alpha(format!("{} %", (self.panel_alpha * 100.0).round() as i32).into());
+        w.set_web_enabled(self.web.enabled);
+        w.set_web_url(if self.web.enabled {
+            self.web.url().into()
+        } else {
+            "".into()
+        });
+        w.set_web_port(self.web.port.to_string().into());
+        w.set_web_root(self.web.root_sub.clone().into());
+        w.set_web_cors(self.web.cors_origin.clone().into());
+        w.set_sqlite_module(self.sqlite_enabled);
+        w.set_sqlite_open(self.sqlite_open);
+        w.set_sqlite_db(
+            self.sqlite_db
+                .as_ref()
+                .map(|p| p.display().to_string())
+                .unwrap_or_default()
+                .into(),
+        );
+        w.set_sqlite_tool(
+            self.sqlite_tool
+                .as_ref()
+                .map(|t| t.label().to_string())
+                .unwrap_or_default()
+                .into(),
+        );
+        w.set_sqlite_tables(
+            self.sqlite_tables
+                .iter()
+                .cloned()
+                .map(slint::SharedString::from)
+                .collect::<Vec<_>>()
+                .as_slice()
+                .into(),
+        );
+        w.set_sqlite_selected(self.sqlite_selected as i32);
+        w.set_sqlite_header(self.sqlite_header.clone().into());
+        w.set_sqlite_lines(
+            self.sqlite_lines
+                .iter()
+                .cloned()
+                .map(slint::SharedString::from)
+                .collect::<Vec<_>>()
+                .as_slice()
+                .into(),
+        );
+        w.set_sqlite_note(self.sqlite_note.clone().into());
+        w.set_sqlite_busy(self.sqlite_busy);
+
         // Sitio de despliegue del proyecto (Preferencias → Despliegue).
         w.set_site_transport(self.site.transport.label().into());
         w.set_site_host(self.site.host.clone().into());
@@ -6185,7 +6476,36 @@ impl Ide {
             self.deploy_message(msg);
             deploy_done |= finished;
         }
-        if got {
+        // Módulos: mensajes del servidor web y resultados de lecturas de SQLite.
+        let mut web_touched = false;
+        while let Ok(ev) = self.web_rx.try_recv() {
+            match ev {
+                WebEvent::Started { url } => {
+                    self.write_build_output(&format!("servidor web activo en {url}\n"));
+                    web_touched = true;
+                }
+                WebEvent::StartFailed { message } => {
+                    self.web.enabled = false;
+                    self.web_server = None;
+                    self.write_build_output(&format!("servidor web: {message}\n"));
+                    web_touched = true;
+                }
+                WebEvent::Stopped => {
+                    self.write_build_output("servidor web detenido.\n");
+                    web_touched = true;
+                }
+                WebEvent::Served { line } => {
+                    self.write_build_output(&format!("{line}\n"));
+                    web_touched = true;
+                }
+            }
+        }
+        let mut sqlite_touched = false;
+        while let Ok(msg) = self.sqlite_rx.try_recv() {
+            self.sqlite_loaded(msg);
+            sqlite_touched = true;
+        }
+        if got || web_touched || sqlite_touched {
             self.sync(w);
         } else if terms || deploy_done {
             self.sync_terms(w);
@@ -7402,6 +7722,106 @@ pub fn attach(window: &NuIdeWindow, ide: Rc<RefCell<Ide>>) {
             if let Some(w) = weak.upgrade() {
                 let mut e = ide.borrow_mut();
                 e.deploy_ssh_terminal();
+                e.sync(&w);
+            }
+        });
+    }
+    // Módulos: servidor web y visor de SQLite.
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_toggle_web(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.toggle_web();
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_edit_web_port(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.edit_web("port");
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_edit_web_root(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.edit_web("root");
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_edit_web_cors(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.edit_web("cors");
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_toggle_sqlite_module(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.toggle_sqlite_module();
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_sqlite_pick_db(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.sqlite_pick_db();
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_sqlite_refresh(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.sqlite_reload();
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_sqlite_table_selected(move |i| {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.sqlite_select(i.max(0) as usize);
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_sqlite_dismiss(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.sqlite_close();
                 e.sync(&w);
             }
         });

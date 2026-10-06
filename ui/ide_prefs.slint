@@ -107,6 +107,22 @@ export component IdePrefs inherits Rectangle {
     in property <string> site-include: "";
     in property <string> site-script: "";
 
+    // --- módulos opt-in ---
+    // Servidor web local (se prende desde acá; la URL aparece en el pie).
+    in property <bool> web-enabled: false;
+    in property <string> web-port: "8080";
+    in property <string> web-root: "";
+    in property <string> web-cors: "*";
+    // Visor de SQLite: prende el panel y muestra la base cargada.
+    in property <bool> sqlite-module: false;
+    in property <string> sqlite-db-name: "";
+
+    callback toggle-web();
+    callback edit-web-port();
+    callback edit-web-root();
+    callback edit-web-cors();
+    callback toggle-sqlite();
+
     callback dismiss();
     callback cycle-mono();
     callback cycle-sans();
@@ -316,6 +332,50 @@ export component IdePrefs inherits Rectangle {
                         activated => { root.ssh-terminal(); }
                     }
                     Rectangle { horizontal-stretch: 1; background: transparent; }
+                }
+
+                PrefSection { title: "MÓDULOS"; }
+                PrefRow {
+                    label: "Servidor web local";
+                    value: root.web-enabled ? "Activo" : "Apagado";
+                    activated => { root.toggle-web(); }
+                    Tooltip {
+                        TipContent { text: "Sirve la carpeta del proyecto en http://localhost:<puerto>/ con CORS, para ver el sitio antes de subirlo"; }
+                    }
+                }
+                PrefRow {
+                    label: "Puerto";
+                    value: root.web-port;
+                    activated => { root.edit-web-port(); }
+                    Tooltip { TipContent { text: "Puerto local del servidor (1024-65535)"; } }
+                }
+                PrefRow {
+                    label: "Carpeta servida";
+                    value: root.web-root == "" ? "raíz del proyecto" : root.web-root;
+                    activated => { root.edit-web-root(); }
+                    Tooltip { TipContent { text: "Subcarpeta que se sirve, ej. build o dist (vacío = todo el proyecto)"; } }
+                }
+                PrefRow {
+                    label: "CORS: origen permitido";
+                    value: root.web-cors;
+                    activated => { root.edit-web-cors(); }
+                    Tooltip {
+                        TipContent { text: "Access-Control-Allow-Origin. * para cualquier origen; un dominio concreto si la página manda credenciales"; }
+                    }
+                }
+                PrefRow {
+                    label: "Visor de SQLite";
+                    value: root.sqlite-module ? "Activo" : "Apagado";
+                    activated => { root.toggle-sqlite(); }
+                    Tooltip {
+                        TipContent { text: "Panel para mirar las tablas de una base .db del proyecto. Usa sqlite3.exe o Python, sin librerías extra"; }
+                    }
+                }
+                PrefRow {
+                    label: "Base abierta";
+                    value: root.sqlite-db-name == "" ? "ninguna (clic para elegir)" : root.sqlite-db-name;
+                    activated => { root.toggle-sqlite(); }
+                    Tooltip { TipContent { text: "Elegí un archivo .db / .sqlite; el panel se abre en cuanto hay base"; } }
                 }
 
                 PrefSection { title: "ATAJOS (clic para reasignar)"; }
