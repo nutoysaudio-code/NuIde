@@ -138,6 +138,35 @@ enum DocKind {
     Image,
 }
 
+/// Operación de edición atómica para undo/redo incremental.
+#[derive(Debug, Clone)]
+enum EditOp {
+    /// Insertar un carácter en (line, col).
+    InsertChar { line: usize, col: usize, ch: char },
+    /// Borrar un carácter en (line, col) hacia atrás.
+    DeleteChar { line: usize, col: usize, ch: char },
+    /// Insertar una línea nueva después de `line`.
+    InsertLine { after: usize, content: String },
+    /// Borrar la línea `line`.
+    DeleteLine { line: usize },
+    /// Unir la línea `line` con la siguiente (borrar el salto).
+    JoinLine { line: usize },
+    /// Dividir la línea `line` en la columna `at`.
+    SplitLine { line: usize, at: usize },
+    /// Reemplazar un rango de texto.
+    Replace {
+        start: Cursor,
+        end: Cursor,
+        old_text: Vec<String>,
+        new_text: Vec<String>,
+    },
+    /// Snapshot completo del documento (sistema legacy).
+    Snapshot {
+        lines: Vec<String>,
+        cursor: Cursor,
+    },
+}
+
 /// Un archivo abierto en una pestaña del editor.
 struct OpenTab {
     path: PathBuf,
@@ -1114,10 +1143,11 @@ pub struct Ide {
     model_attached: bool,
     /// Hay que reconstruir el modelo entero en el próximo `sync`.
     editor_full: bool,
-    /// Pila de deshacer del archivo activo.
-    undo: Vec<(Vec<String>, Cursor)>,
+    /// Pila de deshacer del archivo activo: cada entrada es una lista de
+    /// operaciones atómicas que forman una "edición" completa.
+    undo: Vec<Vec<EditOp>>,
     /// Pila de rehacer. Se vacía con cada edición nueva.
-    redo: Vec<(Vec<String>, Cursor)>,
+    redo: Vec<Vec<EditOp>>,
     /// Ajustes del editor: ancho de tab y si inserta espacios.
     tab_size: usize,
     insert_spaces: bool,
@@ -5280,40 +5310,174 @@ impl Ide {
     }
 
     fn undo_active(&mut self) {
-        if let Some((lines, cursor)) = self.undo.pop() {
-            let current = self.tabs[self.active_tab].snapshot();
-            self.redo.push(current);
-            self.apply_snapshot(lines, cursor);
+        if let Some(ops) = self.undo.pop() {
+            // Guardar operaciones inversas para redo
+            let mut inverse_ops = Vec::new();
+            for op in ops.iter().rev() {
+                if let Some(inv) = self.apply_undo_op(op) {
+                    inverse_ops.push(inv);
+                }
+            }
+            if !inverse_ops.is_empty() {
+                self.redo.push(inverse_ops);
+            }
+            self.editor_full = true;
         }
     }
 
     fn redo_active(&mut self) {
-        if let Some((lines, cursor)) = self.redo.pop() {
-            let current = self.tabs[self.active_tab].snapshot();
-            self.undo.push(current);
-            self.apply_snapshot(lines, cursor);
+        if let Some(ops) = self.redo.pop() {
+            // Guardar operaciones inversas para undo
+            let mut inverse_ops = Vec::new();
+            for op in ops.iter().rev() {
+                if let Some(inv) = self.apply_undo_op(op) {
+                    inverse_ops.push(inv);
+                }
+            }
+            if !inverse_ops.is_empty() {
+                self.undo.push(inverse_ops);
+            }
+            self.editor_full = true;
         }
     }
 
-    fn apply_snapshot(&mut self, lines: Vec<String>, cursor: Cursor) {
-        let t = &mut self.tabs[self.active_tab];
-        t.lines = lines;
-        t.cursor = cursor;
-        t.anchor = None;
-        t.dirty = true;
-        t.clamp_cursor();
-        self.editor_full = true;
+    /// Guarda operaciones incrementales para undo (nuevo sistema eficiente).
+    fn push_undo_ops(&mut self, ops: Vec<EditOp>) {
+        if !ops.is_empty() {
+            self.undo.push(ops);
+            if self.undo.len() > MAX_UNDO {
+                self.undo.remove(0);
+            }
+        }
+        self.redo.clear();
     }
 
-    /// Guarda el estado actual para poder deshacer. Una edición nueva borra el
-    /// rehacer.
+    /// Guarda un snapshot completo (sistema legacy para operaciones complejas).
     fn push_undo(&mut self) {
         let snap = self.tabs[self.active_tab].snapshot();
-        self.undo.push(snap);
+        self.undo.push(vec![EditOp::Snapshot {
+            lines: snap.0,
+            cursor: snap.1,
+        }]);
         if self.undo.len() > MAX_UNDO {
             self.undo.remove(0);
         }
         self.redo.clear();
+    }
+
+    /// Aplica una operación de undo y devuelve la operación inversa para redo.
+    fn apply_undo_op(&mut self, op: &EditOp) -> Option<EditOp> {
+        let tab = self.tabs.get_mut(self.active_tab)?;
+        match op {
+            EditOp::InsertChar { line, col, ch } => {
+                if let Some(l) = tab.lines.get_mut(*line) {
+                    let inverse = EditOp::DeleteChar {
+                        line: *line,
+                        col: *col,
+                        ch: *ch,
+                    };
+                    l.remove(*col);
+                    Some(inverse)
+                } else {
+                    None
+                }
+            }
+            EditOp::DeleteChar { line, col, ch } => {
+                if let Some(l) = tab.lines.get_mut(*line) {
+                    let inverse = EditOp::InsertChar {
+                        line: *line,
+                        col: *col,
+                        ch: *ch,
+                    };
+                    l.insert(*col, *ch);
+                    Some(inverse)
+                } else {
+                    None
+                }
+            }
+            EditOp::InsertLine { after, content } => {
+                let inverse = EditOp::DeleteLine { line: after + 1 };
+                tab.lines.insert(after + 1, content.clone());
+                Some(inverse)
+            }
+            EditOp::DeleteLine { line } => {
+                if *line < tab.lines.len() {
+                    let content = tab.lines.remove(*line);
+                    let inverse = EditOp::InsertLine {
+                        after: line - 1,
+                        content,
+                    };
+                    Some(inverse)
+                } else {
+                    None
+                }
+            }
+            EditOp::JoinLine { line } => {
+                if *line + 1 < tab.lines.len() {
+                    let next = tab.lines.remove(*line + 1);
+                    tab.lines[*line].push_str(&next);
+                    let inverse = EditOp::SplitLine {
+                        line: *line,
+                        at: tab.lines[*line].len(),
+                    };
+                    Some(inverse)
+                } else {
+                    None
+                }
+            }
+            EditOp::SplitLine { line, at } => {
+                if let Some(l) = tab.lines.get(*line) {
+                    if *at <= l.len() {
+                        let rest = l[*at..].to_string();
+                        tab.lines[*line] = l[..*at].to_string();
+                        tab.lines.insert(*line + 1, rest);
+                        let inverse = EditOp::JoinLine { line: *line };
+                        Some(inverse)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            }
+            EditOp::Replace {
+                start,
+                end,
+                old_text,
+                new_text,
+            } => {
+                // Reemplazo complejo: restaurar old_text en el rango
+                let inverse = EditOp::Replace {
+                    start: *start,
+                    end: *end,
+                    old_text: new_text.clone(),
+                    new_text: old_text.clone(),
+                };
+                // Aplicar el reemplazo inverso
+                for i in (start.line..=end.line).rev() {
+                    if i < tab.lines.len() {
+                        tab.lines.remove(i);
+                    }
+                }
+                for (i, line) in old_text.iter().enumerate() {
+                    tab.lines.insert(start.line + i, line.clone());
+                }
+                Some(inverse)
+            }
+            EditOp::Snapshot { lines, cursor } => {
+                // Snapshot completo: restaurar todo el documento
+                let inverse = EditOp::Snapshot {
+                    lines: tab.lines.clone(),
+                    cursor: tab.cursor,
+                };
+                tab.lines = lines.clone();
+                tab.cursor = *cursor;
+                tab.anchor = None;
+                tab.dirty = true;
+                tab.clamp_cursor();
+                Some(inverse)
+            }
+        }
     }
 
     /// Abre la barra de búsqueda. Con `show_replace` se muestra también el campo
@@ -5939,8 +6103,39 @@ impl Ide {
     /// Inserta un fragmento (sin saltos) en la posición del cursor. Si hay
     /// selección, la reemplaza.
     fn insert_str(&mut self, s: &str) {
-        self.push_undo();
+        // Tomar snapshot ANTES de modificar (para undo con selección)
+        let had_selection = self.tabs[self.active_tab].has_selection();
+        if had_selection {
+            // Guardar estado actual antes de delete_selection
+            let snap = self.tabs[self.active_tab].snapshot();
+            self.undo.push(vec![EditOp::Snapshot {
+                lines: snap.0,
+                cursor: snap.1,
+            }]);
+            if self.undo.len() > MAX_UNDO {
+                self.undo.remove(0);
+            }
+            self.redo.clear();
+        }
+        
         let crossed = self.tabs[self.active_tab].delete_selection();
+        
+        // Registrar operaciones de undo incremental (solo si no había selección)
+        if !had_selection {
+            let line = self.tabs[self.active_tab].cursor.line;
+            let col = self.tabs[self.active_tab].cursor.col;
+            let ops: Vec<EditOp> = s
+                .chars()
+                .enumerate()
+                .map(|(i, ch)| EditOp::InsertChar {
+                    line,
+                    col: col + i,
+                    ch,
+                })
+                .collect();
+            self.push_undo_ops(ops);
+        }
+
         let line = self.tabs[self.active_tab].cursor.line;
         {
             let t = &mut self.tabs[self.active_tab];
