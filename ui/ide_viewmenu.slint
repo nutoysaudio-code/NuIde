@@ -1,4 +1,5 @@
 import { IdeTheme } from "ide_theme.slint";
+import { TipContent } from "ide_tooltip.slint";
 
 // Fila del menú "Ver": panel + dónde está acoplado. Al hacer clic cicla el dock
 // (izquierda → derecha → abajo → oculto).
@@ -12,6 +13,10 @@ component IdeViewItem inherits Rectangle {
     height: 26px;
     border-radius: IdeTheme.radius-sm;
     background: ta.has-hover ? IdeTheme.control-hi : transparent;
+
+    Tooltip {
+        TipContent { text: "Clic para mover " + root.label + " (actualmente: " + root.detail + ")"; }
+    }
 
     Text {
         x: 10px;

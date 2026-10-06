@@ -1,5 +1,6 @@
 import { IdeTheme } from "ide_theme.slint";
 import { IdeSearchHit } from "ide_types.slint";
+import { TipContent } from "ide_tooltip.slint";
 
 // Botón compacto para la barra de búsqueda del proyecto.
 component SearchButton inherits Rectangle {
@@ -7,6 +8,7 @@ component SearchButton inherits Rectangle {
     in property <bool> active: false;
     in property <bool> subtle: false;
     in property <bool> enabled: true;
+    in property <string> tip: "";
     callback activated();
 
     height: 22px;
@@ -17,6 +19,10 @@ component SearchButton inherits Rectangle {
         : (ta.has-hover ? IdeTheme.control-hi : IdeTheme.control);
     border-width: 1px;
     border-color: root.active ? IdeTheme.mint : IdeTheme.border-soft;
+
+    if root.tip != "": Tooltip {
+        TipContent { text: root.tip; }
+    }
 
     label-text := Text {
         x: 8px;
@@ -45,6 +51,10 @@ component SearchResultRow inherits Rectangle {
 
     height: 22px;
     background: root.selected ? IdeTheme.selection : (ta.has-hover ? IdeTheme.control : transparent);
+
+    Tooltip {
+        TipContent { text: root.path + ":" + root.line; }
+    }
 
     Text {
         x: 8px;
@@ -261,15 +271,16 @@ export component IdeSearch inherits Rectangle {
                 vertical-alignment: center;
                 horizontal-stretch: 1;
             }
-            SearchButton { label: "Aa"; active: root.case; activated => { root.toggle-case(); } }
-            SearchButton { label: ".*"; active: root.regex; activated => { root.toggle-regex(); } }
-            SearchButton { label: "⇄"; active: root.replace-open; activated => { root.toggle-replace(); } }
+            SearchButton { label: "Aa"; active: root.case; tip: "Coincidir mayúsculas/minúsculas"; activated => { root.toggle-case(); } }
+            SearchButton { label: ".*"; active: root.regex; tip: "Expresión regular (en vez de texto literal)"; activated => { root.toggle-regex(); } }
+            SearchButton { label: "⇄"; active: root.replace-open; tip: "Mostrar u ocultar el campo de reemplazo"; activated => { root.toggle-replace(); } }
             SearchButton {
                 label: "Reemplazar todo";
                 enabled: root.replace-open && root.hits.length > 0;
+                tip: "Reemplaza todas las coincidencias en el proyecto (cuidado: no se puede deshacer)";
                 activated => { root.replace-all(); }
             }
-            SearchButton { label: "×"; activated => { root.dismiss(); } }
+            SearchButton { label: "×"; tip: "Cerrar la búsqueda (Esc)"; activated => { root.dismiss(); } }
         }
 
         Rectangle {

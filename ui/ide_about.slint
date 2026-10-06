@@ -1,4 +1,5 @@
 import { IdeTheme } from "ide_theme.slint";
+import { TipContent } from "ide_tooltip.slint";
 
 // Acerca de NuIde: créditos y versión.
 export component IdeAbout inherits Rectangle {
@@ -133,6 +134,9 @@ export component IdeAbout inherits Rectangle {
             ta := TouchArea {
                 mouse-cursor: MouseCursor.pointer;
                 clicked => { root.dismiss(); }
+            }
+            Tooltip {
+                TipContent { text: "Cerrar el diálogo (Esc)"; }
             }
         }
     }

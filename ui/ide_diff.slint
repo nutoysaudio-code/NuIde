@@ -1,11 +1,13 @@
 import { IdeTheme } from "ide_theme.slint";
 import { IdeDiffLine } from "ide_types.slint";
+import { TipContent } from "ide_tooltip.slint";
 
 // Botón compacto del visor de diff.
 component DiffButton inherits Rectangle {
     in property <string> label: "";
     in property <bool> enabled: true;
     in property <bool> danger: false;
+    in property <string> tip: "";
     callback activated();
 
     height: 24px;
@@ -15,6 +17,10 @@ component DiffButton inherits Rectangle {
         : ta.has-hover ? (root.danger ? #d98c8c33 : IdeTheme.control-hi) : IdeTheme.control;
     border-width: 1px;
     border-color: IdeTheme.border-soft;
+
+    if root.tip != "": Tooltip {
+        TipContent { text: root.tip; }
+    }
 
     label-text := Text {
         x: 9px;
@@ -164,16 +170,18 @@ export component IdeDiff inherits Rectangle {
             alignment: start;
             cross-axis-alignment: center;
 
-            DiffButton { label: "Abrir archivo"; activated => { root.open-file(); } }
+            DiffButton { label: "Abrir archivo"; tip: "Abrir el archivo en el editor (Enter)"; activated => { root.open-file(); } }
             DiffButton {
                 label: root.staged ? "Quitar del índice" : "Preparar";
                 enabled: !root.busy;
+                tip: root.staged ? "Quitar del índice (git reset)" : "Preparar para el commit (git add)";
                 activated => { root.toggle-stage(); }
             }
             DiffButton {
                 label: "Descartar cambios";
                 danger: true;
                 enabled: !root.busy;
+                tip: "Descartar los cambios locales (git checkout --)";
                 activated => { root.discard(); }
             }
 

@@ -1,9 +1,11 @@
 import { IdeTheme } from "ide_theme.slint";
+import { TipContent } from "ide_tooltip.slint";
 
 // Botón del diálogo de entrada.
 component PromptButton inherits Rectangle {
     in property <string> label: "";
     in property <bool> primary: false;
+    in property <string> tip: "";
     callback activated();
 
     height: 28px;
@@ -13,6 +15,10 @@ component PromptButton inherits Rectangle {
         : (root.primary ? IdeTheme.mint : IdeTheme.control);
     border-width: 1px;
     border-color: root.primary ? transparent : IdeTheme.border-soft;
+
+    if root.tip != "": Tooltip {
+        TipContent { text: root.tip; }
+    }
 
     label-text := Text {
         x: 12px;
@@ -119,11 +125,13 @@ export component IdePrompt inherits Rectangle {
 
             PromptButton {
                 label: "Cancelar";
+                tip: "No hacer nada y cerrar (Esc)";
                 activated => { root.cancel(); }
             }
             PromptButton {
                 label: "Aceptar";
                 primary: true;
+                tip: "Confirmar y cerrar (Enter)";
                 activated => { root.accept(); }
             }
         }

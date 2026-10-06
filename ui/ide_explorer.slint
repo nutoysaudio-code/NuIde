@@ -1,6 +1,7 @@
 import { IdeTheme } from "ide_theme.slint";
 import { IdeTreeNode } from "ide_types.slint";
 import { DockHandle } from "ide_dock.slint";
+import { TipContent } from "ide_tooltip.slint";
 
 // Triángulo de despliegue de carpeta.
 component IdeDisclosure inherits Path {
@@ -64,12 +65,17 @@ component IdeTreeIcon inherits Rectangle {
 component ExplorerButton inherits Rectangle {
     in property <string> glyph: "";
     in property <bool> active: false;
+    in property <string> tip: "";
     callback activated();
 
     width: 20px;
     height: 20px;
     border-radius: IdeTheme.radius-sm;
     background: ta.has-hover ? IdeTheme.control : transparent;
+
+    if root.tip != "": Tooltip {
+        TipContent { text: root.tip; }
+    }
 
     Text {
         width: parent.width;
@@ -201,10 +207,12 @@ export component IdeExplorer inherits Rectangle {
             ExplorerButton {
                 glyph: "◍";
                 active: !root.show-generated;
+                tip: "Mostrar u ocultar archivos generados (build, target, node_modules)";
                 activated => { root.toggle-generated(); }
             }
             ExplorerButton {
                 glyph: "⟳";
+                tip: "Refrescar el árbol de archivos (F5)";
                 activated => { root.refresh(); }
             }
         }

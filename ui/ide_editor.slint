@@ -1,6 +1,7 @@
 import { IdeTheme } from "ide_theme.slint";
 import { IdeTab, IdeCodeLine, IdeOutlineItem, IdeRecent } from "ide_types.slint";
 import { IdeWelcome } from "ide_welcome.slint";
+import { TipContent } from "ide_tooltip.slint";
 
 // Pestaña del editor con punto de "sin guardar" y botón de cierre.
 component IdeTabButton inherits Rectangle {
@@ -13,6 +14,10 @@ component IdeTabButton inherits Rectangle {
     height: 34px;
     width: tab-text.width + 52px;
     background: root.active ? IdeTheme.control : (ta.has-hover ? IdeTheme.control-hi : transparent);
+
+    Tooltip {
+        TipContent { text: root.title + (root.dirty ? " (sin guardar)" : "") + (root.active ? " [activa]" : ""); }
+    }
 
     // Subrayado menta de la pestaña activa.
     Rectangle {
@@ -149,6 +154,7 @@ component IdeFindButton inherits Rectangle {
     in property <string> label: "";
     in property <bool> active: false;
     in property <bool> danger: false;
+    in property <string> tip: "";
     callback activated();
 
     width: fb-text.width + 14px;
@@ -156,6 +162,10 @@ component IdeFindButton inherits Rectangle {
     border-radius: IdeTheme.radius-sm;
     background: fb-ta.has-hover ? (root.danger ? #d98c8c33 : IdeTheme.control-hi)
         : (root.active ? IdeTheme.control-hi : transparent);
+
+    if root.tip != "": Tooltip {
+        TipContent { text: root.tip; }
+    }
 
     fb-text := Text {
         x: 7px;
@@ -497,14 +507,14 @@ export component IdeEditor inherits FocusScope {
                         vertical-alignment: center;
                     }
 
-                    IdeFindButton { label: "‹"; activated => { root.find-prev(); } }
-                    IdeFindButton { label: "›"; activated => { root.find-next(); } }
-                    IdeFindButton { label: "Aa"; active: root.find-case; activated => { root.find-toggle-case(); } }
-                    IdeFindButton { label: "Palabra"; active: root.find-whole-word; activated => { root.find-toggle-word(); } }
-                    IdeFindButton { label: ".*"; active: root.find-regex; activated => { root.find-toggle-regex(); } }
-                    IdeFindButton { label: "Sel."; active: root.find-in-selection; activated => { root.find-toggle-selection(); } }
-                    IdeFindButton { label: "⇄"; active: root.find-replace-open; activated => { root.find-toggle-replace(); } }
-                    IdeFindButton { label: "×"; danger: true; activated => { root.find-close(); } }
+                    IdeFindButton { label: "‹"; tip: "Anterior coincidencia (Shift+F3)"; activated => { root.find-prev(); } }
+                    IdeFindButton { label: "›"; tip: "Siguiente coincidencia (F3)"; activated => { root.find-next(); } }
+                    IdeFindButton { label: "Aa"; active: root.find-case; tip: "Coincidir mayúsculas/minúsculas"; activated => { root.find-toggle-case(); } }
+                    IdeFindButton { label: "Palabra"; active: root.find-whole-word; tip: "Coincidir palabra completa"; activated => { root.find-toggle-word(); } }
+                    IdeFindButton { label: ".*"; active: root.find-regex; tip: "Expresión regular"; activated => { root.find-toggle-regex(); } }
+                    IdeFindButton { label: "Sel."; active: root.find-in-selection; tip: "Buscar sólo en la selección"; activated => { root.find-toggle-selection(); } }
+                    IdeFindButton { label: "⇄"; active: root.find-replace-open; tip: "Mostrar u ocultar el campo de reemplazo"; activated => { root.find-toggle-replace(); } }
+                    IdeFindButton { label: "×"; danger: true; tip: "Cerrar la búsqueda (Esc)"; activated => { root.find-close(); } }
                 }
 
                 if root.find-replace-open: HorizontalLayout {
@@ -566,8 +576,8 @@ export component IdeEditor inherits FocusScope {
                         }
                     }
 
-                    IdeFindButton { label: "Reemplazar"; activated => { root.replace-one(); } }
-                    IdeFindButton { label: "Todo"; activated => { root.replace-all(); } }
+                    IdeFindButton { label: "Reemplazar"; tip: "Reemplazar esta coincidencia (Enter)"; activated => { root.replace-one(); } }
+                    IdeFindButton { label: "Todo"; tip: "Reemplazar todas las coincidencias"; activated => { root.replace-all(); } }
                 }
             }
 
@@ -684,9 +694,9 @@ export component IdeEditor inherits FocusScope {
                 spacing: 4px;
                 alignment: start;
 
-                IdeFindButton { label: "−"; activated => { root.image-zoom-out(); } }
-                IdeFindButton { label: "+"; activated => { root.image-zoom-in(); } }
-                IdeFindButton { label: "Ajustar"; activated => { root.image-zoom-reset(); } }
+                IdeFindButton { label: "−"; tip: "Alejar la imagen (Ctrl+-)"; activated => { root.image-zoom-out(); } }
+                IdeFindButton { label: "+"; tip: "Acercar la imagen (Ctrl++)"; activated => { root.image-zoom-in(); } }
+                IdeFindButton { label: "Ajustar"; tip: "Ajustar la imagen al tamaño del panel"; activated => { root.image-zoom-reset(); } }
             }
         }
 

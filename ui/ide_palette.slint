@@ -1,5 +1,6 @@
 import { IdeTheme } from "ide_theme.slint";
 import { IdePaletteItem } from "ide_types.slint";
+import { TipContent } from "ide_tooltip.slint";
 
 // Fila de resultado de la paleta.
 component PaletteRow inherits Rectangle {
@@ -11,6 +12,10 @@ component PaletteRow inherits Rectangle {
     height: 26px;
     border-radius: IdeTheme.radius-sm;
     background: root.selected ? IdeTheme.selection : (ta.has-hover ? IdeTheme.control : transparent);
+
+    Tooltip {
+        TipContent { text: root.label + (root.detail != "" ? "  (" + root.detail + ")" : ""); }
+    }
 
     Text {
         x: 12px;
@@ -97,6 +102,10 @@ export component IdePalette inherits Rectangle {
             font-family: IdeTheme.mono;
             font-size: 13px;
             vertical-alignment: center;
+
+            Tooltip {
+                TipContent { text: root.title == "Comandos" ? "Filtrar comandos por nombre" : "Filtrar archivos por ruta"; }
+            }
         }
 
         // Cursor (solo cuando hay texto, para no confundir con el placeholder).

@@ -1,10 +1,12 @@
 import { IdeTheme } from "ide_theme.slint";
+import { TipContent } from "ide_tooltip.slint";
 
 // Botón del diálogo de confirmación.
 component ConfirmButton inherits Rectangle {
     in property <string> label: "";
     in property <bool> primary: false;
     in property <bool> danger: false;
+    in property <string> tip: "";
     callback activated();
 
     height: 28px;
@@ -14,6 +16,10 @@ component ConfirmButton inherits Rectangle {
         : (root.primary ? IdeTheme.mint : IdeTheme.control);
     border-width: 1px;
     border-color: root.primary ? transparent : IdeTheme.border-soft;
+
+    if root.tip != "": Tooltip {
+        TipContent { text: root.tip; }
+    }
 
     label-text := Text {
         x: 12px;
@@ -103,15 +109,18 @@ export component IdeConfirm inherits Rectangle {
 
             ConfirmButton {
                 label: "Cancelar";
+                tip: "No hacer nada y cerrar (Esc)";
                 activated => { root.cancel(); }
             }
             ConfirmButton {
                 label: "Descartar";
+                tip: "Descartar los cambios sin guardar";
                 activated => { root.discard(); }
             }
             ConfirmButton {
                 label: "Guardar";
                 primary: true;
+                tip: "Guardar los cambios y continuar";
                 activated => { root.save(); }
             }
         }
@@ -190,11 +199,13 @@ export component IdeAsk inherits Rectangle {
 
             ConfirmButton {
                 label: "Cancelar";
+                tip: "No hacer nada y cerrar (Esc)";
                 activated => { root.cancel(); }
             }
             ConfirmButton {
                 label: root.accept-label;
                 danger: root.danger;
+                tip: root.danger ? "Aceptar (acción destructiva)" : "Aceptar y cerrar (Enter)";
                 activated => { root.accept(); }
             }
         }

@@ -1,5 +1,6 @@
 import { IdeTheme } from "ide_theme.slint";
 import { IdeMenuEntry } from "ide_types.slint";
+import { TipContent } from "ide_tooltip.slint";
 
 // Fila de un menú desplegable. Una fila con `id` vacío es un separador.
 component MenuRow inherits Rectangle {
@@ -12,6 +13,10 @@ component MenuRow inherits Rectangle {
     height: root.id == "" ? 9px : 26px;
     border-radius: IdeTheme.radius-sm;
     background: (root.enabled && ta.has-hover) ? IdeTheme.control-hi : transparent;
+
+    if root.id != "" && root.detail != "": Tooltip {
+        TipContent { text: root.label + "  (" + root.detail + ")"; }
+    }
 
     // Separador.
     if root.id == "": Rectangle {
