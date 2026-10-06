@@ -6491,6 +6491,7 @@ impl Ide {
 
     /// Decoraciones que dependen del cursor y del documento: la palabra bajo el
     /// cursor y las llaves correspondientes. Se calculan una vez por pasada.
+    /// Decoraciones del editor: palabra bajo el cursor resaltada y llave correspondiente.
     fn decorations(&self) -> Decorations {
         let mut deco = Decorations::default();
         let Some(tab) = self.tabs.get(self.active_tab) else {
@@ -6504,7 +6505,11 @@ impl Ide {
                 .take(end - start)
                 .collect();
             if word.chars().count() > 1 {
-                for (line, text) in tab.lines.iter().enumerate() {
+                // Limitar búsqueda a viewport (línea actual ± 50 líneas)
+                let viewport_start = tab.cursor.line.saturating_sub(50);
+                let viewport_end = (tab.cursor.line + 50).min(tab.lines.len());
+                for line in viewport_start..viewport_end {
+                    let text = &tab.lines[line];
                     let hits = find_word_in_line(text, &word);
                     if !hits.is_empty() {
                         deco.words.insert(line, hits);
