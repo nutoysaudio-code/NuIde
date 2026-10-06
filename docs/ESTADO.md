@@ -624,6 +624,23 @@ compresión; el visor muestra hasta 200 filas por tabla y no edita.
   correcto sin depender de comandos especiales. Si sale de opencode, tiene una
   terminal funcional.
 
+
+### 3.30 Fix: mantener shell viva en panel del agente (`09b7a21`)
+
+- **Problema**: cuando el usuario ejecutaba `/exit` en opencode, la shell
+  también terminaba y mostraba `[proceso terminado: 0]` en lugar de volver al
+  prompt de la shell.
+- **Causa**: PowerShell, cuando se lanza sin `-NoExit`, puede salir después de
+  ejecutar un comando si no está en modo interactivo. Al inyectar el comando
+  `opencode`, la shell lo ejecuta y cuando opencode termina, la shell también
+  termina.
+- **Solución**: `start_agent()` ahora agrega `-NoExit` a los argumentos de
+  PowerShell para que la shell se mantenga viva después de que opencode
+  termine.
+- **Resultado**: al salir de opencode, el usuario queda en la shell y puede
+  tipear `opencode` para relanzarlo, ejecutar comandos de shell directamente,
+  o usar la terminal normalmente.
+
 ## 4. Limitaciones conocidas
 
 - **Persistencia parcial.** Se recuerda el proyecto, el dock/visibilidad de los
@@ -664,8 +681,9 @@ compresión; el visor muestra hasta 200 filas por tabla y no edita.
   falla. NuIde usa el que descubre (`NUIDE_SPASMC`/`SPASMC`); el `.iss` del
   compilador ya declara los scripts, así que un instalador reconstruido los
   incluye. En esta máquina se completó la instalación copiando los que faltaban.
-- **Alternar proyectos relanza el agente** y pierde su sesión en curso (a
-  propósito: el agente trabaja sobre la raíz del proyecto).
+- **Alternar proyectos reinicia el agente** (a propósito: el agente es una
+  shell que lanza opencode al arrancar, así que al cambiar de proyecto se
+  reinicia la sesión completa en el nuevo directorio).
 
 ---
 
