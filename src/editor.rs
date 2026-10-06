@@ -1599,8 +1599,13 @@ impl Ide {
     /// Lanza una shell en el panel del agente e inyecta `opencode` al arrancar.
     /// Si sale de opencode, queda en la shell y puede relanzarlo cuando quiera.
     fn start_agent(&mut self) {
-        let (shell, args) = pty::default_shell();
+        let (shell, mut args) = pty::default_shell();
         let powershell = pty::is_powershell(&shell);
+        // Para PowerShell, agregar -NoExit para que la shell no termine cuando
+        // opencode sale.
+        if powershell && !args.contains(&"-NoExit".to_string()) {
+            args.push("-NoExit".to_string());
+        }
         let name = if powershell {
             "pwsh agente".to_string()
         } else {
