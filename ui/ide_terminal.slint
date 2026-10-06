@@ -1,18 +1,25 @@
 import { IdeTheme } from "ide_theme.slint";
 import { TermLine } from "ide_types.slint";
 import { DockHandle } from "ide_dock.slint";
+import { TipContent } from "ide_tooltip.slint";
 
 // Botón compacto de encabezado (nuevo, cerrar, dividir…).
 export component IdeHeaderButton inherits Rectangle {
     in property <string> glyph: "+";
     in property <bool> danger: false;
     in property <bool> split: false;
+    // Qué hace el botón (el glifo solo no se entiende).
+    in property <string> tip: "";
     callback activated();
 
     width: 22px;
     height: 22px;
     border-radius: IdeTheme.radius-sm;
     background: ta.has-hover ? (root.danger ? #d98c8c33 : IdeTheme.control) : transparent;
+
+    if root.tip != "": Tooltip {
+        TipContent { text: root.tip; }
+    }
 
     // Icono de "dividir": rectángulo con una línea media (no depende de glifos).
     if root.split: Rectangle {
@@ -58,6 +65,10 @@ component IdeTermSession inherits Rectangle {
 
     height: 30px;
     width: sess-text.width + 26px;
+
+    Tooltip {
+        TipContent { text: "Sesión " + root.label + " — clic para pasar a ella"; }
+    }
 
     Rectangle {
         y: parent.height - 2px;
@@ -324,12 +335,12 @@ export component IdeTerminal inherits FocusScope {
                     activated => { root.session-selected(i); }
                 }
 
-                IdeHeaderButton { glyph: "+"; activated => { root.new-session(); } }
+                IdeHeaderButton { glyph: "+"; tip: "Nueva sesión de shell (F5 corre en la raíz del proyecto)"; activated => { root.new-session(); } }
 
                 Rectangle { horizontal-stretch: 1; background: transparent; }
 
-                IdeHeaderButton { glyph: "⬒"; split: true; activated => { root.split(); } }
-                IdeHeaderButton { glyph: "×"; danger: true; activated => { root.close(); } }
+                IdeHeaderButton { glyph: "⬒"; split: true; tip: "Dividir la terminal en dos vistas"; activated => { root.split(); } }
+                IdeHeaderButton { glyph: "×"; danger: true; tip: "Cerrar esta sesion de terminal"; activated => { root.close(); } }
             }
 
             Rectangle {

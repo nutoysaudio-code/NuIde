@@ -1,6 +1,6 @@
 import { IdeTheme } from "ide_theme.slint";
 export { IdeTheme, DockDrag }
-import { IdeTreeNode, IdeTab, IdeCodeLine, TermLine, IdeOutlineItem, IdeRecent, IdeGitFile, IdePaletteItem, IdeMenuEntry, IdeSearchHit, IdeDiffLine, IdePrefRow } from "ide_types.slint";
+import { IdeTreeNode, IdeTab, IdeCodeLine, TermLine, IdeOutlineItem, IdeRecent, IdeGitFile, IdePaletteItem, IdeMenuEntry, IdeSearchHit, IdeDiffLine, IdePrefRow, IdeSetting } from "ide_types.slint";
 import { IdeTopBar } from "ide_topbar.slint";
 import { IdeStatusBar } from "ide_statusbar.slint";
 import { IdeExplorer } from "ide_explorer.slint";
@@ -17,6 +17,7 @@ import { IdePrompt } from "ide_prompt.slint";
 import { IdeSearch } from "ide_search.slint";
 import { IdeDiff } from "ide_diff.slint";
 import { IdePrefs } from "ide_prefs.slint";
+import { IdeSettings } from "ide_settings.slint";
 import { IdeSqlite } from "ide_sqlite.slint";
 import { IdeAbout } from "ide_about.slint";
 
@@ -273,6 +274,15 @@ export component NuIdeWindow inherits Window {
     callback edit-web-root();
     callback edit-web-cors();
     callback toggle-sqlite-module();
+    // --- pantalla de configuración (maneja por datos: `Ide::settings_rows`) ---
+    in-out property <bool> settings-open: false;
+    in-out property <[IdeSetting]> settings-rows: [];
+    in-out property <[string]> settings-sections: [];
+    in-out property <int> settings-section: 0;
+    callback settings-changed(string, string);
+    callback settings-activated(string);
+    callback settings-section-selected(int);
+    callback settings-dismiss();
     callback sqlite-open-panel();
     callback sqlite-dismiss();
     callback sqlite-pick-db();
@@ -1001,57 +1011,18 @@ export component NuIdeWindow inherits Window {
     }
 
     // --- preferencias ---
-    if root.prefs-open: IdePrefs {
+    if root.settings-open: IdeSettings {
         x: 0;
         y: 0;
         width: parent.width;
         height: parent.height;
-        mono: root.prefs-mono;
-        sans: root.prefs-sans;
-        alpha: root.prefs-alpha;
-        site-transport: root.site-transport;
-        site-host: root.site-host;
-        site-user: root.site-user;
-        site-pass: root.site-pass;
-        site-remote: root.site-remote;
-        site-local-sub: root.site-local-sub;
-        site-include: root.site-include;
-        site-script: root.site-script;
-        web-enabled: root.web-enabled;
-        web-port: root.web-port;
-        web-root: root.web-root;
-        web-cors: root.web-cors;
-        sqlite-module: root.sqlite-module;
-        sqlite-db-name: root.sqlite-db;
-        editor-size: root.prefs-editor-size;
-        accent: root.prefs-accent;
-        accent-color: root.prefs-accent-color;
-        tab-size: root.prefs-tab-size;
-        insert-spaces: root.prefs-insert-spaces;
-        build-on-save: root.prefs-build-on-save;
-        keys: root.prefs-keys;
-        capturing: root.prefs-capturing;
-        dismiss => { root.prefs-dismiss(); }
-        cycle-mono => { root.prefs-cycle-mono(); }
-        cycle-sans => { root.prefs-cycle-sans(); }
-        cycle-alpha => { root.prefs-cycle-alpha(); }
-        cycle-transport => { root.prefs-cycle-transport(); }
-        edit-site(field) => { root.prefs-edit-site(field); }
-        test-site => { root.prefs-test-site(); }
-        upload-site => { root.prefs-upload-site(); }
-        ssh-terminal => { root.prefs-ssh-terminal(); }
-        toggle-web => { root.toggle-web(); }
-        edit-web-port => { root.edit-web-port(); }
-        edit-web-root => { root.edit-web-root(); }
-        edit-web-cors => { root.edit-web-cors(); }
-        toggle-sqlite => { root.toggle-sqlite-module(); }
-        font-smaller => { root.prefs-font-smaller(); }
-        font-bigger => { root.prefs-font-bigger(); }
-        cycle-accent => { root.prefs-cycle-accent(); }
-        cycle-tab => { root.prefs-cycle-tab(); }
-        toggle-spaces => { root.prefs-toggle-spaces(); }
-        toggle-build => { root.prefs-toggle-build(); }
-        capture(id) => { root.prefs-capture(id); }
+        rows: root.settings-rows;
+        sections: root.settings-sections;
+        section: root.settings-section;
+        changed(id, value) => { root.settings-changed(id, value); }
+        activated(id) => { root.settings-activated(id); }
+        section-selected(i) => { root.settings-section-selected(i); }
+        dismiss => { root.settings-dismiss(); }
     }
 
     // --- módulo: visor de SQLite ---

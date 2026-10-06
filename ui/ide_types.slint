@@ -12,6 +12,27 @@ export struct IdeTreeNode {
     kind: int,
 }
 
+// Una fila de la pantalla de Configuración. La pantalla es **manejada por
+// datos**: Rust arma la lista (`Ide::settings_rows`) y `ide_settings.slint`
+// elige el control según `kind`. Agregar un ajuste no toca el `.slint`.
+//
+//   kind : 0 texto · 1 booleano · 2 opción (ciclo) · 3 deslizador
+//          4 acción (botón) · 5 contraseña · 6 informativo
+//   scope: 0 global (todo el programa) · 1 del proyecto abierto
+export struct IdeSetting {
+    id: string,
+    section: int,
+    kind: int,
+    label: string,
+    value: string,
+    hint: string,
+    scope: int,
+    num: float,
+    min: float,
+    max: float,
+    step: float,
+}
+
 // Pestaña del editor.
 export struct IdeTab {
     title: string,

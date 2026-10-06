@@ -43,8 +43,8 @@ use crate::sysinfo;
 use crate::templates;
 use crate::ui::{
     DockDrag, IdeCodeLine, IdeDiffLine, IdeGitFile, IdeMenuEntry, IdeOutlineItem, IdePaletteItem,
-    IdePrefRow, IdeRecent, IdeSearchHit, IdeTab, IdeToken, IdeTreeNode, NuIdeWindow, TermLine,
-    TermRun,
+    IdePrefRow, IdeRecent, IdeSearchHit, IdeSetting, IdeTab, IdeToken, IdeTreeNode, NuIdeWindow,
+    TermLine, TermRun,
 };
 use crate::vt::{Run, Screen, Selection};
 use crate::webserver::{Server as WebServer, WebConfig, WebEvent};
@@ -994,6 +994,34 @@ struct DiffState {
     error: bool,
 }
 
+/// Construye una fila de la pantalla de configuración.
+///
+/// `kind`: 0 texto · 1 booleano · 2 opción (ciclo) · 3 deslizador · 4 acción ·
+/// 5 contraseña · 6 informativo. `scope`: 0 global · 1 del proyecto abierto.
+fn setting(
+    id: &str,
+    section: i32,
+    kind: i32,
+    label: &str,
+    value: &str,
+    hint: &str,
+    scope: i32,
+) -> IdeSetting {
+    IdeSetting {
+        id: id.into(),
+        section,
+        kind,
+        label: label.into(),
+        value: value.into(),
+        hint: hint.into(),
+        scope,
+        num: 0.0,
+        min: 0.0,
+        max: 1.0,
+        step: 0.0,
+    }
+}
+
 /// Qué pide el diálogo de entrada de texto.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum PromptKind {
@@ -1167,6 +1195,9 @@ pub struct Ide {
     sqlite_busy: bool,
     sqlite_tx: Sender<sqlite::Loaded>,
     sqlite_rx: Receiver<sqlite::Loaded>,
+    /// --- pantalla de configuración ---
+    settings_open: bool,
+    settings_section: usize,
     /// Nota para agregar a la salida del próximo build (p. ej. falta de cc).
     build_note: Option<String>,
     /// Git del proyecto: estado, nota, hilo de operaciones.
@@ -1382,6 +1413,8 @@ impl Ide {
             sqlite_busy: false,
             sqlite_tx,
             sqlite_rx,
+            settings_open: false,
+            settings_section: 0,
             build_note: None,
             git_status,
             git_note: String::new(),
@@ -3587,10 +3620,9 @@ impl Ide {
 impl Ide {
     /// Abre o cierra el panel de Preferencias.
     fn prefs_toggle(&mut self) {
-        self.prefs_open = !self.prefs_open;
-        if !self.prefs_open {
-            self.capturing_key = None;
-        }
+        // La tarjeta vieja de Preferencias quedó reemplazada por la pantalla de
+        // configuración (maneja por datos, con los agregados adentro).
+        self.settings_toggle();
     }
 
     /// Cierra Preferencias.
@@ -3929,6 +3961,609 @@ impl Ide {
         self.sqlite_header = msg.header;
         self.sqlite_lines = msg.lines;
         self.sqlite_note = msg.note;
+    }
+
+    // --- pantalla de configuración (maneja por datos) ---
+
+    /// Secciones de la pantalla, en el orden de la navegación.
+    pub const SETTINGS_SECTIONS: &[&str] = &[
+        "Interfaz",
+        "Editor",
+        "Terminales",
+        "Agente OpenCode",
+        "Despliegue",
+        "Módulos",
+        "Atajos",
+    ];
+
+    /// Arma todas las filas de la pantalla, con su valor actual.
+    /// Arma todas las filas de la pantalla, con su valor actual. Cada control
+    /// se resuelve por `kind` en `ide_settings.slint`; para agregar un ajuste
+    /// alcanza con pushar una fila acá.
+    pub fn settings_rows(&self) -> Vec<IdeSetting> {
+        let mut v: Vec<IdeSetting> = Vec::new();
+        let s =
+            |id: &str,
+             section: i32,
+             kind: i32,
+             label: &str,
+             value: String,
+             hint: &str,
+             scope: i32| { setting(id, section, kind, label, &value, hint, scope) };
+        let b = |id: &str, section: i32, label: &str, on: bool, hint: &str, scope: i32| {
+            setting(
+                id,
+                section,
+                1,
+                label,
+                if on { "1" } else { "0" },
+                hint,
+                scope,
+            )
+        };
+
+        // --- Interfaz (0) ---
+        v.push(s(
+            "ui.font.mono",
+            0,
+            2,
+            "Fuente del código",
+            self.mono.clone(),
+            "Familia monoespaciada del editor y las terminales; clic para ciclar las instaladas",
+            0,
+        ));
+        v.push(s(
+            "ui.font.sans",
+            0,
+            2,
+            "Fuente de la interfaz",
+            self.sans.clone(),
+            "Familia de los textos de la IDE (menús, paneles)",
+            0,
+        ));
+        let mut size = s(
+            "ui.font.size",
+            0,
+            3,
+            "Tamaño del código",
+            format!("{} px", self.editor_font_size as i32),
+            "Puntos de la fuente monoespaciada",
+            0,
+        );
+        size.num = self.editor_font_size;
+        size.min = 9.0;
+        size.max = 24.0;
+        size.step = 1.0;
+        v.push(size);
+        v.push(s(
+            "ui.accent",
+            0,
+            2,
+            "Acento",
+            self.accent_name(),
+            "Color de resaltado (pestañas activas, foco, marcadores)",
+            0,
+        ));
+        let mut alpha = s(
+            "ui.alpha",
+            0,
+            3,
+            "Opacidad de los paneles",
+            format!("{:.0} %", self.panel_alpha * 100.0),
+            "Compone las superficies contra el fondo de la ventana",
+            0,
+        );
+        alpha.num = self.panel_alpha;
+        alpha.min = 0.6;
+        alpha.max = 1.0;
+        alpha.step = 0.01;
+        v.push(alpha);
+        v.push(b(
+            "ui.show.left",
+            0,
+            "Región izquierda (explorador y Git)",
+            self.show_left,
+            "Se puede mover cada panel arrastrando su cabecera",
+            0,
+        ));
+        v.push(b(
+            "ui.show.right",
+            0,
+            "Región derecha (OpenCode CLI)",
+            self.show_right,
+            "Prende o apaga la columna del agente",
+            0,
+        ));
+        v.push(b(
+            "ui.show.bottom",
+            0,
+            "Región inferior (terminal)",
+            self.show_bottom,
+            "Prende o apaga la terminal local",
+            0,
+        ));
+
+        // --- Editor (1) ---
+        v.push(s(
+            "ed.tab-size",
+            1,
+            2,
+            "Tamaño de tab",
+            self.tab_size.to_string(),
+            "Espacios por tabulador al expandir",
+            0,
+        ));
+        v.push(b(
+            "ed.insert-spaces",
+            1,
+            "Insertar espacios en lugar de tab",
+            self.insert_spaces,
+            "Al tipear Tab se insertan espacios",
+            0,
+        ));
+        v.push(b(
+            "ed.generated",
+            1,
+            "Mostrar archivos generados",
+            self.explorer.shows_generated(),
+            "Objetos, binarios y salidas del toolchain en el explorador",
+            1,
+        ));
+        v.push(b(
+            "ed.build-on-save",
+            1,
+            "Compilar al guardar",
+            self.run_build_on_save,
+            "Cada Ctrl+S corre la cadena de compilación",
+            1,
+        ));
+        v.push(s(
+            "ed.run-args",
+            1,
+            0,
+            "Argumentos de ejecución",
+            self.run_args.clone(),
+            "Se pasan al programa cuando apretás F5",
+            1,
+        ));
+        v.push(s(
+            "ed.run-entry",
+            1,
+            0,
+            "Archivo de entrada (F5)",
+            self.config.get("run.entry").unwrap_or("").to_string(),
+            "Ruta del .spasm que se ejecuta",
+            1,
+        ));
+
+        // --- Terminales (2) ---
+        let (shell, _) = pty::default_shell();
+        v.push(s(
+            "term.shell",
+            2,
+            6,
+            "Shell por defecto",
+            shell,
+            "Se cambia con la variable de entorno NUIDE_SHELL",
+            0,
+        ));
+        v.push(s(
+            "term.grid",
+            2,
+            6,
+            "Grilla de la terminal",
+            format!("{} × {} celdas", self.local_cols, self.local_rows),
+            "Se recalcula sola al estirar el panel",
+            0,
+        ));
+        v.push(s(
+            "term.sessions",
+            2,
+            6,
+            "Sesiones abiertas",
+            self.local.len().to_string(),
+            "Cada sesión es un PTY con su shell",
+            0,
+        ));
+        v.push(s(
+            "term.new",
+            2,
+            4,
+            "Nueva sesión de terminal",
+            "crear".into(),
+            "Abre otra shell en la raíz del proyecto",
+            0,
+        ));
+        v.push(s(
+            "term.restart",
+            2,
+            4,
+            "Reiniciar la sesión activa",
+            "reiniciar".into(),
+            "Reemplaza la sesión actual por una shell nueva",
+            0,
+        ));
+        v.push(s(
+            "term.split",
+            2,
+            4,
+            "Dividir la terminal",
+            "dividir".into(),
+            "Dos vistas lado a lado",
+            0,
+        ));
+
+        // --- Agente OpenCode (3) ---
+        let agent = self
+            .toolchain
+            .agent
+            .as_ref()
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|| "no encontrado (defini NUIDE_AGENT)".to_string());
+        v.push(s(
+            "agent.bin",
+            3,
+            6,
+            "CLI de OpenCode",
+            agent,
+            "Ruta del ejecutable que corre en el panel derecho",
+            0,
+        ));
+        v.push(s(
+            "agent.version",
+            3,
+            0,
+            "Versión mostrada",
+            self.agent_version.clone(),
+            "Etiqueta que se ve en la ficha del panel",
+            0,
+        ));
+        v.push(s(
+            "agent.model",
+            3,
+            0,
+            "Modelo mostrado",
+            self.agent_model.clone(),
+            "Etiqueta del modelo activo",
+            0,
+        ));
+        v.push(s(
+            "agent.restart",
+            3,
+            4,
+            "Reiniciar el agente",
+            "reiniciar".into(),
+            "Vuelve a lanzar la TUI de opencode",
+            0,
+        ));
+        v.push(b(
+            "agent.show",
+            3,
+            "Mostrar el panel del agente",
+            self.show_right && self.docks[1] == Dock::Right,
+            "Igual que el botón de layout derecho",
+            0,
+        ));
+
+        // --- Despliegue (4) ---
+        v.push(s(
+            "site.transport",
+            4,
+            2,
+            "Transporte",
+            self.site.transport.label().to_string(),
+            "FTP (21), FTPS (FTP + TLS) o SFTP (SSH, 22)",
+            1,
+        ));
+        v.push(s(
+            "site.host",
+            4,
+            0,
+            "Host",
+            self.site.host.clone(),
+            "Servidor del sitio, ej. ftp.midominio.com",
+            1,
+        ));
+        v.push(s(
+            "site.user",
+            4,
+            0,
+            "Usuario",
+            self.site.user.clone(),
+            "Usuario de FTP/SFTP del hosting",
+            1,
+        ));
+        v.push(s(
+            "site.pass",
+            4,
+            5,
+            "Contraseña",
+            self.site.pass.clone(),
+            "Se guarda en %APPDATA%\\NuIde, indexada por proyecto: nunca en el repositorio",
+            1,
+        ));
+        v.push(s(
+            "site.remote",
+            4,
+            0,
+            "Carpeta remota",
+            self.site.remote_root.clone(),
+            "Ruta en el servidor, ej. public_html",
+            1,
+        ));
+        v.push(s(
+            "site.local-sub",
+            4,
+            0,
+            "Subcarpeta local a subir",
+            self.site.local_sub.clone(),
+            "Qué carpeta del proyecto se despliega (vacío = todo)",
+            1,
+        ));
+        v.push(s(
+            "site.include",
+            4,
+            0,
+            "Extensiones",
+            self.site.include.clone(),
+            "Lista separada por coma de extensiones que se suben",
+            1,
+        ));
+        v.push(s(
+            "site.script",
+            4,
+            0,
+            "Script de despliegue",
+            self.site.script.clone(),
+            "Script SpASM que decide qué subir; imprime líneas UPLOAD/SKIP/LOG",
+            1,
+        ));
+        v.push(s(
+            "site.test",
+            4,
+            4,
+            "Probar conexión",
+            "probar".into(),
+            "Lista el directorio remoto con curl sin subir nada",
+            0,
+        ));
+        v.push(s(
+            "site.upload",
+            4,
+            4,
+            "Subir cambios",
+            "subir".into(),
+            "Corre el script (o el escaneo) y transfiere con curl/scp",
+            0,
+        ));
+        v.push(s(
+            "site.ssh",
+            4,
+            4,
+            "Terminal SSH",
+            "abrir".into(),
+            "Sesión ssh user@host en una pestaña de terminal",
+            0,
+        ));
+
+        // --- Módulos (5) ---
+        v.push(b(
+            "web.enabled",
+            5,
+            "Servidor web local",
+            self.web.enabled,
+            "Sirve la carpeta del proyecto en http://localhost:<puerto>/ con CORS",
+            1,
+        ));
+        v.push(s(
+            "web.port",
+            5,
+            0,
+            "Puerto del servidor",
+            self.web.port.to_string(),
+            "Puerto local (1024 o más)",
+            1,
+        ));
+        v.push(s(
+            "web.root",
+            5,
+            0,
+            "Carpeta servida",
+            self.web.root_sub.clone(),
+            "Subcarpeta del proyecto; vacío = la raíz",
+            1,
+        ));
+        v.push(s(
+            "web.cors",
+            5,
+            0,
+            "CORS: origen permitido",
+            self.web.cors_origin.clone(),
+            "Access-Control-Allow-Origin; * para cualquiera",
+            1,
+        ));
+        v.push(b(
+            "sqlite.enabled",
+            5,
+            "Visor de SQLite",
+            self.sqlite_enabled,
+            "Panel para mirar las tablas de una base .db del proyecto",
+            0,
+        ));
+        v.push(s(
+            "sqlite.db",
+            5,
+            0,
+            "Base abierta",
+            self.sqlite_db
+                .as_ref()
+                .map(|p| p.display().to_string())
+                .unwrap_or_default(),
+            "Ruta del archivo .db / .sqlite",
+            1,
+        ));
+        v.push(s(
+            "sqlite.pick",
+            5,
+            4,
+            "Elegir base",
+            "buscar".into(),
+            "Abre el diálogo nativo para elegir el archivo",
+            0,
+        ));
+        v.push(s(
+            "sqlite.reload",
+            5,
+            4,
+            "Refrescar el visor",
+            "recargar".into(),
+            "Vuelve a leer tablas y filas",
+            0,
+        ));
+
+        // --- Atajos (6) ---
+        for (id, label, _) in KEY_ACTIONS {
+            let chord = self.keymap.get(*id).cloned().unwrap_or_default();
+            v.push(s(
+                id,
+                6,
+                4,
+                label,
+                chord,
+                "Clic y presioná la combinación nueva",
+                0,
+            ));
+        }
+        v
+    }
+
+    /// Aplica el cambio de una fila de la pantalla de configuración.
+    fn setting_set(&mut self, id: &str, value: &str) {
+        match id {
+            "ui.font.mono" => self.prefs_cycle_mono(),
+            "ui.font.sans" => self.prefs_cycle_sans(),
+            "ui.font.size" => {
+                if let Ok(v) = value.parse::<f32>() {
+                    self.editor_font_size = v.clamp(9.0, 24.0);
+                    self.save_prefs();
+                }
+            }
+            "ui.accent" => self.prefs_cycle_accent(),
+            "ui.alpha" => {
+                if let Ok(v) = value.parse::<f32>() {
+                    self.panel_alpha = v.clamp(0.6, 1.0);
+                    self.save_prefs();
+                }
+            }
+            "ui.show.left" => {
+                if self.show_left != (value == "1") {
+                    self.toggle_region(0);
+                }
+            }
+            "ui.show.right" => {
+                if self.show_right != (value == "1") {
+                    self.toggle_region(1);
+                }
+            }
+            "ui.show.bottom" => {
+                if self.show_bottom != (value == "1") {
+                    self.toggle_region(2);
+                }
+            }
+            "ed.tab-size" => self.cycle_tab_size(),
+            "ed.insert-spaces" => self.toggle_insert_spaces(),
+            "ed.generated" => self.explorer_toggle_generated(),
+            "ed.build-on-save" => self.run_toggle_build_on_save(),
+            "ed.run-args" => {
+                self.run_args = value.trim().to_string();
+                self.config.set("run.args", &self.run_args);
+                self.config.save();
+            }
+            "ed.run-entry" => {
+                self.config.set("run.entry", value.trim());
+                self.config.save();
+            }
+            "agent.version" => {
+                self.agent_version = value.trim().to_string();
+            }
+            "agent.model" => {
+                self.agent_model = value.trim().to_string();
+            }
+            "site.host" => self.site_field_set("host", value.to_string()),
+            "site.user" => self.site_field_set("user", value.to_string()),
+            "site.pass" => self.site_field_set("pass", value.to_string()),
+            "site.remote" => self.site_field_set("remote", value.to_string()),
+            "site.local-sub" => self.site_field_set("local-sub", value.to_string()),
+            "site.include" => self.site_field_set("include", value.to_string()),
+            "site.script" => self.site_field_set("script", value.to_string()),
+            "site.transport" => self.prefs_cycle_transport(),
+            "web.enabled" => self.toggle_web(),
+            "web.port" => self.web_field_set("port", value.to_string()),
+            "web.root" => self.web_field_set("root", value.to_string()),
+            "web.cors" => self.web_field_set("cors", value.to_string()),
+            "sqlite.enabled" => self.toggle_sqlite_module(),
+            "sqlite.db" => {
+                let p = PathBuf::from(value.trim());
+                if p.is_file() {
+                    self.sqlite_db = Some(p);
+                    self.sqlite_reload();
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Ejecuta la acción de una fila (botones y choices que no tienen valor).
+    fn setting_activate(&mut self, id: &str) {
+        match id {
+            "term.new" => self.new_session(),
+            "term.restart" => self.restart_session(),
+            "term.split" => self.split_terminal(),
+            "agent.restart" => {
+                self.agent = None;
+                self.start_agent();
+            }
+            "agent.show" => self.toggle_region(1),
+            "site.test" => self.deploy_test(),
+            "site.upload" => self.deploy_upload(),
+            "site.ssh" => self.deploy_ssh_terminal(),
+            "sqlite.pick" => self.sqlite_pick_db(),
+            "sqlite.reload" => self.sqlite_reload(),
+            other => {
+                // Un atajo: empieza a capturar la combinación nueva.
+                if KEY_ACTIONS.iter().any(|(k, _, _)| *k == other) {
+                    self.prefs_capture(other);
+                }
+            }
+        }
+    }
+
+    /// Abre o cierra la pantalla de configuración.
+    fn settings_toggle(&mut self) {
+        self.settings_open = !self.settings_open;
+        if !self.settings_open {
+            self.capturing_key = None;
+        }
+    }
+
+    /// Vuelca el estado de la pantalla de configuración a la ventana.
+    fn sync_settings(&self, w: &NuIdeWindow) {
+        w.set_settings_open(self.settings_open);
+        w.set_settings_section(self.settings_section as i32);
+        w.set_settings_sections(
+            Self::SETTINGS_SECTIONS
+                .iter()
+                .map(|s| slint::SharedString::from(*s))
+                .collect::<Vec<_>>()
+                .as_slice()
+                .into(),
+        );
+        let rows: Vec<IdeSetting> = self
+            .settings_rows()
+            .into_iter()
+            .filter(|r| r.section == self.settings_section as i32)
+            .collect();
+        w.set_settings_rows(rows.as_slice().into());
     }
 
     /// Vuelca un mensaje del hilo de despliegue en la sesión `build`.
@@ -6198,6 +6833,8 @@ impl Ide {
         );
         w.set_sqlite_note(self.sqlite_note.clone().into());
         w.set_sqlite_busy(self.sqlite_busy);
+        // Pantalla de configuración.
+        self.sync_settings(w);
 
         // Sitio de despliegue del proyecto (Preferencias → Despliegue).
         w.set_site_transport(self.site.transport.label().into());
@@ -7822,6 +8459,53 @@ pub fn attach(window: &NuIdeWindow, ide: Rc<RefCell<Ide>>) {
             if let Some(w) = weak.upgrade() {
                 let mut e = ide.borrow_mut();
                 e.sqlite_close();
+                e.sync(&w);
+            }
+        });
+    }
+    // Pantalla de configuración.
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_settings_changed(move |id, value| {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.apply_theme(&w);
+                e.setting_set(&id, &value);
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_settings_activated(move |id| {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.setting_activate(&id);
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_settings_section_selected(move |i| {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.settings_section = i.max(0) as usize;
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_settings_dismiss(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.settings_open = false;
+                e.capturing_key = None;
                 e.sync(&w);
             }
         });

@@ -1,0 +1,424 @@
+import { IdeTheme } from "ide_theme.slint";
+import { TipContent } from "ide_tooltip.slint";
+import { IdeSetting } from "ide_types.slint";
+
+// ---------------------------------------------------------------------------
+// Pantalla de configuración de NuIde.
+//
+// Está **manejada por datos**: Rust arma la lista de filas (`IdeSetting`, en
+// `ide_types.slint`) y acá sólo se elige el control según `kind`. Agregar un
+// ajuste nuevo es agregar una fila en Rust, sin tocar este archivo.
+//
+//   kind 0 texto        1 booleano     2 opción (ciclo)
+//        3 deslizador   4 acción       5 contraseña    6 informativo
+//   scope 0 global (todo el programa)  1 del proyecto abierto
+//
+// Navegación a la izquierda por secciones, controles a la derecha. Todo se
+// persiste al tocarlo (no hay botón "Aplicar" que se pueda olvidar), pero queda
+// un botón para volver a lo de arriba si se cambió mucho.
+// ---------------------------------------------------------------------------
+
+// Fila de texto editable.
+component SField inherits Rectangle {
+    in property <string> id: "";
+    in property <string> text: "";
+    in property <bool> secret: false;
+    callback committed(string, string);
+
+    height: 26px;
+    width: 260px;
+    border-radius: IdeTheme.radius-sm;
+    background: IdeTheme.bg;
+    border-width: 1px;
+    border-color: edit.has-focus ? IdeTheme.mint : IdeTheme.border-soft;
+
+    private property <string> buffer: root.text;
+    edit := TextInput {
+        x: 8px;
+        y: 0px;
+        width: parent.width - 16px;
+        height: parent.height;
+        text <=> root.buffer;
+        single-line: true;
+        input-type: root.secret ? InputType.password : InputType.text;
+        color: IdeTheme.text;
+        font-family: IdeTheme.mono;
+        font-size: 11px;
+        vertical-alignment: center;
+        accepted => { root.committed(root.id, root.buffer); }
+    }
+}
+
+// Control según el tipo de la fila.
+component SControl inherits Rectangle {
+    in property <string> id: "";
+    in property <int> kind: 0;
+    in property <string> value: "";
+    in property <float> num: 0;
+    in property <float> min: 0;
+    in property <float> max: 1;
+    in property <float> step: 0;
+    callback changed(string, string);
+    callback activated(string);
+
+    // Posicion del deslizador como fraccion 0..1 (la usa el bloque kind == 3).
+    private property <float> frac: root.max > root.min
+        ? (root.num - root.min) / (root.max - root.min) : 0;
+
+    height: 28px;
+    width: 300px;
+
+    // 0 texto / 5 contraseña
+    if root.kind == 0 || root.kind == 5: SField {
+        id: root.id;
+        text: root.value;
+        secret: root.kind == 5;
+        committed(i, v) => { root.changed(i, v); }
+    }
+
+    // 1 booleano: casilla clickeable
+    if root.kind == 1: Rectangle {
+        width: chk-text.width + 34px;
+        height: parent.height;
+
+        Rectangle {
+            x: 0;
+            y: (parent.height - 16px) / 2;
+            width: 16px;
+            height: 16px;
+            border-radius: 4px;
+            border-width: 1px;
+            border-color: hit-bool.has-hover ? IdeTheme.text : IdeTheme.border;
+            background: root.value == "1" ? IdeTheme.mint : IdeTheme.bg;
+
+            if root.value == "1": Rectangle {
+                x: 4px;
+                y: 4px;
+                width: 8px;
+                height: 8px;
+                border-radius: 2px;
+                background: IdeTheme.bg;
+            }
+        }
+        chk-text := Text {
+            x: 26px;
+            y: (parent.height - self.height) / 2;
+            text: root.value == "1" ? "Sí" : "No";
+            color: IdeTheme.text-soft;
+            font-family: IdeTheme.sans;
+            font-size: 11px;
+            vertical-alignment: center;
+        }
+        hit-bool := TouchArea {
+            width: parent.width;
+            height: parent.height;
+            mouse-cursor: MouseCursor.pointer;
+            clicked => { root.changed(root.id, root.value == "1" ? "0" : "1"); }
+        }
+    }
+
+    // 2 opción / 4 acción: chip clickeable
+    if root.kind == 2 || root.kind == 4: Rectangle {
+        width: chip-text.width + 24px;
+        height: 26px;
+        y: 1px;
+        border-radius: IdeTheme.radius-sm;
+        background: hit-chip.has-hover ? IdeTheme.control-hi : IdeTheme.control;
+        border-width: 1px;
+        border-color: IdeTheme.border-soft;
+
+        chip-text := Text {
+            x: 12px;
+            y: (parent.height - self.height) / 2;
+            text: root.value;
+            color: root.kind == 4 ? IdeTheme.mint : IdeTheme.text;
+            font-family: IdeTheme.mono;
+            font-size: 11px;
+            vertical-alignment: center;
+        }
+        hit-chip := TouchArea {
+            width: parent.width;
+            height: parent.height;
+            mouse-cursor: MouseCursor.pointer;
+            clicked => { root.activated(root.id); }
+        }
+    }
+
+    // 3 deslizador
+    if root.kind == 3: Rectangle {
+        width: 300px;
+        height: parent.height;
+
+        Rectangle {
+            x: 0;
+            y: (parent.height - 4px) / 2;
+            width: parent.width;
+            height: 4px;
+            border-radius: 2px;
+            background: IdeTheme.control;
+        }
+        Rectangle {
+            x: 0;
+            y: (parent.height - 4px) / 2;
+            width: parent.width * Math.clamp(root.frac, 0, 1);
+            height: 4px;
+            border-radius: 2px;
+            background: IdeTheme.mint;
+        }
+        Rectangle {
+            x: parent.width * Math.clamp(root.frac, 0, 1) - 7px;
+            y: (parent.height - 14px) / 2;
+            width: 14px;
+            height: 14px;
+            border-radius: 7px;
+            background: IdeTheme.text;
+        }
+        Text {
+            x: parent.width + 10px;
+            y: (parent.height - self.height) / 2;
+            text: root.value;
+            color: IdeTheme.text-soft;
+            font-family: IdeTheme.mono;
+            font-size: 10px;
+            vertical-alignment: center;
+        }
+        hit-slide := TouchArea {
+            width: parent.width;
+            height: parent.height;
+            mouse-cursor: MouseCursor.pointer;
+
+            changed mouse-x => {
+                if self.pressed {
+                    let f = Math.clamp(self.mouse-x / parent.width, 0, 1);
+                    let raw = root.min + f * (root.max - root.min);
+                    let v = root.step > 0 ? Math.round(raw / root.step) * root.step : raw;
+                    root.changed(root.id, "" + v);
+                }
+            }
+        }
+    }
+
+    // 6 informativo
+    if root.kind == 6: Text {
+        y: (parent.height - self.height) / 2;
+        text: root.value;
+        color: IdeTheme.text-dim;
+        font-family: IdeTheme.mono;
+        font-size: 11px;
+        vertical-alignment: center;
+    }
+}
+
+export component IdeSettings inherits Rectangle {
+    in property <[IdeSetting]> rows: [];
+    in property <int> section: 0;
+    in property <[string]> sections: [];
+    callback changed(string, string);
+    callback activated(string);
+    callback section-selected(int);
+    callback dismiss();
+
+    // Fondo que cierra al clic fuera.
+    Rectangle {
+        x: 0;
+        y: 0;
+        width: parent.width;
+        height: parent.height;
+        background: #000000bb;
+
+        TouchArea {
+            clicked => { root.dismiss(); }
+        }
+    }
+
+    box := Rectangle {
+        x: (parent.width - self.width) / 2;
+        y: 40px;
+        width: min(1080px, parent.width - 64px);
+        height: min(680px, parent.height - 80px);
+        background: IdeTheme.panel;
+        border-width: 1px;
+        border-color: IdeTheme.border-soft;
+        border-radius: IdeTheme.radius;
+        clip: true;
+
+        // --- encabezado ---
+        Rectangle {
+            x: 0;
+            y: 0;
+            width: parent.width;
+            height: 52px;
+            background: IdeTheme.bg;
+
+            Text {
+                x: 20px;
+                y: 10px;
+                text: "Configuración";
+                color: IdeTheme.text;
+                font-family: IdeTheme.sans;
+                font-size: 16px;
+                font-weight: 700;
+                letter-spacing: 0.4px;
+            }
+            Text {
+                x: 20px;
+                y: 31px;
+                text: "Interfaz, editor, terminales y agregados (FTP, SSH, OpenCode, web, SQLite)";
+                color: IdeTheme.text-dim;
+                font-family: IdeTheme.sans;
+                font-size: 10px;
+            }
+            close-btn := Rectangle {
+                x: parent.width - 46px;
+                y: 13px;
+                width: 26px;
+                height: 26px;
+                border-radius: IdeTheme.radius-sm;
+                background: close-hit.has-hover ? #d98c8c33 : IdeTheme.control;
+
+                Text {
+                    width: parent.width;
+                    height: parent.height;
+                    text: "×";
+                    color: IdeTheme.text;
+                    font-family: IdeTheme.sans;
+                    font-size: 16px;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+                close-hit := TouchArea {
+                    mouse-cursor: MouseCursor.pointer;
+                    clicked => { root.dismiss(); }
+                }
+                Tooltip { TipContent { text: "Cerrar (Esc) — los cambios ya quedaron guardados"; } }
+            }
+            Rectangle {
+                y: parent.height - IdeTheme.hairline;
+                width: parent.width;
+                height: IdeTheme.hairline;
+                background: IdeTheme.border-soft;
+            }
+        }
+
+        // --- navegación por secciones ---
+        Rectangle {
+            x: 0;
+            y: 52px;
+            width: 224px;
+            height: parent.height - 52px;
+            background: transparent;
+
+            for s[i] in root.sections: Rectangle {
+                y: 60px + i * 34px;
+                width: parent.width;
+                height: 30px;
+                border-radius: IdeTheme.radius-sm;
+                background: root.section == i ? IdeTheme.selection : (nav-hit.has-hover ? IdeTheme.control : transparent);
+
+                Text {
+                    x: 18px;
+                    width: parent.width - 26px;
+                    height: parent.height;
+                    text: s;
+                    color: root.section == i ? IdeTheme.text : IdeTheme.text-soft;
+                    font-family: IdeTheme.sans;
+                    font-size: 12px;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+                Rectangle {
+                    visible: root.section == i;
+                    x: 6px;
+                    y: (parent.height - 14px) / 2;
+                    width: 3px;
+                    height: 14px;
+                    border-radius: 2px;
+                    background: IdeTheme.mint;
+                }
+                nav-hit := TouchArea {
+                    width: parent.width;
+                    height: parent.height;
+                    mouse-cursor: MouseCursor.pointer;
+                    clicked => { root.section-selected(i); }
+                }
+            }
+
+            Rectangle {
+                x: parent.width - IdeTheme.hairline;
+                y: 0;
+                width: IdeTheme.hairline;
+                height: parent.height;
+                background: IdeTheme.border-faint;
+            }
+        }
+
+        // --- contenido ---
+        Flickable {
+            x: 224px;
+            y: 52px;
+            width: parent.width - 224px;
+            height: parent.height - 52px;
+            content-width: self.width;
+            content-height: root.rows.length * 56px + 32px;
+
+            VerticalLayout {
+                x: 24px;
+                y: 14px;
+                width: parent.width - 48px;
+                spacing: 28px;
+                alignment: start;
+
+                // Rust manda sólo las filas de la sección activa
+                // (`Ide::settings_rows` filtra por `settings-section`).
+                for r in root.rows: Rectangle {
+                    height: 28px;
+                    width: parent.width;
+
+                    Text {
+                        x: 0;
+                        y: (parent.height - self.height) / 2;
+                        width: parent.width - 320px;
+                        text: r.label;
+                        color: IdeTheme.text;
+                        font-family: IdeTheme.sans;
+                        font-size: 12px;
+                        vertical-alignment: center;
+                        overflow: elide;
+                    }
+                    // Marca de alcance: global o del proyecto abierto.
+                    Text {
+                        x: parent.width - 314px;
+                        y: (parent.height - self.height) / 2;
+                        text: r.scope == 1 ? "proyecto" : "";
+                        color: IdeTheme.amber;
+                        font-family: IdeTheme.mono;
+                        font-size: 9px;
+                        vertical-alignment: center;
+                    }
+                    Rectangle {
+                        x: parent.width - 300px;
+                        y: 0;
+                        width: 300px;
+                        height: parent.height;
+                        background: transparent;
+
+                        SControl {
+                            id: r.id;
+                            kind: r.kind;
+                            value: r.value;
+                            num: r.num;
+                            min: r.min;
+                            max: r.max;
+                            step: r.step;
+                            changed(i, v) => { root.changed(i, v); }
+                            activated(i) => { root.activated(i); }
+                        }
+                    }
+                    if r.hint != "": Tooltip {
+                        TipContent { text: r.hint; }
+                    }
+                }
+            }
+        }
+    }
+}
