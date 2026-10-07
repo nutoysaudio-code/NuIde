@@ -5,9 +5,9 @@
 //! `editor::Ide::drain` muestra en la sesión `build` de la terminal. La UI nunca
 //! se bloquea esperando la red.
 //!
-//! El script (por defecto `deploy.spasm` en la raíz del proyecto) se corre con el
-//! intérprete que ya detecta [`crate::spasm`] — igual que F5:
-//! `spasm.exe deploy.spasm`. De su stdout sólo se interpretan las líneas del
+//! El script (por defecto `deploy.spasm` en la raíz del proyecto) se **compila
+//! AOT** ([`crate::spasm::Toolchain::compile_binary`]: transpila a C y compila a
+//! binario nativo) y se corre. De su stdout sólo se interpretan las líneas del
 //! protocolo ([`crate::site::parse_script_line`]); el resto se muestra tal cual,
 //! así el script puede ir contando lo que hace.
 //!
@@ -287,28 +287,39 @@ pub fn spawn_deploy(
     })
 }
 
-/// Corre el script y devuelve los eventos del protocolo. `None` si no se pudo
-/// correr (sin intérprete o proceso muerto); los mensajes sueltos del script se
-/// reenvían como `Log`.
+/// Compila el script AOT a binario nativo y lo corre, devolviendo los eventos
+/// del protocolo. `None` si no se pudo compilar/correr (sin toolchain completo,
+/// proceso muerto); los mensajes sueltos del script se reenvían como `Log`.
 fn run_script(
     toolchain: &Toolchain,
     script: &Path,
     tx: &Sender<DeployMsg>,
 ) -> Option<Vec<DeployEvent>> {
-    let Ok(exe) = toolchain.interpreter_required() else {
-        let _ = tx.send(DeployMsg::Aborted(
-            "no se encontró el intérprete spasm.exe (definí NUIDE_SPASM) para correr el script"
-                .into(),
-        ));
-        return None;
+    let script_dir = script.parent().unwrap_or(Path::new("."));
+    let build_dir = script_dir.join("build");
+    let _ = tx.send(DeployMsg::Log(format!(
+        "compilando {} ...",
+        script.file_name().unwrap_or_default().to_string_lossy()
+    )));
+    let bin = match toolchain.compile_binary(script, &build_dir) {
+        Ok(bin) => bin,
+        Err(e) => {
+            let _ = tx.send(DeployMsg::Log(format!(
+                "no se pudo compilar el script: {e}"
+            )));
+            let _ = tx.send(DeployMsg::Aborted(
+                "no se pudo compilar el script (se necesita Python, spasmc.py y un compilador de C)"
+                    .into(),
+            ));
+            return None;
+        }
     };
     let _ = tx.send(DeployMsg::Log(format!(
         "corriendo {} ...",
         script.file_name().unwrap_or_default().to_string_lossy()
     )));
-    let child = Command::new(&exe)
-        .arg(script)
-        .current_dir(script.parent().unwrap_or(Path::new(".")))
+    let child = Command::new(&bin)
+        .current_dir(script_dir)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn();

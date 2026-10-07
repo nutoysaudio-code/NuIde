@@ -1,0 +1,120 @@
+programa "nuide_diagnostics"
+
+// Diagnósticos del toolchain para el editor (migrado desde src/build.rs).
+//
+// Soporta el formato de SpASM ("linea N: mensaje") y el de gcc/clang
+// ("archivo:N:col: error: ..."). Siempre que la rama SpASM no matchea —
+// sin "linea ", sin ':' o sin número — cae en la rama gcc, como el original
+// de Rust.
+//
+// Los strings no pueden volver por `return` en el backend C (sólo int/float):
+// el mensaje sale por la global del módulo `diag_msg`, que lee el wrapper
+// (spasm/ffi/diagnostics_ffi.c) y copia src/spasm_logic.rs.
+
+// Devuelve el número de línea del diagnóstico o -1 si la línea no lo es.
+func diag_parse(line : string) -> int {
+    let n = str_len(line)
+    let pos = str_index_of(line, "linea ")
+    let colon = 0
+    let num = 0
+    if (pos >= 0) {
+        // Ojo: str_slice usa un único buffer estático por builtin. Cortar
+        // SIEMPRE del string original y consumir el resultado de inmediato: si
+        // guardamos el puntero de un slice, el siguiente slice lo pisa.
+        colon = str_index_of(str_slice(line, pos + 6, n), ":")
+        if (colon >= 0) {
+            num = parse_uint(str_slice(line, pos + 6, colon))
+            if (num >= 0) {
+                diag_msg = str_trim(str_slice(line, pos + 6 + colon + 1, n))
+                return num
+            }
+        }
+    }
+    let seg_start = 0
+    let i = 0
+    let seg = ""
+    let r = ""
+    while (i <= n) {
+        let is_sep = 0
+        if (i == n) { is_sep = 1 }
+        if (i < n) {
+            if (str_byte_at(line, i) == 58) { is_sep = 1 }
+        }
+        if (is_sep == 1) {
+            seg = str_slice(line, seg_start, i - seg_start)
+            num = parse_uint(seg)
+            if (num >= 0) {
+                // resto = desde después de este ':' hasta el final
+                r = str_slice(line, i + 1, n)
+                if (contains_ci(r, "error") == 1) {
+                    diag_msg = str_trim(r)
+                    return num
+                }
+                if (contains_ci(r, "warning") == 1) {
+                    diag_msg = str_trim(r)
+                    return num
+                }
+            }
+            seg_start = i + 1
+        }
+        i += 1
+    }
+    return -1
+}
+
+// Parsea un entero decimal con espacios alrededor. -1 si no es estrictamente
+// un número, igual que parse::<usize>() de Rust (sin signo, sin basura).
+func parse_uint(s : string) -> int {
+    let t = str_trim(s)
+    let n = str_len(t)
+    if (n == 0) { return -1 }
+    if (n > 18) { return -1 }
+    let v = 0
+    let i = 0
+    let b = 0
+    while (i < n) {
+        b = str_byte_at(t, i)
+        if (b < 48) { return -1 }
+        if (b > 57) { return -1 }
+        v = v * 10 + (b - 48)
+        i += 1
+    }
+    return v
+}
+
+// ¿Contiene `needle` ignorando mayúsculas A-Z? Equivale a
+// to_ascii_lowercase().contains(...) de Rust.
+func contains_ci(hay : string, needle : string) -> int {
+    let nh = str_len(hay)
+    let nn = str_len(needle)
+    if (nn == 0) { return 1 }
+    if (nn > nh) { return 0 }
+    let i = 0
+    let j = 0
+    let ok = 0
+    let a = 0
+    let b = 0
+    while (i <= nh - nn) {
+        ok = 1
+        j = 0
+        while (j < nn) {
+            a = str_byte_at(hay, i + j)
+            b = str_byte_at(needle, j)
+            if (a >= 65) {
+                if (a <= 90) { a = a + 32 }
+            }
+            if (b >= 65) {
+                if (b <= 90) { b = b + 32 }
+            }
+            if (a != b) { ok = 0 }
+            j += 1
+        }
+        if (ok == 1) { return 1 }
+        i += 1
+    }
+    return 0
+}
+
+main {
+    let diag_msg = ""
+}

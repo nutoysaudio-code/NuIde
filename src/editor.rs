@@ -162,10 +162,7 @@ enum EditOp {
         new_text: Vec<String>,
     },
     /// Snapshot completo del documento (sistema legacy).
-    Snapshot {
-        lines: Vec<String>,
-        cursor: Cursor,
-    },
+    Snapshot { lines: Vec<String>, cursor: Cursor },
 }
 
 /// Un archivo abierto en una pestaña del editor.
@@ -842,26 +839,6 @@ fn shell_split(s: &str) -> Vec<String> {
     out
 }
 
-/// ¿El archivo usa el dialecto compilado (empieza con `programa`)? El intérprete
-/// sólo entiende el dialecto de intérprete.
-fn uses_compiled_dialect(path: &Path) -> bool {
-    let Ok(text) = std::fs::read_to_string(path) else {
-        return false;
-    };
-    for line in text.lines() {
-        let t = line.trim();
-        if t.is_empty() || t.starts_with(';') || t.starts_with("//") {
-            continue;
-        }
-        return t == "programa"
-            || (t.starts_with("programa")
-                && t.as_bytes()
-                    .get(8)
-                    .is_some_and(|b| !b.is_ascii_alphanumeric() && *b != b'_'));
-    }
-    false
-}
-
 /// Convierte un diff unificado en líneas tipadas para la UI.
 /// kind: 0 contexto, 1 agregada, 2 borrada, 3 hunk (`@@`), 4 metadatos.
 fn parse_diff_lines(text: &str) -> Vec<IdeDiffLine> {
@@ -1251,9 +1228,6 @@ pub struct Ide {
     /// Tamaño actual del panel del agente (columnas × filas).
     agent_cols: u16,
     agent_rows: u16,
-    /// Encabezado del panel de agente.
-    agent_version: String,
-    agent_model: String,
     /// `.spasm` sobre el que actúan los menús Ejecutar/Compilar.
     active_file: Option<PathBuf>,
     /// Timer del bucle de drenado.
@@ -1461,10 +1435,6 @@ impl Ide {
             agent_rx,
             agent_cols: AGENT_COLS,
             agent_rows: AGENT_ROWS,
-            agent_version: std::env::var("NUIDE_AGENT_VERSION")
-                .unwrap_or_else(|_| "OpenCode CLI".to_string()),
-            agent_model: std::env::var("NUIDE_AGENT_MODEL")
-                .unwrap_or_else(|_| "por defecto".to_string()),
             active_file: None,
             timer: None,
         };
@@ -1596,16 +1566,13 @@ impl Ide {
 // ---------------------------------------------------------------------------
 
 impl Ide {
-    /// Lanza una shell en el panel del agente e inyecta `opencode` al arrancar.
-    /// Si sale de opencode, queda en la shell y puede relanzarlo cuando quiera.
+    /// Lanza una **terminal pura** en el panel derecho: una shell real en la
+    /// raíz del proyecto, como la inferior. `opencode` no se abre solo: se
+    /// inyecta cuando el usuario elige *Lanzar opencode* (paleta). Si opencode
+    /// se cierra, la terminal queda en la shell.
     fn start_agent(&mut self) {
-        let (shell, mut args) = pty::default_shell();
+        let (shell, args) = pty::default_shell();
         let powershell = pty::is_powershell(&shell);
-        // Para PowerShell, agregar -NoExit para que la shell no termine cuando
-        // opencode sale.
-        if powershell && !args.contains(&"-NoExit".to_string()) {
-            args.push("-NoExit".to_string());
-        }
         let name = if powershell {
             "pwsh agente".to_string()
         } else {
@@ -1639,19 +1606,27 @@ impl Ide {
             mouse_button: 3,
             term_model: Rc::new(TermRows::default()),
         });
-        // Inyectar el comando de opencode después de que la shell arranque.
-        if alive {
-            if let Some(bin) = self.toolchain.agent.as_ref() {
-                // Esperar un poco a que la shell muestre el prompt.
-                std::thread::sleep(std::time::Duration::from_millis(500));
-                let command = format!("{}\r", bin.display());
-                if let Some(session) = self.agent.as_mut() {
-                    if let Some(pty) = session.pty.as_mut() {
-                        let _ = pty.write(command.as_bytes());
-                    }
-                }
-            }
+    }
+
+    /// Inyecta el comando que arranca `opencode` en la shell del panel derecho,
+    /// sólo si el usuario lo pidió. Si la shell está muerta, la relanza antes.
+    fn launch_agent(&mut self) {
+        let Some(bin) = self.toolchain.agent.clone() else {
+            return;
+        };
+        if !self.agent.as_ref().is_some_and(|a| a.alive) {
+            self.agent = None;
+            self.start_agent();
         }
+        // Con comillas, para que funcione aunque la ruta tenga espacios. En
+        // PowerShell hace falta el operador de llamada `&`.
+        let (shell, _) = pty::default_shell();
+        let command = if pty::is_powershell(&shell) {
+            format!("& '{}'\r", bin.display())
+        } else {
+            format!("\"{}\"\r", bin.display())
+        };
+        self.write_to(Target::Agent, command.as_bytes());
     }
 
     /// Abre el diálogo nativo para elegir la carpeta del proyecto y la fija como
@@ -1922,9 +1897,9 @@ impl Ide {
         self.editor_full = true;
     }
 
-    /// Reinicia el agente en la carpeta nueva. Como el agente es una shell que
-    /// lanza opencode al arrancar, simplemente lo reiniciamos: la nueva shell
-    /// arranca en el cwd del proyecto y lanza opencode automáticamente.
+    /// Reinicia la terminal del panel derecho en la carpeta nueva: la shell
+    /// arranca en el cwd del proyecto. opencode no se relanza (se lanza sólo
+    /// bajo demanda con *Lanzar opencode*).
     fn retarget_agent(&mut self, _dir: &Path) {
         self.agent = None;
         self.start_agent();
@@ -2304,31 +2279,35 @@ impl Ide {
         session.screen.process(normalized.as_bytes());
     }
 
-    /// Ejecuta el archivo de entrada (o el activo) con el intérprete de SpASM,
-    /// con los argumentos configurados, capturando la salida en la sesión "build".
+    /// Ejecuta el archivo de entrada (o el activo) **compilado**: lo transpila a
+    /// C (`spasmc.py`), lo compila a binario nativo y corre el binario con los
+    /// argumentos configurados. El intérprete de SpASM ya no participa; la
+    /// salida se captura en la sesión "build".
     fn run(&mut self, _arg: Option<&str>) {
         let Some(file) = self.run_entry.clone().or_else(|| self.active_file.clone()) else {
             return;
         };
-        let Ok(exe) = self.toolchain.interpreter_required() else {
-            return;
-        };
         self.open_file(file.clone());
-        // El intérprete sólo corre el dialecto de intérprete. Si el archivo usa
-        // `programa`, avisamos en vez de dejar que falle con "Error de sintaxis".
-        if uses_compiled_dialect(&file) {
-            self.write_build_output(
-                "Este archivo usa el dialecto compilado (programa/main).\n\n\
-                 Durante el desarrollo usá el dialecto de intérprete (print ...; end;)\n\
-                 y F5. Cuando esté listo, generá el programa final con Compilar (Ctrl+B).\n",
-            );
+        let (mut steps, exe, note) = self.compile_binary_steps(&file);
+        if steps.is_empty() {
+            // Sin `spasmc.py`/Python no hay nada que correr.
+            self.write_build_output(&format!("{}\n", note.unwrap_or_default()));
             self.local_active = self.ensure_build_session();
             self.resize_local();
             return;
         }
-        let mut args = vec![file.display().to_string()];
-        args.extend(shell_split(&self.run_args));
-        self.spawn_build(vec![build::Step { program: exe, args }]);
+        let Some(exe) = exe else {
+            // Sin compilador de C el `.c` se generó pero no hay binario.
+            self.write_build_output(&format!("{}\n", note.unwrap_or_default()));
+            self.local_active = self.ensure_build_session();
+            self.resize_local();
+            return;
+        };
+        steps.push(build::Step {
+            program: exe,
+            args: shell_split(&self.run_args),
+        });
+        self.spawn_build(steps);
     }
 
     /// Elige el archivo de entrada de F5 con el diálogo nativo.
@@ -2426,6 +2405,43 @@ impl Ide {
             return;
         };
         self.open_file(file.clone());
+        let (mut steps, exe, note) = self.compile_binary_steps(&file);
+        if steps.is_empty() {
+            // Sin `spasmc.py`/Python no hay nada que compilar.
+            self.build_note = note;
+            return;
+        }
+        let Some(exe) = exe else {
+            self.build_note = if run_after {
+                Some(
+                    "No hay compilador de C: no se pudo generar ni correr el binario. \
+                     Instalá gcc/clang o MSVC, o definí NUIDE_CC."
+                        .to_string(),
+                )
+            } else {
+                note
+            };
+            self.spawn_build(steps);
+            return;
+        };
+        if run_after {
+            steps.push(build::Step {
+                program: exe,
+                args: Vec::new(),
+            });
+        }
+        self.build_note = None;
+        self.spawn_build(steps);
+    }
+
+    /// Transpila `file` a C (`spasmc.py --target c`) y lo compila a binario
+    /// nativo con el compilador de C detectado (gcc/clang o MSVC). Devuelve los
+    /// pasos listos para [`Self::spawn_build`], la ruta del binario (si se pudo
+    /// generar) y una nota con el problema si faltó eslabón de la cadena.
+    fn compile_binary_steps(
+        &self,
+        file: &Path,
+    ) -> (Vec<build::Step>, Option<PathBuf>, Option<String>) {
         let stem = file
             .file_stem()
             .map(|s| s.to_string_lossy().into_owned())
@@ -2435,39 +2451,36 @@ impl Ide {
         let out_c = out_dir.join(format!("{stem}.c"));
         let out_exe = out_dir.join(format!("{stem}.exe"));
 
-        let Ok((python, args)) = self.toolchain.transpile_command(&file, &out_c) else {
-            return;
+        let Ok((python, args)) = self.toolchain.transpile_command(file, &out_c) else {
+            return (
+                Vec::new(),
+                None,
+                Some("no se encontró el compilador spasmc.py (definí NUIDE_SPASMC)".to_string()),
+            );
         };
-        let mut steps = vec![build::Step {
+        let steps = vec![build::Step {
             program: python,
             args,
         }];
-        if let Some((cc, cc_args)) = self.toolchain.native_command(&out_c, &out_exe) {
-            steps.push(build::Step {
-                program: cc,
-                args: cc_args,
-            });
-            if run_after {
+        match self.toolchain.native_command(&out_c, &out_exe) {
+            Some((cc, cc_args)) => {
+                let mut steps = steps;
                 steps.push(build::Step {
-                    program: out_exe,
-                    args: Vec::new(),
+                    program: cc,
+                    args: cc_args,
                 });
+                (steps, Some(out_exe), None)
             }
-            self.build_note = None;
-        } else if run_after {
-            self.build_note = Some(
-                "No hay compilador de C: no se pudo generar ni correr el binario. \
-                 Instalá gcc/clang o MSVC, o definí NUIDE_CC."
-                    .to_string(),
-            );
-        } else {
-            self.build_note = Some(
-                "No hay compilador de C: se generó el .c pero no el binario. \
-                 Instalá gcc/clang o MSVC, o definí NUIDE_CC."
-                    .to_string(),
-            );
+            None => (
+                steps,
+                None,
+                Some(
+                    "No hay compilador de C: se generó el .c pero no el binario. \
+                     Instalá gcc/clang o MSVC, o definí NUIDE_CC."
+                        .to_string(),
+                ),
+            ),
         }
-        self.spawn_build(steps);
     }
 
     /// Mueve el cursor a una línea (1-based) del archivo activo.
@@ -4230,7 +4243,7 @@ impl Ide {
             6,
             "CLI de OpenCode",
             agent,
-            "Ruta del ejecutable que corre en el panel derecho",
+            "Ruta de la CLI que se lanza bajo demanda con «Lanzar opencode»",
             0,
         ));
         v.push(s(
@@ -4238,26 +4251,26 @@ impl Ide {
             3,
             0,
             "Versión mostrada",
-            self.agent_version.clone(),
+            String::new(),
             "Etiqueta que se ve en la ficha del panel",
             0,
         ));
         v.push(s(
-            "agent.model",
+            "agent.launch",
             3,
-            0,
-            "Modelo mostrado",
-            self.agent_model.clone(),
-            "Etiqueta del modelo activo",
+            4,
+            "Lanzar opencode",
+            "abrir".into(),
+            "Inyecta el comando de opencode en la terminal del panel derecho",
             0,
         ));
         v.push(s(
             "agent.restart",
             3,
             4,
-            "Reiniciar el agente",
+            "Reiniciar la terminal",
             "reiniciar".into(),
-            "Vuelve a lanzar la TUI de opencode",
+            "Relanza la shell del panel derecho en la raíz del proyecto",
             0,
         ));
         v.push(b(
@@ -4508,10 +4521,8 @@ impl Ide {
                 self.config.save();
             }
             "agent.version" => {
-                self.agent_version = value.trim().to_string();
             }
             "agent.model" => {
-                self.agent_model = value.trim().to_string();
             }
             "site.host" => self.site_field_set("host", value.to_string()),
             "site.user" => self.site_field_set("user", value.to_string()),
@@ -4543,6 +4554,7 @@ impl Ide {
             "term.new" => self.new_session(),
             "term.restart" => self.restart_session(),
             "term.split" => self.split_terminal(),
+            "agent.launch" => self.launch_agent(),
             "agent.restart" => {
                 self.agent = None;
                 self.start_agent();
@@ -6111,9 +6123,9 @@ impl Ide {
             }
             self.redo.clear();
         }
-        
+
         let crossed = self.tabs[self.active_tab].delete_selection();
-        
+
         // Registrar operaciones de undo incremental (solo si no había selección)
         if !had_selection {
             let line = self.tabs[self.active_tab].cursor.line;
@@ -6824,12 +6836,10 @@ impl Ide {
         w.set_term_sessions(ModelRc::from(Rc::new(VecModel::from(sessions))));
         w.set_active_session(self.local_active as i32);
         // Filas, barras de scroll y mouse: es el mismo refresco que corre cuando
-        // sale el PTY, así que se comparte (ver `sync_terms`).
-        self.sync_terms(w);
-        w.set_agent_version(self.agent_version.clone().into());
-        w.set_agent_model(self.agent_model.clone().into());
+       // sale el PTY, así que se comparte (ver `sync_terms`).
+       self.sync_terms(w);
 
-        // --- proyecto y explorador ---
+       // --- proyecto y explorador ---
         let project = self
             .explorer
             .root()
@@ -7373,6 +7383,19 @@ impl Ide {
                     s.pty = None;
                     s.screen
                         .process(format!("\r\n[proceso terminado: {code}]\r\n").as_bytes());
+                }
+                // El panel derecho es una terminal que se recupera sola: si la
+                // shell se cae — opencode al salir con Ctrl+C puede arrastrar
+                // toda la consola — se relanza para dejar siempre un prompt
+                // usable. (La terminal inferior queda muerta a propósito.)
+                if matches!(target, Target::Agent) {
+                    self.agent = None;
+                    self.start_agent();
+                    if let Some(s) = self.agent.as_mut() {
+                        s.screen.process(
+                            "[NuIde] la shell terminó; se relanza la terminal.\r\n".as_bytes(),
+                        );
+                    }
                 }
             }
         }
@@ -9888,7 +9911,7 @@ mod tests {
         ide.start_agent();
         {
             let agent = ide.agent.as_ref().expect("el agente queda inicializado");
-            assert_eq!(agent.name, "opencode");
+            assert!(agent.name.ends_with("agente"));
         }
         // La pantalla del agente tiene exactamente las filas del panel.
         let (lines, total, pos, thumb) = ide.term_view(Target::Agent);
@@ -10721,19 +10744,6 @@ mod tests {
             vec!["--x".to_string(), "a b".to_string(), "--y".to_string()]
         );
         assert!(shell_split("   ").is_empty());
-    }
-
-    #[test]
-    fn detecta_el_dialecto_compilado() {
-        let dir = temp_dir("dialecto");
-        let dev = dir.join("dev.spasm");
-        std::fs::write(&dev, "; comentario\nprint \"hola\";\nend;\n").unwrap();
-        assert!(!uses_compiled_dialect(&dev));
-
-        let rel = dir.join("rel.spasm");
-        std::fs::write(&rel, "programa \"x\"\nmain {\n    let c = 1\n}\n").unwrap();
-        assert!(uses_compiled_dialect(&rel));
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

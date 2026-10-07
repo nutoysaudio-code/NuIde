@@ -1,6 +1,6 @@
 [package]
 name = "nuide"
-version = "0.1.0-alpha"
+version = "0.2.0"
 edition = "2021"
 description = "NuIde — IDE multi-lenguaje con soporte de SpASM, terminales integrados y OpenCode CLI"
 
@@ -33,6 +33,9 @@ slint = "1.0"
 
 [build-dependencies]
 slint-build = "1.0"
+# Compila el C generado por el toolchain de SpASM (`spasm/generated/` vía los
+# wrappers de `spasm/ffi/`) y lo deja enlazado al binario en `build.rs`.
+cc = "1"
 
 # `release`: binario optimizado y chico para empaquetar.
 [profile.release]

@@ -18,6 +18,7 @@ pub mod pty;
 pub mod search;
 pub mod site;
 pub mod spasm;
+pub mod spasm_logic;
 pub mod sqlite;
 pub mod sysinfo;
 pub mod templates;

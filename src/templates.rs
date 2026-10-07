@@ -10,19 +10,20 @@ pub struct Template {
     pub body: &'static str,
 }
 
-/// Plantillas disponibles (en el orden en que se muestran). El **desarrollo** se
-/// hace con el intérprete (`print ...; end;`, se corre con F5); el **release** es
-/// el dialecto compilado (`programa`/`main`, se compila con Ctrl+B).
+/// Plantillas disponibles (en el orden en que se muestran). El **desarrollo**
+/// usa el dialecto simple (`print ...; end;`); el **release** el dialecto
+/// completo (`programa`/`main`, con `func`). F5 y Ctrl+B **compilan** ambos a
+/// binario nativo (AOT); la diferencia es cuánta estructura tiene el programa.
 pub const TEMPLATES: &[Template] = &[
     Template {
         id: "desarrollo",
-        label: "Desarrollo (intérprete) — F5",
-        body: "; programa SpASM (desarrollo, dialecto de intérprete)\n\nprint \"Hola desde SpASM\";\nend;\n",
+        label: "Desarrollo (simple) — F5",
+        body: "; programa SpASM (desarrollo, dialecto simple)\n\nprint \"Hola desde SpASM\";\nend;\n",
     },
     Template {
         id: "release",
-        label: "Release (compilado) — Ctrl+B",
-        body: "; programa SpASM (release, dialecto compilado)\n\nprograma \"nuevo\"\n\nfunc suma(a : int) -> int {\n    let b = a\n    return b\n}\n\nmain {\n    let c = suma(1)\n}\n",
+        label: "Release (programa) — Ctrl+B",
+        body: "; programa SpASM (release, dialecto completo)\n\nprograma \"nuevo\"\n\nfunc suma(a : int) -> int {\n    let b = a\n    return b\n}\n\nmain {\n    let c = suma(1)\n}\n",
     },
     Template {
         id: "vacio",

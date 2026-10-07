@@ -640,6 +640,45 @@ compresión; el visor muestra hasta 200 filas por tabla y no edita.
 - **Resultado**: al salir de opencode, el usuario queda en la shell y puede
   tipear `opencode` para relanzarlo, ejecutar comandos de shell directamente,
   o usar la terminal normalmente.
+- **Corrección en 3.31**: la causa real no era la interactividad; `-NoExit` no
+  cambia el comportamiento y se retira.
+
+### 3.31 Panel derecho como terminal pura
+
+- El panel derecho **arranca como terminal real** (shell pwsh/cmd en la raíz
+  del proyecto), igual que la inferior. `opencode` **ya no se inyecta al
+  arrancar**: se lanza bajo demanda con la acción nueva **Lanzar opencode**
+  (`agent.launch` en la paleta), que inyecta el comando de la CLI en la shell
+  abierta.
+- El comando se inyecta **entre comillas** (`& 'ruta'` en PowerShell,
+  `"ruta"` en cmd) para que funcione aunque la ruta tenga espacios.
+- Si el usuario sale de opencode, la terminal queda en la shell; desde la
+  paleta puede relanzar opencode o reiniciar la terminal.
+- **Auto-recuperación**: si la shell se cae, el panel **relanza la terminal
+  sola** (la terminal inferior queda muerta a propósito).
+- **Se retira el `-NoExit`** de `3.30`. Una prueba real en ConPTY mostró que
+  ese flag no cambia el comportamiento: al salir de opencode con `/exit` la
+  shell queda viva tanto con como sin `-NoExit` (con o sin el flag, el panel
+  vuelve a ser una terminal); y si opencode se cierra con `Ctrl+C`, la shell
+  muere igualmente (código 5) en ambos casos. La causa del cierre no es la
+  "interactividad" de PowerShell sino el `Ctrl+C` de consola que opencode
+  emite al salir, que arrastra a la shell del mismo grupo de consola.
+
+### 3.32 Ejecutar compila (AOT); versión 0.2.0
+
+- **Ejecutar (`F5`)** ya no usa el intérprete `spasm.exe`: ahora **compila** el
+  `.spasm` a binario nativo (misma cadena que Compilar: `spasmc.py --target c`
+  + compilador de C detectado) y corre el `.exe` con los argumentos
+  configurados. Ambos dialectos (simple y `programa`) compilan; desaparece el
+  aviso de "archivo con dialecto compilado".
+- **Despliegue**: `deploy.spasm` también se **compila AOT** antes de correrlo
+  (nuevo `Toolchain::compile_binary`). La IDE ya **no necesita el intérprete** en
+  runtime; se elimina `interpreter_required` y `uses_compiled_dialect` (sin uso).
+- Se comparte la cadena de pasos con `Ide::compile_binary_steps` (la misma que
+  usa `Compilar`).
+- Sin compilador de C, avisa y deja el `.c` (igual que Compilar).
+- **Versión 0.2.0** en `Cargo.toml`, `res/nuide.rc` (FileVersion/ProductVersion)
+  y `packaging/NuIde.iss` (AppVersion + VersionInfoVersion).
 
 ## 4. Limitaciones conocidas
 

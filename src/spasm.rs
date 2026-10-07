@@ -4,8 +4,10 @@
 //! AOT (`spasmc.py`) en variables de entorno, en las ubicaciones conocidas del
 //! ecosistema (`F:\SpASM`, `F:\SpAMS-Oficial`) y, por último, en el `PATH`.
 //!
-//! El intérprete corre un `.spasm` directamente. El compilador AOT transpila a C
-//! portable (`--target c`); con `--build` llega hasta el binario nativo.
+//! La IDE **siempre compila** el código SpASM a binario nativo (AOT): transpila
+//! a C portable con `spasmc.py --target c` y compila ese `.c` con el compilador
+//! nativo detectado (gcc/clang/tcc o MSVC). El intérprete `spasm.exe` se
+//! descubre pero **no se usa** en el flujo de la IDE.
 //!
 //! Ninguna herramienta es obligatoria: si falta, la IDE lo dice en la terminal y
 //! sigue funcionando como consola de shell.
@@ -24,7 +26,7 @@ pub enum CCompiler {
 /// Rutas de las herramientas de SpASM disponibles en esta máquina.
 #[derive(Debug, Clone, Default)]
 pub struct Toolchain {
-    /// Intérprete `spasm.exe` (ejecuta `.spasm` sin compilar).
+    /// Intérprete `spasm.exe` (sólo informativo: la IDE compila, no interpreta).
     pub interpreter: Option<PathBuf>,
     /// Compilador AOT `spasmc.py` (dispatcher de targets).
     pub compiler: Option<PathBuf>,
@@ -89,13 +91,6 @@ impl Toolchain {
         }
     }
 
-    /// Intérprete listo para usar, o `None` con un motivo para mostrar.
-    pub fn interpreter_required(&self) -> Result<PathBuf, String> {
-        self.interpreter
-            .clone()
-            .ok_or_else(|| "no se encontró el intérprete spasm.exe (definí NUIDE_SPASM)".into())
-    }
-
     /// `(python, argumentos)` para **transpilar** `source` a C en `out_c`
     /// (`spasmc.py --target c`). No usa `--build`: el paso nativo lo hace la IDE.
     pub fn transpile_command(
@@ -155,6 +150,61 @@ impl Toolchain {
                 ))
             }
         }
+    }
+
+    /// Compila `source` a binario nativo dentro de `out_dir`, corriendo
+    /// `spasmc.py` (transpila a C) y el compilador de C detectado de forma
+    /// **bloqueante** con la salida capturada. Devuelve la ruta del binario o
+    /// `Err` con la salida del paso que falló. Lo usa el módulo de despliegue
+    /// para correr el script sin intérprete.
+    pub fn compile_binary(&self, source: &Path, out_dir: &Path) -> Result<PathBuf, String> {
+        use std::process::Command;
+
+        let stem = source
+            .file_stem()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "out".to_string());
+        let _ = std::fs::create_dir_all(out_dir);
+        let out_c = out_dir.join(format!("{stem}.c"));
+        let out_exe = out_dir.join(format!("{stem}.exe"));
+
+        // 1) spasmc.py --target c
+        let (python, args) = self.transpile_command(source, &out_c)?;
+        let out = Command::new(&python)
+            .args(&args)
+            .current_dir(out_dir)
+            .output()
+            .map_err(|e| format!("no se pudo lanzar spasmc.py: {e}"))?;
+        if !out.status.success() {
+            return Err(format!(
+                "spasmc.py falló ({}): {}{}",
+                out.status,
+                String::from_utf8_lossy(&out.stdout),
+                String::from_utf8_lossy(&out.stderr)
+            ));
+        }
+
+        // 2) compilador de C nativo (.c -> binario)
+        let Some((cc, cc_args)) = self.native_command(&out_c, &out_exe) else {
+            return Err(
+                "no hay compilador de C (gcc/clang o MSVC) para pasar del .c al binario; definí NUIDE_CC"
+                    .to_string(),
+            );
+        };
+        let out = Command::new(&cc)
+            .args(&cc_args)
+            .current_dir(out_dir)
+            .output()
+            .map_err(|e| format!("no se pudo lanzar el compilador de C: {e}"))?;
+        if !out.status.success() {
+            return Err(format!(
+                "el compilador de C falló ({}): {}{}",
+                out.status,
+                String::from_utf8_lossy(&out.stdout),
+                String::from_utf8_lossy(&out.stderr)
+            ));
+        }
+        Ok(out_exe)
     }
 }
 

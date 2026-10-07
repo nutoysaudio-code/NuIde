@@ -6,10 +6,12 @@ decisiones de diseño, ver [`ESTADO.md`](ESTADO.md) y [`PLAN.md`](PLAN.md).
 
 ## 1. Requisitos
 
-- **SpASM**: el intérprete `spasm.exe` (para Ejecutar / `F5`) y el compilador
-  `spasmc.py` + Python (para Compilar / `Ctrl+B`). NuIde los descubre en el
+- **SpASM**: el compilador `spasmc.py` + Python y un **compilador de C**
+  (`gcc`/`clang`/`tcc` o **MSVC**) — NuIde **compila** el `.spasm` a binario
+  nativo (AOT) con Ejecutar (`F5`) y Compilar (`Ctrl+B`); el intérprete
+  `spasm.exe` ya no se usa en la IDE. NuIde descubre las herramientas en el
   `PATH`, en `F:\SpASM` / `F:\SpAMS-Oficial`, o por variables de entorno
-  (`NUIDE_SPASM`, `NUIDE_SPASMC`, `NUIDE_PYTHON`). Si falta alguno, lo dice y
+  (`NUIDE_SPASMC`, `NUIDE_PYTHON`, `NUIDE_CC`). Si falta alguna, lo dice y
   sigue funcionando como editor/terminal.
 - **Git** (opcional): el panel de control de código usa el `git` del `PATH`.
 - **Node.js** (opcional): lo necesitan las CLI de IA (OpenCode y las demás). El
@@ -20,8 +22,8 @@ decisiones de diseño, ver [`ESTADO.md`](ESTADO.md) y [`PLAN.md`](PLAN.md).
 1. Al abrir sin archivos verás la **bienvenida**: **Abrir carpeta…** (elige el
    proyecto), **Abrir archivo…** o **Nuevo archivo…**.
 2. El nombre del proyecto (arriba, al centro) también abre el selector de carpeta.
-   Al cambiarlo, el explorador se reconstruye y **el agente cambia de carpeta sin
-   reiniciarse**.
+   Al cambiarlo, el explorador se reconstruye y **el panel derecho se reinicia en
+   la carpeta nueva** (como terminal).
 3. El editor recuerda la carpeta, el layout, las pestañas abiertas y el cursor de
    cada archivo.
 
@@ -41,22 +43,23 @@ decisiones de diseño, ver [`ESTADO.md`](ESTADO.md) y [`PLAN.md`](PLAN.md).
 
 ## 4. Ejecutar y compilar
 
-El flujo de SpASM es **desarrollar con el intérprete** y **compilar para release**:
+NuIde **compila** el código SpASM a binario nativo (AOT); el intérprete
+`spasm.exe` no participa:
 
-- **`F5` (Ejecutar)** corre el archivo de **entrada** con el **intérprete**
-  (`spasm.exe`) y los **argumentos** configurados. El intérprete usa el *dialecto
-  de intérprete* (`print ...; end;`). Si el archivo empieza con `programa`, NuIde
-  avisa en la sesión `build` (ese archivo se compila, no se interpreta).
+- **`F5` (Ejecutar)** compila el archivo de **entrada** (o el activo) y ejecuta
+  el binario con los **argumentos** configurados.
 - **`Ctrl+B` (Compilar)** transpila a C (`spasmc.py --target c`) y **compila el
   `.c` a binario** con el compilador de C detectado (`gcc`/`clang`/`cc`/`tcc` o
-  **MSVC** vía `vcvars64.bat`). Ese es el paso de release; **`Ctrl+Shift+B`**
-  compila **y ejecuta** el binario. Si no hay compilador de C, avisa y deja el `.c`.
+  **MSVC** vía `vcvars64.bat`); **`Ctrl+Shift+B`** compila **y ejecuta** el
+  binario. Si no hay compilador de C, avisa y deja el `.c`.
+- Lo mismo vale para el **script de despliegue** (`deploy.spasm`): se compila
+  AOT y se corre.
 - La entrada/argumentos se cambian desde la paleta: *Ejecutar: elegir archivo de
   entrada…*, *usar el archivo activo*, *argumentos…* y *compilar al guardar*.
 - La salida va a la sesión **build** de la terminal; los errores se marcan en el
   editor y **`F8` / `Shift+F8`** saltan entre diagnósticos.
-- Las **plantillas** reflejan el flujo: *desarrollo (intérprete)* para `F5` y
-  *release (compilado)* para `Ctrl+B`.
+- Las **plantillas** reflejan el flujo: *desarrollo (simple)* para `F5` y
+  *release (programa)* para `Ctrl+B`.
 
 ## 5. Terminales
 
@@ -70,7 +73,9 @@ El flujo de SpASM es **desarrollar con el intérprete** y **compilar para releas
   portapapeles. Vale igual para el panel derecho.
 - La paleta permite **renombrar** la sesión y **reiniciarla** (arranca en la raíz
   del proyecto).
-- El panel derecho corre **`opencode`** en un PTY, con el mismo comportamiento.
+- El panel derecho es una **terminal igual**: arranca como shell y **`opencode`
+  se lanza bajo demanda** (paleta → *Lanzar opencode*). Si salís de opencode,
+  la terminal queda en la shell.
 
 ## 6. Git
 
@@ -155,9 +160,9 @@ Se activan en **Preferencias (`Ctrl+,`) → Módulos**.
 
 ## 12. Problemas frecuentes
 
-- **«no se encontró el intérprete spasm.exe»**: definí `NUIDE_SPASM` o instalá
-  SpASM.
-- **Compilar no llega al binario**: falta un compilador de C (`gcc`/`clang`/`cc`);
-  sin él, `spasmc` solo transpila a `.c` y NuIde lo avisa.
+- **«no se encontró spasmc.py»**: definí `NUIDE_SPASMC`/`NUIDE_PYTHON` o instalá
+  el toolchain de SpASM.
+- **Compilar no llega al binario**: falta un compilador de C (`gcc`/`clang`/`cc`
+  o MSVC); sin él, `spasmc` solo transpila a `.c` y NuIde lo avisa.
 - **El instalador de SpASM no trajo `spasmc.py` completo**: NuIde usa el que
   descubre (`NUIDE_SPASMC`/`SPASMC`).

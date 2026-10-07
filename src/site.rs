@@ -5,7 +5,8 @@
 //! `suppaftp`/`russh`/`ssh2` al build no paga el costo.
 //!
 //! **La lógica de *qué* subir vive en un script SpASM del proyecto** (por defecto
-//! `deploy.spasm`, ejecutado con la toolchain que ya detecta [`crate::spasm`]).
+//! `deploy.spasm`, que NuIde **compila AOT** y corre; ver
+//! [`crate::spasm::Toolchain::compile_binary`]).
 //! NuIde corre el script y le lee stdout línea por línea con un contrato simple,
 //! que es el mismo estilo que usa el host de SpASM (`popen` + líneas):
 //!

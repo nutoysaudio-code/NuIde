@@ -80,44 +80,13 @@ pub fn spawn(steps: Vec<Step>, cwd: PathBuf, tx: Sender<BuildResult>) {
 
 /// Extrae diagnósticos (línea + mensaje) de la salida del compilador. Soporta el
 /// formato de SpASM (`linea N: …`) y el de gcc/clang (`archivo:N:col: error: …`).
+///
+/// El análisis de cada línea vive en **SpASM** (`spasm/diagnostics.spasm`);
+/// este bucle sólo itera y junta. Ver `crate::spasm_logic`.
 pub fn parse_diagnostics(text: &str) -> Vec<Diagnostic> {
-    let mut out = Vec::new();
-    for line in text.lines() {
-        if let Some(diag) = diagnostic_of(line) {
-            out.push(diag);
-        }
-    }
-    out
-}
-
-fn diagnostic_of(line: &str) -> Option<Diagnostic> {
-    // SpASM: "linea 12: funcion no declarada: x"
-    if let Some(pos) = line.find("linea ") {
-        let rest = &line[pos + 6..];
-        if let Some(colon) = rest.find(':') {
-            if let Ok(n) = rest[..colon].trim().parse::<usize>() {
-                return Some(Diagnostic {
-                    line: n,
-                    message: rest[colon + 1..].trim().to_string(),
-                });
-            }
-        }
-    }
-    // gcc/clang: "build/x.c:12:5: error: ..."
-    let parts: Vec<&str> = line.split(':').collect();
-    for (i, part) in parts.iter().enumerate() {
-        if let Ok(n) = part.trim().parse::<usize>() {
-            let rest = parts[i + 1..].join(":");
-            let lower = rest.to_ascii_lowercase();
-            if lower.contains("error") || lower.contains("warning") {
-                return Some(Diagnostic {
-                    line: n,
-                    message: rest.trim().to_string(),
-                });
-            }
-        }
-    }
-    None
+    text.lines()
+        .filter_map(crate::spasm_logic::diagnostic_of)
+        .collect()
 }
 
 #[cfg(test)]

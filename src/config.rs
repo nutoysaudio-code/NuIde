@@ -108,21 +108,26 @@ pub fn config_dir() -> PathBuf {
 }
 
 /// Parsea `clave=valor` por línea. Ignora líneas vacías y comentarios.
+///
+/// El análisis de cada línea vive en **SpASM** (`spasm/configkv.spasm`);
+/// este bucle sólo itera y arma el mapa. Ver `crate::spasm_logic`.
 fn parse(text: &str) -> BTreeMap<String, String> {
     let mut map = BTreeMap::new();
     for line in text.lines() {
         let line = line.trim();
-        if line.is_empty() || line.starts_with('#') {
+        if crate::spasm_logic::config_skip(line) {
             continue;
         }
-        if let Some((key, value)) = line.split_once('=') {
-            map.insert(key.trim().to_string(), value.trim().to_string());
+        if let Some((key, value)) = crate::spasm_logic::config_split(line) {
+            map.insert(key, value);
         }
     }
     map
 }
 
-/// Serializa el store, una clave por línea.
+/// Serializa el store, una clave por línea. Se queda en Rust: es pura
+/// concatenación (sin lógica) y el concat del backend C trunca en 8 KiB, lo
+/// que podría cortar la lista de pestañas abiertas.
 fn serialize(values: &BTreeMap<String, String>) -> String {
     let mut out = String::new();
     for (key, value) in values {

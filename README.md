@@ -41,7 +41,7 @@ abiertos es una **página de bienvenida** real (accesos y atajos).
 | 5 | terminal real (PTY/ConPTY) + panel de OpenCode CLI | ✅ |
 | 6 | integración con el toolchain `spasm`/`spasmc` (build/run) | ✅ |
 | 7 | terminal: scrollback + selección y copia con el mouse | ✅ |
-| 8 | panel del agente: shell con `opencode` inyectado (TUI real) | ✅ |
+| 8 | panel derecho: terminal real + opencode bajo demanda (TUI real) | ✅ |
 | 9 | elegir proyecto (diálogo nativo) + recordarlo | ✅ |
 | 10 | editor: buscar/reemplazar + resaltados de contexto | ✅ |
 | 11 | layout modular: controles en la barra + menú Ver | ✅ |
@@ -67,9 +67,24 @@ abiertos es una **página de bienvenida** real (accesos y atajos).
 | 31 | preferencias (fuente/tamaño/acento) y atajos configurables | ✅ |
 | 32 | calidad/CI + icono + instalador Inno Setup (Node/CLI) + pie CPU/RAM | ✅ |
 | 33 | guía de usuario (`docs/GUIA.md`) + pulido | ✅ |
+| 34 | lógica de la IDE en **SpASM** (FFI AOT): diagnósticos y config | ✅ |
 
 > El parte de estado detallado —qué se cambió en cada iteración, limitaciones y
 > pendientes con su enfoque— está en [`docs/ESTADO.md`](docs/ESTADO.md).
+
+### Lógica de la IDE en SpASM (FFI AOT)
+
+Funciones centrales de la IDE escritas en SpASM (dialecto **compilado AOT**,
+`programa` + `main {}`) y compiladas a C en cada build vía `cc`:
+
+- `spasm/diagnostics.spasm` — `parse_diagnostics` / `diagnostic_of` (usa el
+  backend C real de `src/lint.rs`); los detalles salen por la global `diag_msg`.
+- `spasm/configkv.spasm` — `config_parse` (líneas `clave=valor`, con `#` como
+  comentario); el valor de la última clave sale por la global `cfg_out`.
+- `spasm/generated/*.c` — C generado commiteado (clone limpio compila sin
+  Python); `tools/regen_spasm.ps1` lo refresca (test `el_c_generado_esta_al_dia`).
+- `src/spasm_logic.rs` — wrappers Rust seguros (mutex global, buffers ≤4096) y
+  tests de paridad; contrato FFI en `spasm/README.md`.
 
 ### El explorador (real)
 
@@ -95,8 +110,8 @@ UI.
 La **raíz** es la carpeta del proyecto: la última elegida o la carpeta de
 lanzamiento. Se cambia con **clic en el nombre del proyecto** en la barra
 superior, que abre el diálogo nativo de carpetas (`rfd`). Al elegir otra, el
-explorador se reconstruye, el **agente cambia de carpeta sin reiniciarse** (le
-manda el comando `/cd` a la TUI de `opencode`) y la elección se recuerda en
+explorador se reconstruye, el **panel derecho se reinicia** en la carpeta nueva
+(como terminal; opencode se lanza bajo demanda) y la elección se recuerda en
 `%APPDATA%\NuIde\config` para el próximo arranque.
 
 ### El editor (edición + resaltado)
@@ -132,7 +147,7 @@ entero al abrir, cambiar de pestaña o cambiar el número de líneas.
 | `Ctrl+Z` / `Ctrl+Y` | Deshace / rehace (pila de 500 por archivo; `Ctrl+Shift+Z` también rehace). |
 | `Ctrl+F` | Abre la barra de búsqueda. |
 | `Ctrl+H` | Abre la búsqueda con el campo de reemplazo. |
-| `F5` | Ejecuta el archivo activo con el intérprete de SpASM. |
+| `F5` | Compila el archivo activo a binario nativo (AOT) y lo ejecuta. |
 | `Ctrl+B` | Compila el archivo activo. |
 | `F6` | Analiza el archivo activo con el parser de SpASM (diagnóstico). |
 | `F8` / `Shift+F8` | Salta al diagnóstico siguiente / anterior. |
@@ -250,7 +265,8 @@ invirtiendo la celda (sin calcular píxeles).
   TUI con glifos de caja/bloque (la de `opencode`) quedan alineadas.
 
 Los menús **Ejecutar** y **Compilar** de la barra superior actúan sobre el
-archivo activo: corren el intérprete (`spasm.exe`) o el compilador (`spasmc.py`)
+archivo activo: **compilan** el `.spasm` a binario nativo (AOT); `spasmc.py`
+transpila a C (`--target c`) y el compilador de C detectado produce el `.exe`,
 **capturando la salida** en una sesión de terminal dedicada (pestaña `build`). Los
 errores y warnings que reporta el toolchain se parsean con su línea y se marcan
 en rojo en el editor; **`F8` / `Shift+F8`** saltan al diagnóstico siguiente /
@@ -258,12 +274,13 @@ anterior y el mensaje va a la barra de estado.
 
 #### Configuración de ejecución, plantillas y ayuda
 
-- **`F5`** corre el **archivo de entrada** configurado (o el activo) con los
-  **argumentos** guardados. Desde la paleta: *Ejecutar: elegir archivo de
-  entrada…*, *usar el archivo activo*, *argumentos…* y *compilar al guardar*. La
-  config se recuerda (`run.entry`, `run.args`, `run.build-on-save`).
-- **Plantillas** (`src/templates.rs`): *Plantilla: programa compilado / hola
-  mundo (intérprete) / archivo vacío…* crean un `.spasm` con el diálogo de
+- **`F5`** **compila y ejecuta** el **archivo de entrada** configurado (o el
+  activo) con los **argumentos** guardados. Desde la paleta: *Ejecutar: elegir
+  archivo de entrada…*, *usar el archivo activo*, *argumentos…* y *compilar al
+  guardar*. La config se recuerda (`run.entry`, `run.args`,
+  `run.build-on-save`).
+- **Plantillas** (`src/templates.rs`): *Plantilla: programa completo / hola
+  mundo (simple) / archivo vacío…* crean un `.spasm` con el diálogo de
   guardar. *SpASM: nuevo proyecto…* elige una carpeta, crea `src/main.spasm` y la
   fija como proyecto.
 - **Ayuda de sintaxis** (`F1` o el comando): la paleta lista las palabras clave y
@@ -275,17 +292,13 @@ anterior y el mensaje va a la barra de estado.
 > que un depurador interactivo queda pendiente de agregarlo al intérprete
 > (documentado en `docs/PLAN.md`, Fase 7).
 
-> **Flujo de trabajo.** SpASM trae **intérprete** (`spasm.exe`) y **compilador**
-> (`spasmc.py`). El intérprete sólo entiende el *dialecto de intérprete*
-> (`print ...; end;`), así que se usa para **desarrollo** (**Ejecutar**, `F5`). El
-> compilador acepta ambos dialectos y es el paso de **release**: NuIde transpila a
-> C (`spasmc.py --target c`) y **compila el `.c` a binario** con el compilador de C
-> que detecte (`gcc`/`clang`/`cc`/`tcc` en el `PATH`, o **MSVC `cl`** cargando
-> `vcvars64.bat`), con **Compilar** (`Ctrl+B`) o **Compilar y ejecutar**
-> (`Ctrl+Shift+B`). Si no hay compilador de C, avisa y deja el `.c`. Las
-> plantillas lo reflejan (*desarrollo* = intérprete, *release* = compilado), y si
-> intentás Ejecutar un archivo con `programa` NuIde avisa en la sesión `build` en
-> vez de mostrar «Error de sintaxis».
+> **Flujo de trabajo.** NuIde **compila** el código SpASM a binario nativo (AOT)
+> — el intérprete (`spasm.exe`) **no se usa** en la IDE. Con **Ejecutar** (`F5`),
+> **Compilar** (`Ctrl+B`) o **Compilar y ejecutar** (`Ctrl+Shift+B`), `spasmc.py`
+> transpila a C (`--target c`) y el compilador de C que detecte
+> (`gcc`/`clang`/`cc`/`tcc` en el `PATH`, o **MSVC `cl`** cargando
+> `vcvars64.bat`) produce el `.exe`. Ambos dialectos (simple y `programa`)
+> compilan. Si no hay compilador de C, avisa y deja el `.c`.
 
 #### Dónde busca el toolchain
 
@@ -309,22 +322,26 @@ Skill: implementa su propio PTY nativo (ConPTY) en Rust.
 La consola *lineal* de `src/terminal.rs` queda como utilidad heredada (la usan
 pruebas de integración del toolchain). El panel del agente ya no la usa.
 
-### El panel del agente (OpenCode CLI, TUI real)
+### El panel derecho (terminal + OpenCode CLI)
 
-El panel derecho es una **terminal con shell** (como la inferior) que lanza
-`opencode` automáticamente al arrancar. Si salís de opencode (Ctrl+C, :q),
-queda en la shell y podés relanzarlo cuando quieras. Su TUI interactiva se
-renderiza con el mismo emulador (`vt`), con scrollback, selección/copia y las
-mismas teclas. El canal es propio (`agent_tx`/`agent_rx`) para no mezclar la
-salida con la terminal inferior.
+El panel derecho es una **terminal real** (shell pwsh/cmd en la raíz del
+proyecto), igual que la inferior. `opencode` **no se abre solo**: se lanza
+cuando el usuario elige *Lanzar opencode* en la paleta. Si salís de opencode,
+la terminal queda en la shell y podés relanzarlo cuando quieras. Su TUI
+interactiva se renderiza con el mismo emulador (`vt`), con scrollback,
+selección/copia y las mismas teclas. El canal es propio (`agent_tx`/`agent_rx`)
+para no mezclar la salida con la terminal inferior.
 
-- Al arrancar se lanza una shell (pwsh/cmd) en la raíz del proyecto y se
-  inyecta el comando `opencode` después de 500ms; si el CLI no está, la shell
-  muestra el error.
-- Si salís de opencode, queda en la shell y podés tipear `opencode` para
-  relanzarlo, o usar la shell normalmente.
-- Al cambiar de proyecto, se reinicia la sesión completa: la nueva shell
-  arranca en el cwd del proyecto y lanza opencode automáticamente.
+- Al arrancar se lanza una shell (pwsh/cmd) en la raíz del proyecto, sin
+  inyectar nada.
+- **Lanzar opencode** (paleta) inyecta el comando de la CLI —entre comillas,
+  para que funcione aunque la ruta tenga espacios— en la shell abierta.
+- Si salís de opencode, queda en la shell y podés relanzarlo de nuevo desde la
+  paleta o tipeando el comando directamente.
+- Si la shell se cae (opencode al salir con `Ctrl+C` puede arrastrar la
+  consola), el panel **relanza la terminal solo** y vuelve a quedar operativo.
+- Al cambiar de proyecto, se reinicia la terminal: la shell nueva arranca en el
+  cwd del proyecto (opencode no se relanza).
 - El encabezado y el modelo son configurables con `NUIDE_AGENT_VERSION` y
   `NUIDE_AGENT_MODEL`.
 - El CLI se descubre como `opencode.cmd` (Windows), `opencode.exe` u `opencode`.
@@ -419,9 +436,15 @@ editor vía `IdeTheme.editor-font-size`.
 nuide/
   Cargo.toml
   Cargo.lock               lock del proyecto (app independiente)
-  build.rs                 slint_build::compile("ui/nuide_ui.slint")
+  build.rs                 compila la lógica SpASM (cc) + slint_build
+  tools/regen_spasm.ps1     refresca spasm/generated/*.c con spasmc.py
+  spasm/
+    *.spasm                lógica de la IDE en SpASM AOT
+    generated/*.c          C generado (commiteado; no editar a mano)
+    ffi/*_ffi.c            wrappers C con firmas estables
+    README.md              reglas del puente Rust ↔ SpASM
   src/
-    lib.rs                 pub mod editor + explorer + highlight + pty + spasm + terminal + ui + vt
+    lib.rs                 pub mod editor + explorer + highlight + pty + spasm + spasm_logic + terminal + ui + vt
     ui.rs                  slint::include_modules!()
     spasm.rs               descubrimiento del toolchain (spasm/spasmc/cc/opencode)
     pty.rs                 terminal real: ConPTY + hilos de lectura/escritura
@@ -434,7 +457,8 @@ nuide/
     terminal.rs            consola lineal heredada (sólo pruebas de integración)
     explorer.rs            árbol de archivos plano con profundidad
     highlight.rs           tokenizador/resaltado de SpASM
-    config.rs              configuración persistida (carpeta del proyecto)
+    config.rs              configuración persistida (parse en SpASM)
+    spasm_logic.rs         FFI de la lógica SpASM (wrappers seguros + tests)
     editor.rs              estado de la IDE (explorador, editor, terminales) + wiring
     main.rs                crea la ventana, engancha y corre
   ui/
@@ -530,7 +554,7 @@ o sube desde ahí mismo.
 - **Terminal SSH**: abre una sesión `ssh user@host` en una pestaña de terminal
   real (ConPTY).
 - **La lógica de qué subir puede ser un script SpASM** del proyecto
-  (`deploy.spasm`, con el intérprete que ya detecta la IDE). El protocolo es por
+  (`deploy.spasm`, que la IDE **compila AOT** y corre). El protocolo es por
   líneas:
 
   ```text

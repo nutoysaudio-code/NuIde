@@ -12,9 +12,6 @@ import { DockHandle } from "ide_dock.slint";
 // interno.
 export component IdeOpenCode inherits FocusScope {
     in property <bool> connected: true;
-    in property <string> version: "OpenCode CLI";
-    in property <string> model: "por defecto";
-    in property <string> project: "";
     in property <[TermLine]> lines: [];
     in property <int> scroll-total: 0;
     in property <float> scroll-pos: 1.0;
@@ -43,7 +40,8 @@ export component IdeOpenCode inherits FocusScope {
 
     // La ficha de sesión ocupa los 104 px de arriba (34 de encabezado + 70 de
     // ficha, que ahora incluye la pista de copiar/pegar).
-    private property <length> screen-top: 104px;
+    // Solo encabezado superior.
+    private property <length> screen-top: 34px;
 
     function report-size() {
         root.resized(self.width, max(0px, self.height - root.screen-top));
@@ -130,57 +128,6 @@ export component IdeOpenCode inherits FocusScope {
         }
 
         // --- ficha de sesión ---
-        Rectangle {
-            x: 0;
-            y: 34px;
-            width: parent.width;
-            height: 70px;
-            background: IdeTheme.panel;
-
-            VerticalLayout {
-                x: 14px;
-                y: 10px;
-                width: parent.width - 28px;
-                spacing: 2px;
-                alignment: start;
-
-                Text {
-                    text: root.version;
-                    color: IdeTheme.text;
-                    font-family: IdeTheme.mono;
-                    font-size: 11px;
-                }
-                Text {
-                    text: "Modelo:  " + root.model;
-                    color: IdeTheme.text-soft;
-                    font-family: IdeTheme.mono;
-                    font-size: 11px;
-                }
-                Text {
-                    text: "Proyecto: " + root.project;
-                    color: IdeTheme.text-soft;
-                    font-family: IdeTheme.mono;
-                    font-size: 11px;
-                }
-                // Pista de uso: con mouse reporting el mouse es de la TUI, así
-                // que seleccionar necesita Shift (y soltar copia al portapapeles).
-                Text {
-                    text: "Shift+arrastrar selecciona y copia · click medio pega";
-                    color: IdeTheme.text-dim;
-                    font-family: IdeTheme.mono;
-                    font-size: 10px;
-                    overflow: elide;
-                }
-            }
-
-            Rectangle {
-                y: parent.height - IdeTheme.hairline;
-                width: parent.width;
-                height: IdeTheme.hairline;
-                background: IdeTheme.border-soft;
-            }
-        }
-
         // --- pantalla de la TUI (opencode) ---
         TerminalScreen {
             x: 0;

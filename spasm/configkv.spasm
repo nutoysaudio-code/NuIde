@@ -1,0 +1,38 @@
+programa "nuide_configkv"
+
+// Parseo de la config `clave=valor` de NuIde (migrado desde src/config.rs).
+//
+// Las claves salen por la global del módulo `cfg_out`: el llamador debe
+// copiarla antes de la siguiente llamada FFI (los builtins de string usan un
+// buffer estático cada uno). Lo garantiza src/spasm_logic.rs con su mutex.
+
+// ¿La línea se saltea? (vacía o comentario '#' tras trim) — 1 = sí.
+func cfg_skip(line : string) -> int {
+    let t = str_trim(line)
+    if (str_len(t) == 0) { return 1 }
+    if (str_byte_at(t, 0) == 35) { return 1 }
+    return 0
+}
+
+// Clave de la línea (split_once por el primer '='). Devuelve 1 si la línea
+// tiene '='; 0 si no (entonces cfg_out no se toca).
+func cfg_key_of(line : string) -> int {
+    let t = str_trim(line)
+    let eq = str_index_of(t, "=")
+    if (eq < 0) { return 0 }
+    cfg_out = str_trim(str_slice(t, 0, eq))
+    return 1
+}
+
+// Valor de la línea. Debe llamarse después de cfg_key_of con la misma línea.
+func cfg_value_of(line : string) -> int {
+    let t = str_trim(line)
+    let eq = str_index_of(t, "=")
+    if (eq < 0) { return 0 }
+    cfg_out = str_trim(str_slice(t, eq + 1, str_len(t)))
+    return 1
+}
+
+main {
+    let cfg_out = ""
+}

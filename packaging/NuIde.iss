@@ -7,7 +7,7 @@
 ; demás que se agreguen en postinstall.ps1).
 
 #define AppName "NuIde"
-#define AppVersion "0.1.0-alpha"
+#define AppVersion "0.2.0"
 #define AppPublisher "NuToys"
 #define AppURL "https://gitlab.com/nutoys-group/nuide"
 #define AppExe "nuide.exe"
@@ -17,7 +17,7 @@ AppId={{6F0B2E3A-9C1D-4E2A-8B7C-3D5A1F0E9C42}
 AppName={#AppName}
 AppVerName={#AppName} {#AppVersion}
 AppVersion={#AppVersion}
-VersionInfoVersion=0.1.0.0
+VersionInfoVersion=0.2.0.0
 AppPublisher={#AppPublisher}
 AppPublisherURL={#AppURL}
 AppSupportURL={#AppURL}

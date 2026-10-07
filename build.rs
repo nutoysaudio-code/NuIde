@@ -4,9 +4,40 @@ fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     // Todo el directorio `ui/`: la ventana importa los demás `.slint`.
     println!("cargo:rerun-if-changed=ui");
+    // Lógica SpASM: fuentes, C generado y wrappers FFI.
+    println!("cargo:rerun-if-changed=spasm");
+    compilar_logica_spasm();
 
     #[cfg(windows)]
     embed_resources();
+}
+
+/// Compila los wrappers FFI de `spasm/ffi/*.c`. Cada wrapper incluye el C
+/// generado de `spasm/generated/` (producido por `spasmc.py --target c` y
+/// commiteado, para que un clone limpio compile sin Python) y exporta los
+/// símbolos `nuide_*` que declara `src/spasm_logic.rs`.
+///
+/// Si no hay wrappers el build **falla explícito** (Machine Care First): la
+/// lógica declarada en `spasm/*.spasm` no puede quedar sin enlazar.
+fn compilar_logica_spasm() {
+    let mut build = cc::Build::new();
+    build.include("spasm/generated").include("spasm/ffi");
+
+    let mut wrappers = 0;
+    if let Ok(entries) = std::fs::read_dir("spasm/ffi") {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().is_some_and(|ext| ext == "c") {
+                build.file(&path);
+                wrappers += 1;
+            }
+        }
+    }
+    assert!(
+        wrappers > 0,
+        "spasm/ffi no tiene archivos .c: falta el wrapper FFI de los módulos SpASM"
+    );
+    build.compile("nuide_spasm_logic");
 }
 
 /// Compila `res/nuide.rc` (icono + versión) y lo enlaza, si hay `rc.exe`.
