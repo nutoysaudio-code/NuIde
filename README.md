@@ -68,6 +68,7 @@ abiertos es una **página de bienvenida** real (accesos y atajos).
 | 32 | calidad/CI + icono + instalador Inno Setup (Node/CLI) + pie CPU/RAM | ✅ |
 | 33 | guía de usuario (`docs/GUIA.md`) + pulido | ✅ |
 | 34 | lógica de la IDE en **SpASM** (FFI AOT): diagnósticos y config | ✅ |
+| 35 | proveedores de OpenCode: CRUD sobre la config del CLI | ✅ |
 
 > El parte de estado detallado —qué se cambió en cada iteración, limitaciones y
 > pendientes con su enfoque— está en [`docs/ESTADO.md`](docs/ESTADO.md).
@@ -430,6 +431,25 @@ Todo se aplica **en caliente** (se tocan los globales de `IdeTheme`) y se guarda
 en la config (`font.*`, `theme.accent`, `keys.*`). El tamaño del código llega al
 editor vía `IdeTheme.editor-font-size`.
 
+### Proveedores de OpenCode (configuración del CLI)
+
+La pantalla de configuración (`Ctrl+,`) tiene una sección **Proveedores** para
+dar de alta, editar y eliminar los proveedores del CLI de OpenCode sin tocar el
+JSON a mano. Edita la config global (`~/.config/opencode/opencode.json(c)`)
+tratando `opencode.json` y `opencode.jsonc` como una **unión**: al guardar, todo
+queda en `opencode.json` (se crea si falta) y se retira `providers` del `.jsonc`.
+
+- La escritura es **quirúrgica**: sólo se reemplaza el fragmento `providers`, así
+  que `$schema`, `model` y el resto del archivo quedan intactos. Los campos se
+  parchean *in-place*, conservando claves desconocidas (`env`, `modelID`,
+  `limit`, `cost`, …).
+- Campos: **ID** (la clave; renombrarlo mueve el proveedor), **Nombre**,
+  **Package**, **baseURL**, **apiKey** (oculta) y **Modelos** como **JSON crudo**
+  (se valida al guardar; debe ser un objeto).
+- No pisa credenciales por entorno: si un proveedor usa `env` y dejás apiKey
+  vacía, no se escribe `"apiKey": ""` encima.
+- **Eliminar** pide confirmación. `Esc` cierra el formulario.
+
 ## Estructura
 
 ```
@@ -459,6 +479,8 @@ nuide/
     highlight.rs           tokenizador/resaltado de SpASM
     config.rs              configuración persistida (parse en SpASM)
     spasm_logic.rs         FFI de la lógica SpASM (wrappers seguros + tests)
+    jsonx.rs               JSON con spans: edición quirúrgica de la config
+    providers.rs           CRUD de proveedores de OpenCode (config global)
     editor.rs              estado de la IDE (explorador, editor, terminales) + wiring
     main.rs                crea la ventana, engancha y corre
   ui/
@@ -476,6 +498,7 @@ nuide/
     ide_diff.slint         visor de diff de Git
     ide_prefs.slint        preferencias y atajos
     ide_about.slint        diálogo "Acerca de"
+    ide_provider.slint     formulario de proveedor de OpenCode
     ide_menu.slint         menú desplegable (Archivo / Editar / Ayuda)
     ide_confirm.slint      diálogos de confirmación / eliminar
     ide_prompt.slint       diálogo de entrada de texto
@@ -664,9 +687,9 @@ Ordenados por impacto para usar el IDE día a día; el **plan en fases** complet
 3. **Persistencia ampliada y búsqueda avanzada.** Recordar también las sesiones
    de terminal, y sumar *fuzzy*/regex y acotar la búsqueda a la selección.
 
-### Estado al 2026-10-04
+### Estado al 2026-10-08
 
-Compilado y publicado: `gitlab.com/nutoys-group/nuide` (`main`). 110 tests OK;
+Compilado y publicado: `github.com/nutoysaudio-code/NuIde` (`main`). 159 tests OK;
 clon limpio genera `nuide.exe`. Las dos terminales son PTY reales (shell local y
 TUI de `opencode`) con **mouse reporting**, el proyecto se elige con diálogo
 nativo y se recuerda, el editor tiene buscar/reemplazar (con **regex**, **en
@@ -674,6 +697,6 @@ selección** e historial), autocierre/autoindentación, resaltados, **resaltado
 por lenguaje y visores** (imagen y vista previa de Markdown), **diagnóstico con
 el parser de SpASM**, **control de código (Git)** con **diff, ramas, pull y ahead/behind**,
 **paleta de comandos / buscador de archivos**, **buscar en todo el proyecto**, **menús Archivo/Editar**
-con guardar como y cierre confirmado, y **explorador con operaciones de
-archivos**; los paneles se acoplan/apilan por lado. Falta local: los ítems de
-arriba.
+con guardar como y cierre confirmado, **explorador con operaciones de archivos**
+y un **CRUD de proveedores de OpenCode**; los paneles se acoplan/apilan por lado.
+Falta local: los ítems de arriba.

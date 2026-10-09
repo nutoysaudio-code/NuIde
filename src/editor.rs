@@ -15,7 +15,7 @@
 //! aparece ahí.
 //!
 //! Los procesos corren en hilos y avisan por canales. Como los callbacks de
-//! Slint viven en el hilo de la UI, un `Timer` de 60 ms drena los canales y
+//! Slint viven en el hilo de la UI, un `Timer` de 16 ms drena los canales y
 //! vuelca el estado con `sync`. Ese timer se guarda en `Ide` para que no se caiga
 //! al salir de `attach`; su closure usa un `Weak` para no crear un ciclo.
 
@@ -154,13 +154,6 @@ enum EditOp {
     JoinLine { line: usize },
     /// Dividir la línea `line` en la columna `at`.
     SplitLine { line: usize, at: usize },
-    /// Reemplazar un rango de texto.
-    Replace {
-        start: Cursor,
-        end: Cursor,
-        old_text: Vec<String>,
-        new_text: Vec<String>,
-    },
     /// Snapshot completo del documento (sistema legacy).
     Snapshot { lines: Vec<String>, cursor: Cursor },
 }
@@ -988,6 +981,35 @@ enum Ask {
     ReplaceInProject,
     /// Descartar los cambios de un archivo de Git.
     Discard { path: String, untracked: bool },
+    /// Eliminar un proveedor de OpenCode de la config global.
+    DeleteProvider(String),
+}
+
+/// Borrador del proveedor de OpenCode que se edita en el formulario.
+struct ProviderDraft {
+    /// Id original (vacío si es un proveedor nuevo).
+    original_id: String,
+    id: String,
+    name: String,
+    package: String,
+    base_url: String,
+    api_key: String,
+    /// Texto JSON del objeto `models` (se valida como JSON al guardar).
+    models: String,
+}
+
+impl Default for ProviderDraft {
+    fn default() -> Self {
+        ProviderDraft {
+            original_id: String::new(),
+            id: String::new(),
+            name: String::new(),
+            package: "@opencode/ai/providers/openai-compatible".to_string(),
+            base_url: String::new(),
+            api_key: String::new(),
+            models: "{}".to_string(),
+        }
+    }
 }
 
 /// Visor de diff abierto.
@@ -1206,6 +1228,11 @@ pub struct Ide {
     /// --- pantalla de configuración ---
     settings_open: bool,
     settings_section: usize,
+    /// CRUD de proveedores de OpenCode (config global).
+    provider_open: bool,
+    provider_draft: ProviderDraft,
+    provider_note: String,
+    providers: Vec<crate::providers::Provider>,
     /// Nota para agregar a la salida del próximo build (p. ej. falta de cc).
     build_note: Option<String>,
     /// Git del proyecto: estado, nota, hilo de operaciones.
@@ -1420,6 +1447,10 @@ impl Ide {
             sqlite_rx,
             settings_open: false,
             settings_section: 0,
+            provider_open: false,
+            provider_draft: ProviderDraft::default(),
+            provider_note: String::new(),
+            providers: crate::providers::load_from(&crate::providers::config_dir()),
             build_note: None,
             git_status,
             git_note: String::new(),
@@ -1981,6 +2012,9 @@ impl Ide {
     ) -> bool {
         // Diálogo de entrada (modal), paleta/búsqueda abiertas, captura de atajo
         // y atajos globales configurables; después, las teclas del proceso.
+        if self.provider_intercept(text, control) {
+            return true;
+        }
         if self.prompt_intercept(text, control) {
             return true;
         }
@@ -3102,7 +3136,12 @@ impl Ide {
             "help.syntax" => self.spasm_help(),
             "help.keys" => self.prefs_toggle(),
             "help.config" => reveal_in_explorer(&crate::config::config_dir()),
-            "help.repo" => open_url("https://gitlab.com/nutoys-group/nuide"),
+            "help.repo" => {
+                // El remoto `origin` del proyecto abierto; si no hay, el de NuIde.
+                let url = crate::git::remote_url(self.explorer.root())
+                    .unwrap_or_else(|| "https://github.com/nutoysaudio-code/NuIde".to_string());
+                open_url(&url);
+            }
             _ => {}
         }
         false
@@ -3147,12 +3186,12 @@ impl Ide {
     /// Filas del menú Ayuda.
     fn help_menu_items(&self) -> Vec<IdeMenuEntry> {
         vec![
-            menu_entry("help.about", "Acerca de NuIde", "", true),
+            menu_entry("help.about", "Acerca de...", "", true),
             menu_entry("help.syntax", "Ayuda de sintaxis SpASM", "F1", true),
             menu_entry("help.keys", "Preferencias y atajos", "Ctrl+,", true),
             menu_sep(),
             menu_entry("help.config", "Abrir carpeta de configuración", "", true),
-            menu_entry("help.repo", "Ver en GitLab", "", true),
+            menu_entry("help.repo", "Ver repositorio", "", true),
         ]
     }
 }
@@ -3349,6 +3388,7 @@ impl Ide {
                 self.diff = None;
                 self.git_spawn(git::Op::Discard { path, untracked });
             }
+            Ask::DeleteProvider(id) => self.provider_do_delete(&id),
         }
     }
 
@@ -4008,6 +4048,7 @@ impl Ide {
         "Editor",
         "Terminales",
         "Agente OpenCode",
+        "Proveedores",
         "Despliegue",
         "Módulos",
         "Atajos",
@@ -4282,10 +4323,42 @@ impl Ide {
             0,
         ));
 
-        // --- Despliegue (4) ---
+        // --- Proveedores (4) ---
+        for p in &self.providers {
+            let label = if p.name.is_empty() {
+                p.id.clone()
+            } else {
+                format!("{} ({})", p.name, p.id)
+            };
+            let hint = if p.base_url.is_empty() {
+                "Config global de OpenCode (~/.config/opencode)".to_string()
+            } else {
+                format!("{} · config global", p.base_url)
+            };
+            v.push(s(
+                &format!("ocp.edit:{}", p.id),
+                4,
+                4,
+                &label,
+                "editar".into(),
+                &hint,
+                0,
+            ));
+        }
+        v.push(s(
+            "ocp.add",
+            4,
+            4,
+            "Agregar proveedor",
+            "nuevo".into(),
+            "Da de alta un proveedor nuevo en la config global de OpenCode",
+            0,
+        ));
+
+        // --- Despliegue (5) ---
         v.push(s(
             "site.transport",
-            4,
+            5,
             2,
             "Transporte",
             self.site.transport.label().to_string(),
@@ -4294,7 +4367,7 @@ impl Ide {
         ));
         v.push(s(
             "site.host",
-            4,
+            5,
             0,
             "Host",
             self.site.host.clone(),
@@ -4303,7 +4376,7 @@ impl Ide {
         ));
         v.push(s(
             "site.user",
-            4,
+            5,
             0,
             "Usuario",
             self.site.user.clone(),
@@ -4312,7 +4385,7 @@ impl Ide {
         ));
         v.push(s(
             "site.pass",
-            4,
+            5,
             5,
             "Contraseña",
             self.site.pass.clone(),
@@ -4321,7 +4394,7 @@ impl Ide {
         ));
         v.push(s(
             "site.remote",
-            4,
+            5,
             0,
             "Carpeta remota",
             self.site.remote_root.clone(),
@@ -4330,7 +4403,7 @@ impl Ide {
         ));
         v.push(s(
             "site.local-sub",
-            4,
+            5,
             0,
             "Subcarpeta local a subir",
             self.site.local_sub.clone(),
@@ -4339,7 +4412,7 @@ impl Ide {
         ));
         v.push(s(
             "site.include",
-            4,
+            5,
             0,
             "Extensiones",
             self.site.include.clone(),
@@ -4348,7 +4421,7 @@ impl Ide {
         ));
         v.push(s(
             "site.script",
-            4,
+            5,
             0,
             "Script de despliegue",
             self.site.script.clone(),
@@ -4357,7 +4430,7 @@ impl Ide {
         ));
         v.push(s(
             "site.test",
-            4,
+            5,
             4,
             "Probar conexión",
             "probar".into(),
@@ -4366,7 +4439,7 @@ impl Ide {
         ));
         v.push(s(
             "site.upload",
-            4,
+            5,
             4,
             "Subir cambios",
             "subir".into(),
@@ -4375,7 +4448,7 @@ impl Ide {
         ));
         v.push(s(
             "site.ssh",
-            4,
+            5,
             4,
             "Terminal SSH",
             "abrir".into(),
@@ -4383,10 +4456,10 @@ impl Ide {
             0,
         ));
 
-        // --- Módulos (5) ---
+        // --- Módulos (6) ---
         v.push(b(
             "web.enabled",
-            5,
+            6,
             "Servidor web local",
             self.web.enabled,
             "Sirve la carpeta del proyecto en http://localhost:<puerto>/ con CORS",
@@ -4394,7 +4467,7 @@ impl Ide {
         ));
         v.push(s(
             "web.port",
-            5,
+            6,
             0,
             "Puerto del servidor",
             self.web.port.to_string(),
@@ -4403,7 +4476,7 @@ impl Ide {
         ));
         v.push(s(
             "web.root",
-            5,
+            6,
             0,
             "Carpeta servida",
             self.web.root_sub.clone(),
@@ -4412,7 +4485,7 @@ impl Ide {
         ));
         v.push(s(
             "web.cors",
-            5,
+            6,
             0,
             "CORS: origen permitido",
             self.web.cors_origin.clone(),
@@ -4421,7 +4494,7 @@ impl Ide {
         ));
         v.push(b(
             "sqlite.enabled",
-            5,
+            6,
             "Visor de SQLite",
             self.sqlite_enabled,
             "Panel para mirar las tablas de una base .db del proyecto",
@@ -4429,7 +4502,7 @@ impl Ide {
         ));
         v.push(s(
             "sqlite.db",
-            5,
+            6,
             0,
             "Base abierta",
             self.sqlite_db
@@ -4441,7 +4514,7 @@ impl Ide {
         ));
         v.push(s(
             "sqlite.pick",
-            5,
+            6,
             4,
             "Elegir base",
             "buscar".into(),
@@ -4450,7 +4523,7 @@ impl Ide {
         ));
         v.push(s(
             "sqlite.reload",
-            5,
+            6,
             4,
             "Refrescar el visor",
             "recargar".into(),
@@ -4458,12 +4531,12 @@ impl Ide {
             0,
         ));
 
-        // --- Atajos (6) ---
+        // --- Atajos (7) ---
         for (id, label, _) in KEY_ACTIONS {
             let chord = self.keymap.get(*id).cloned().unwrap_or_default();
             v.push(s(
                 id,
-                6,
+                7,
                 4,
                 label,
                 chord,
@@ -4520,10 +4593,8 @@ impl Ide {
                 self.config.set("run.entry", value.trim());
                 self.config.save();
             }
-            "agent.version" => {
-            }
-            "agent.model" => {
-            }
+            "agent.version" => {}
+            "agent.model" => {}
             "site.host" => self.site_field_set("host", value.to_string()),
             "site.user" => self.site_field_set("user", value.to_string()),
             "site.pass" => self.site_field_set("pass", value.to_string()),
@@ -4565,6 +4636,10 @@ impl Ide {
             "site.ssh" => self.deploy_ssh_terminal(),
             "sqlite.pick" => self.sqlite_pick_db(),
             "sqlite.reload" => self.sqlite_reload(),
+            "ocp.add" => self.provider_open_new(),
+            id if id.starts_with("ocp.edit:") => {
+                self.provider_open_edit(&id["ocp.edit:".len()..]);
+            }
             other => {
                 // Un atajo: empieza a capturar la combinación nueva.
                 if KEY_ACTIONS.iter().any(|(k, _, _)| *k == other) {
@@ -4600,6 +4675,182 @@ impl Ide {
             .filter(|r| r.section == self.settings_section as i32)
             .collect();
         w.set_settings_rows(rows.as_slice().into());
+    }
+
+    // --- CRUD de proveedores de OpenCode (config global) ---
+
+    /// Abre el formulario vacío (dar de alta).
+    fn provider_open_new(&mut self) {
+        self.providers = crate::providers::load_from(&crate::providers::config_dir());
+        self.provider_draft = ProviderDraft::default();
+        self.provider_note.clear();
+        self.provider_open = true;
+    }
+
+    /// Abre el formulario con un proveedor existente.
+    fn provider_open_edit(&mut self, id: &str) {
+        self.providers = crate::providers::load_from(&crate::providers::config_dir());
+        let Some(p) = self.providers.iter().find(|p| p.id == id) else {
+            return;
+        };
+        self.provider_draft = ProviderDraft {
+            original_id: p.id.clone(),
+            id: p.id.clone(),
+            name: p.name.clone(),
+            package: p.package.clone(),
+            base_url: p.base_url.clone(),
+            api_key: p.api_key.clone(),
+            models: p.models.clone(),
+        };
+        self.provider_note.clear();
+        self.provider_open = true;
+    }
+
+    /// Actualiza un campo del borrador desde el formulario.
+    fn provider_set(&mut self, field: &str, value: &str) {
+        match field {
+            "id" => self.provider_draft.id = value.into(),
+            "name" => self.provider_draft.name = value.into(),
+            "package" => self.provider_draft.package = value.into(),
+            "base-url" => self.provider_draft.base_url = value.into(),
+            "api-key" => self.provider_draft.api_key = value.into(),
+            "models" => self.provider_draft.models = value.into(),
+            _ => {}
+        }
+        self.provider_note.clear();
+    }
+
+    /// Valida el borrador y lo escribe en la config global (union → json).
+    fn provider_save(&mut self) {
+        // El id es la clave del objeto; sin espacios ni llaves.
+        let id = self.provider_draft.id.trim().to_string();
+        if id.is_empty()
+            || id
+                .chars()
+                .any(|c| c.is_whitespace() || matches!(c, '"' | '{' | '}' | '[' | ']' | ':' | ','))
+        {
+            self.provider_note =
+                "El ID no puede estar vacío ni tener espacios, llaves o comas.".into();
+            return;
+        }
+        if self
+            .providers
+            .iter()
+            .any(|p| p.id == id && p.id != self.provider_draft.original_id)
+        {
+            self.provider_note = format!("Ya existe un proveedor llamado «{id}».");
+            return;
+        }
+        // Los modelos se validan como objeto JSON (dijo el usuario: JSON crudo).
+        let models = if self.provider_draft.models.trim().is_empty() {
+            "{}".to_string()
+        } else {
+            self.provider_draft.models.trim().to_string()
+        };
+        match crate::jsonx::parse(&models) {
+            Ok(crate::jsonx::Value::Object(_)) => {}
+            Ok(_) => {
+                self.provider_note = "«Modelos» tiene que ser un objeto JSON (con llaves).".into();
+                return;
+            }
+            Err(e) => {
+                self.provider_note = format!("«Modelos» no es JSON válido: {e}");
+                return;
+            }
+        }
+
+        let name = self.provider_draft.name.trim().to_string();
+        let package = self.provider_draft.package.trim().to_string();
+        let base_url = self.provider_draft.base_url.trim().to_string();
+        let api_key = self.provider_draft.api_key.trim().to_string();
+
+        let mut list = std::mem::take(&mut self.providers);
+        match list
+            .iter_mut()
+            .find(|p| p.id == self.provider_draft.original_id)
+        {
+            Some(p) => {
+                // No pisar con vacío lo que el proveedor resolvía por `env`
+                // u otro mecanismo: sólo se escribe un campo si el usuario puso
+                // algo o si el proveedor ya lo tenía.
+                let had_package = !p.package.is_empty();
+                let had_base_url = !p.base_url.is_empty();
+                let had_api_key = !p.api_key.is_empty();
+                p.rename(&id);
+                p.set_name(&name);
+                if !package.is_empty() || had_package {
+                    p.set_package(&package);
+                }
+                if !base_url.is_empty() || had_base_url {
+                    p.set_base_url(&base_url);
+                }
+                if !api_key.is_empty() || had_api_key {
+                    p.set_api_key(&api_key);
+                }
+                p.set_models(&models);
+            }
+            None => {
+                let p = crate::providers::Provider::from_fields(
+                    &id, &name, &package, &base_url, &api_key, &models,
+                );
+                list.push(p);
+            }
+        }
+        match crate::providers::save_into(&crate::providers::config_dir(), &list) {
+            Ok(_) => {
+                self.provider_open = false;
+                self.provider_note.clear();
+                self.providers = list;
+                // Volver a ver la lista (la sección pudo haber quedado en otra).
+                self.settings_section = 4;
+            }
+            Err(e) => {
+                self.provider_note = e;
+                self.providers = list;
+            }
+        }
+    }
+
+    /// Pide confirmación antes de eliminar el proveedor del borrador.
+    fn provider_delete_request(&mut self) {
+        if !self.provider_draft.original_id.is_empty() {
+            self.ask = Some(Ask::DeleteProvider(self.provider_draft.original_id.clone()));
+        }
+    }
+
+    /// Elimina el proveedor de la config global (después de confirmar).
+    fn provider_do_delete(&mut self, id: &str) {
+        let mut list = std::mem::take(&mut self.providers);
+        list.retain(|p| p.id != id);
+        match crate::providers::save_into(&crate::providers::config_dir(), &list) {
+            Ok(_) => {
+                self.provider_open = false;
+                self.provider_note.clear();
+                self.providers = list;
+            }
+            Err(e) => {
+                self.provider_note = e;
+                self.providers = list;
+            }
+        }
+    }
+
+    /// Cierra el formulario sin guardar.
+    fn provider_cancel(&mut self) {
+        self.provider_open = false;
+        self.provider_note.clear();
+    }
+
+    /// Teclado del formulario: Esc cancela; el resto no toca el editor.
+    fn provider_intercept(&mut self, text: &str, control: bool) -> bool {
+        if self.provider_open {
+            if !control && text == "\u{1b}" {
+                self.provider_cancel();
+            }
+            true
+        } else {
+            false
+        }
     }
 
     /// Vuelca un mensaje del hilo de despliegue en la sesión `build`.
@@ -5090,6 +5341,9 @@ impl Ide {
     fn editor_key(&mut self, text: &str, control: bool, shift: bool) {
         // Diálogo de entrada, paleta/búsqueda abiertas, captura de atajo y
         // atajos globales configurables; después, la edición normal.
+        if self.provider_intercept(text, control) {
+            return;
+        }
         if self.prompt_intercept(text, control) {
             return;
         }
@@ -5445,30 +5699,6 @@ impl Ide {
                 } else {
                     None
                 }
-            }
-            EditOp::Replace {
-                start,
-                end,
-                old_text,
-                new_text,
-            } => {
-                // Reemplazo complejo: restaurar old_text en el rango
-                let inverse = EditOp::Replace {
-                    start: *start,
-                    end: *end,
-                    old_text: new_text.clone(),
-                    new_text: old_text.clone(),
-                };
-                // Aplicar el reemplazo inverso
-                for i in (start.line..=end.line).rev() {
-                    if i < tab.lines.len() {
-                        tab.lines.remove(i);
-                    }
-                }
-                for (i, line) in old_text.iter().enumerate() {
-                    tab.lines.insert(start.line + i, line.clone());
-                }
-                Some(inverse)
             }
             EditOp::Snapshot { lines, cursor } => {
                 // Snapshot completo: restaurar todo el documento
@@ -6836,10 +7066,10 @@ impl Ide {
         w.set_term_sessions(ModelRc::from(Rc::new(VecModel::from(sessions))));
         w.set_active_session(self.local_active as i32);
         // Filas, barras de scroll y mouse: es el mismo refresco que corre cuando
-       // sale el PTY, así que se comparte (ver `sync_terms`).
-       self.sync_terms(w);
+        // sale el PTY, así que se comparte (ver `sync_terms`).
+        self.sync_terms(w);
 
-       // --- proyecto y explorador ---
+        // --- proyecto y explorador ---
         let project = self
             .explorer
             .root()
@@ -6937,6 +7167,15 @@ impl Ide {
                     format!("¿Descartar los cambios de «{path}»? No se puede deshacer.").into(),
                 );
                 w.set_ask_accept_label("Descartar".into());
+                w.set_ask_danger(true);
+            }
+            Some(Ask::DeleteProvider(id)) => {
+                w.set_ask_title("Eliminar proveedor".into());
+                w.set_ask_message(
+                    format!("¿Eliminar el proveedor «{id}» de la config global de OpenCode?")
+                        .into(),
+                );
+                w.set_ask_accept_label("Eliminar".into());
                 w.set_ask_danger(true);
             }
             None => {}
@@ -7039,6 +7278,16 @@ impl Ide {
         w.set_sqlite_busy(self.sqlite_busy);
         // Pantalla de configuración.
         self.sync_settings(w);
+        // Formulario de proveedores de OpenCode.
+        w.set_provider_open(self.provider_open);
+        w.set_provider_id(self.provider_draft.id.clone().into());
+        w.set_provider_name(self.provider_draft.name.clone().into());
+        w.set_provider_package(self.provider_draft.package.clone().into());
+        w.set_provider_base_url(self.provider_draft.base_url.clone().into());
+        w.set_provider_api_key(self.provider_draft.api_key.clone().into());
+        w.set_provider_models(self.provider_draft.models.clone().into());
+        w.set_provider_note(self.provider_note.clone().into());
+        w.set_provider_new(self.provider_draft.original_id.is_empty());
 
         // Sitio de despliegue del proyecto (Preferencias → Despliegue).
         w.set_site_transport(self.site.transport.label().into());
@@ -7235,10 +7484,10 @@ impl Ide {
         // Salida nueva de algún PTY: con refrescar los paneles de terminal
         // alcanza, no hace falta volcar los otros ~20 modelos de la ventana.
         let mut terms = false;
-        // Medidor de sistema cada ~1.5 s (25 ticks de 60 ms). Son dos números del
+        // Medidor de sistema cada ~1.5 s (94 ticks de 16 ms). Son dos números del
         // pie: se escriben directo, sin arrastrar un `sync` completo.
         self.drain_tick = self.drain_tick.wrapping_add(1);
-        if self.drain_tick.is_multiple_of(25) {
+        if self.drain_tick.is_multiple_of(94) {
             self.metrics = self.monitor.sample();
             w.set_cpu_percent((self.metrics.cpu * 100.0).round() as i32);
             w.set_ram_percent((self.metrics.ram * 100.0).round() as i32);
@@ -8106,6 +8355,19 @@ pub fn attach(window: &NuIdeWindow, ide: Rc<RefCell<Ide>>) {
         let weak = window.as_weak();
         window.on_menu_activated(move |label| {
             if let Some(w) = weak.upgrade() {
+                // Controles de ventana: se manejan acá porque necesitan acceso a la ventana.
+                match label.as_str() {
+                    "Minimizar" => {
+                        w.window().set_minimized(true);
+                        return;
+                    }
+                    "Maximizar" => {
+                        let win = w.window();
+                        win.set_maximized(!win.is_maximized());
+                        return;
+                    }
+                    _ => {}
+                }
                 let mut e = ide.borrow_mut();
                 e.menu(&label);
                 e.sync(&w);
@@ -8723,6 +8985,51 @@ pub fn attach(window: &NuIdeWindow, ide: Rc<RefCell<Ide>>) {
                 let mut e = ide.borrow_mut();
                 e.settings_open = false;
                 e.capturing_key = None;
+                e.sync(&w);
+            }
+        });
+    }
+    // Formulario de proveedores de OpenCode.
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_provider_changed(move |field, value| {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.provider_set(&field, &value);
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_provider_save(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.provider_save();
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_provider_delete(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.provider_delete_request();
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_provider_cancel(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.provider_cancel();
                 e.sync(&w);
             }
         });
@@ -9558,7 +9865,9 @@ pub fn attach(window: &NuIdeWindow, ide: Rc<RefCell<Ide>>) {
     {
         let weak_ide = Rc::downgrade(&ide);
         let weak_win = window.as_weak();
-        timer.start(TimerMode::Repeated, Duration::from_millis(60), move || {
+        // 16 ms = ~60 fps para las terminales. El renderer software de Slint
+        // hace *partial rendering*, así que solo se redibuja lo que cambió.
+        timer.start(TimerMode::Repeated, Duration::from_millis(16), move || {
             if let (Some(ide), Some(w)) = (weak_ide.upgrade(), weak_win.upgrade()) {
                 ide.borrow_mut().drain(&w);
             }

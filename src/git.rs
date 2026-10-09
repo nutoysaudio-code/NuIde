@@ -268,6 +268,29 @@ pub fn branches(root: &Path) -> Vec<(String, bool)> {
         .collect()
 }
 
+/// URL navegable del remoto `origin` del proyecto, si existe. Convierte las
+/// formas SSH (`git@host:ruta.git`, `ssh://git@host/ruta.git`) a `https`.
+pub fn remote_url(root: &Path) -> Option<String> {
+    let raw = run(root, &["remote", "get-url", "origin"]).ok()?;
+    let url = normalize_remote(&raw);
+    (!url.is_empty()).then_some(url)
+}
+
+/// Normaliza una URL de remoto de Git al formato navegable (`https`).
+fn normalize_remote(raw: &str) -> String {
+    let raw = raw.trim();
+    if let Some(rest) = raw.strip_prefix("git@") {
+        if let Some((host, path)) = rest.split_once(':') {
+            return format!("https://{}/{}", host, path.trim_end_matches(".git"));
+        }
+    }
+    if let Some(rest) = raw.strip_prefix("ssh://") {
+        let host_path = rest.rsplit_once('@').map(|(_, h)| h).unwrap_or(rest);
+        return format!("https://{}", host_path.trim_end_matches(".git"));
+    }
+    raw.trim_end_matches(".git").to_string()
+}
+
 /// Corre la operación en un hilo y manda el resultado (con el estado nuevo).
 pub fn spawn(root: PathBuf, op: Op, tx: Sender<GitResult>) {
     thread::spawn(move || {
@@ -418,5 +441,25 @@ mod tests {
         let st = parse_status("## main...origin/main [behind 3]\n");
         assert_eq!(st.ahead, 0);
         assert_eq!(st.behind, 3);
+    }
+
+    #[test]
+    fn normaliza_urls_de_remoto() {
+        assert_eq!(
+            normalize_remote("git@github.com:user/repo.git"),
+            "https://github.com/user/repo"
+        );
+        assert_eq!(
+            normalize_remote("ssh://git@gitlab.com/grupo/repo.git"),
+            "https://gitlab.com/grupo/repo"
+        );
+        assert_eq!(
+            normalize_remote("https://github.com/a/b.git"),
+            "https://github.com/a/b"
+        );
+        assert_eq!(
+            normalize_remote("https://github.com/a/b"),
+            "https://github.com/a/b"
+        );
     }
 }

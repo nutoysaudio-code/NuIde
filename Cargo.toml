@@ -2,7 +2,7 @@
 name = "nuide"
 version = "0.2.0"
 edition = "2021"
-description = "NuIde — IDE multi-lenguaje con soporte de SpASM, terminales integrados y OpenCode CLI"
+description = "NuIde — IDE multi-lenguaje"
 
 # Proyecto independiente: no forma parte del workspace de audio NuToys. Declara
 # su propio workspace para poder compilarse solo, incluso viviendo dentro de

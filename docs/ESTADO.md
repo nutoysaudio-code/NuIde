@@ -134,7 +134,8 @@ ui/*.slint          la ventana, paneles y tema
   afuera.
 - El estado de visibilidad vive en `Ide` y lo vuelca `sync`.
 - La barra superior suma **botones de layout** (marco con la banda del área,
-  en menta cuando está visible) para las tres regiones y uno que abre el menú Ver.
+  en menta cuando está visible) para las tres regiones; el menú **Ver** se abre
+  desde el ítem de la barra de menús (no hay botón duplicado).
 - El menú Ver cicla el **dock** de cada panel (izquierda → derecha → abajo →
   oculto) y muestra dónde está. La geometría de la ventana calcula cuántos paneles
   hay por región y reparte la altura entre los apilados. Dock y visibilidad de
@@ -679,6 +680,31 @@ compresión; el visor muestra hasta 200 filas por tabla y no edita.
 - Sin compilador de C, avisa y deja el `.c` (igual que Compilar).
 - **Versión 0.2.0** en `Cargo.toml`, `res/nuide.rc` (FileVersion/ProductVersion)
   y `packaging/NuIde.iss` (AppVersion + VersionInfoVersion).
+
+### 3.33 Proveedores de OpenCode desde la IDE (CRUD)
+
+- Sección **Proveedores** en la configuración (`Ctrl+,`): lista los proveedores
+  del CLI y permite **editar, crear y eliminar** con un formulario (ID, Nombre,
+  Package, baseURL, apiKey y **Modelos** como JSON crudo).
+- Lee la **unión** de `~/.config/opencode/opencode.json` y `opencode.jsonc`
+  (gana la primera aparición del id); al guardar escribe todo en
+  `opencode.json` (lo crea si falta) y **retira `providers`** del `.jsonc` para
+  no dejar copias viejas.
+- La escritura es **quirúrgica** (`src/jsonx.rs`, posiciones de bytes): sólo se
+  reemplaza el valor de `providers`; `$schema`, `model` y el resto del archivo
+  quedan byte a byte igual. Los campos del proveedor se parchean *in-place*, así
+  que se conservan claves desconocidas (`env`, `modelID`, `limit`, `cost`…).
+- **Validaciones al guardar:** el ID no puede estar vacío ni tener espacios,
+  llaves o comas, y no puede repetirse; **Modelos** tiene que ser un objeto JSON
+  válido. Si un proveedor resuelve sus credenciales por `env` y el campo apiKey
+  queda vacío, **no** se le escribe `"apiKey": ""` encima (ni baseURL/package
+  vacíos): sólo se pisa un campo si el usuario puso algo o el proveedor ya lo
+  tenía.
+- Eliminar pasa por el diálogo de confirmación (`Ask::DeleteProvider`).
+- UI en `ui/ide_provider.slint`, montada encima de Configuración y debajo de los
+  diálogos modales. `Esc` cierra; el área de Modelos es el único std-widget de la
+  app (`TextEdit`, forzado a esquema oscuro).
+- Tests nuevos: `src/jsonx.rs` (7) y `src/providers.rs` (4). Total **159** OK.
 
 ## 4. Limitaciones conocidas
 

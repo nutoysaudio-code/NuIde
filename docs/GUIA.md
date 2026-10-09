@@ -100,12 +100,13 @@ NuIde **compila** el código SpASM a binario nativo (AOT); el intérprete
 - **`F1`** ayuda de sintaxis SpASM (lista palabras clave/builtins filtradas por la
   palabra bajo el cursor; al elegir, la inserta).
 - **`Ctrl+,`** Preferencias: fuentes, tamaño del código, acento, **opacidad de los
-  paneles**, tab, compilar al guardar y **atajos** (clic en uno y presioná la
-  combinación nueva).
+  paneles**, tab, compilar al guardar, **Proveedores de OpenCode** y **atajos**
+  (clic en uno y presioná la combinación nueva).
 - **Reordenar la ventana**: arrastrá el **asa** (las tres rayitas) de la cabecera
   de cualquier panel y soltala sobre la banda **Izquierda / Derecha / Abajo**;
   soltar en el centro lo **oculta**. Se recuerda entre ejecuciones.
-- Menú **Ayuda → Acerca de NuIde** (versión y créditos) y **Ver en GitLab**.
+- Menú **Ayuda → Acerca de NuIde** (versión y créditos) y **Ver repositorio**
+  (abre el remoto del proyecto en el navegador; si no hay, el repo de NuIde).
 - El pie muestra, discreto, el uso de **CPU y RAM**.
 
 ## 9. Atajos
@@ -158,7 +159,29 @@ Se activan en **Preferencias (`Ctrl+,`) → Módulos**.
   vuelve a leer la base. Necesita `sqlite3.exe` o Python en la máquina (se avisa
   si no hay ninguno).
 
-## 12. Problemas frecuentes
+## 12. Proveedores de OpenCode
+
+En **Preferencias (`Ctrl+,`) → Proveedores** están los proveedores del CLI de
+OpenCode. La lista muestra cada proveedor y una fila **Agregar proveedor**; al
+clic en uno se abre el formulario:
+
+- **ID**: la clave del proveedor en la config; cambiarlo lo **renombra**.
+- **Nombre**, **Package**, **baseURL** y **apiKey** (oculta).
+- **Modelos**: el objeto JSON tal cual (se valida al guardar; tiene que ser un
+  objeto `{ … }`).
+
+**Guardar** escribe la config global de OpenCode
+(`~/.config/opencode/opencode.json`), uniendo lo que hubiera en `opencode.jsonc`
+(el `.jsonc` queda sin `providers`). La edición es quirúrgica: no toca `$schema`,
+`model` ni las claves del proveedor que la IDE no muestra (`env`, `modelID`,
+`limit`, `cost`…). Si un proveedor usa variables de entorno (`env`) y dejás la
+apiKey vacía, no se escribe una apiKey vacía encima. **Eliminar** pide
+confirmación y **Cancelar** / **Esc** cierran sin guardar.
+
+> Conviene tener un respaldo de `~/.config/opencode` antes de editar: los
+> archivos contienen credenciales.
+
+## 13. Problemas frecuentes
 
 - **«no se encontró spasmc.py»**: definí `NUIDE_SPASMC`/`NUIDE_PYTHON` o instalá
   el toolchain de SpASM.

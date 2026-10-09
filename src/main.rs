@@ -25,7 +25,7 @@ fn main() -> Result<(), slint::PlatformError> {
     if args.iter().any(|a| a == "--help" || a == "-h") {
         attach_console();
         print(&format!(
-            "NuIde {} — IDE multi-lenguaje con soporte de SpASM, terminales y OpenCode CLI\n\nUso: nuide [--version] [--help]\n",
+            "NuIde {} — IDE multi-lenguaje\n\nUso: nuide [--version] [--help]\n",
             env!("CARGO_PKG_VERSION")
         ));
         return Ok(());
@@ -37,7 +37,10 @@ fn main() -> Result<(), slint::PlatformError> {
     window.run()
 }
 
-/// Elige el renderer por defecto: el **software** de Slint.
+/// Elige el renderer por defecto: **FemtoVG** (GPU/OpenGL).
+///
+/// El renderer software de Slint tiene un bug al maximizar: la ventana se vuelve
+/// transparente durante el resize grande. FemtoVG no tiene ese problema.
 ///
 /// Medido en NuIde con el panel de OpenCode abierto (una TUI que redibuja varias
 /// veces por segundo), mismo binario, cambiando sólo `SLINT_BACKEND`:
@@ -47,15 +50,15 @@ fn main() -> Result<(), slint::PlatformError> {
 /// | `winit-femtovg`     |        ~77 %  | 113 MB  |
 /// | `winit-software`    |        ~10 %  |  30 MB  |
 ///
-/// FemtoVG (OpenGL) repinta la escena **completa** ante cualquier cambio; el
-/// renderer software trae *partial rendering* (sólo la región dañada) y acá es
-/// muchísimo más barato. Tampoco depende del driver OpenGL de la máquina.
+/// FemtoVG repinta la escena **completa** ante cualquier cambio; el renderer
+/// software trae *partial rendering* (sólo la región dañada) y es mucho más
+/// barato en CPU, pero tiene el bug de transparencia al maximizar.
 ///
-/// Se puede seguir probando el camino GPU sin recompilar:
-/// `$env:SLINT_BACKEND = "winit-femtovg"`.
+/// Si preferís menos CPU y podés vivir con el bug de transparencia, usá:
+/// `$env:SLINT_BACKEND = "winit-software"`.
 fn pick_renderer() {
     if std::env::var_os("SLINT_BACKEND").is_none() {
-        std::env::set_var("SLINT_BACKEND", "winit-software");
+        std::env::set_var("SLINT_BACKEND", "winit-femtovg");
     }
 }
 

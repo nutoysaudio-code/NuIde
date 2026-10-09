@@ -18,6 +18,7 @@ import { IdeSearch } from "ide_search.slint";
 import { IdeDiff } from "ide_diff.slint";
 import { IdePrefs } from "ide_prefs.slint";
 import { IdeSettings } from "ide_settings.slint";
+import { IdeProvider } from "ide_provider.slint";
 import { IdeSqlite } from "ide_sqlite.slint";
 import { IdeAbout } from "ide_about.slint";
 
@@ -35,7 +36,7 @@ import { IdeAbout } from "ide_about.slint";
 // ---------------------------------------------------------------------------
 
 export component NuIdeWindow inherits Window {
-    title: "NuIde — IDE multi-lenguaje";
+    title: "NuIde";
     preferred-width: 1280px;
     preferred-height: 800px;
     min-width: 1000px;
@@ -283,6 +284,20 @@ export component NuIdeWindow inherits Window {
     callback settings-activated(string);
     callback settings-section-selected(int);
     callback settings-dismiss();
+    // Proveedores de OpenCode (CRUD sobre la config global).
+    in-out property <bool> provider-open: false;
+    in-out property <string> provider-id: "";
+    in-out property <string> provider-name: "";
+    in-out property <string> provider-package: "";
+    in-out property <string> provider-base-url: "";
+    in-out property <string> provider-api-key: "";
+    in-out property <string> provider-models: "";
+    in-out property <string> provider-note: "";
+    in-out property <bool> provider-new: true;
+    callback provider-changed(string, string);
+    callback provider-save();
+    callback provider-delete();
+    callback provider-cancel();
     callback sqlite-open-panel();
     callback sqlite-dismiss();
     callback sqlite-pick-db();
@@ -606,7 +621,7 @@ export component NuIdeWindow inherits Window {
                 width: 2px;
                 height: root.content-h;
                 visible: root.region-visible(0);
-                background: root.drag-mode == 1 ? IdeTheme.mint : IdeTheme.border-soft;
+                background: root.drag-mode == 1 ? IdeTheme.mint : transparent;
             }
             Rectangle {
                 x: root.content-w - root.right-w - IdeTheme.splitter / 2 - 1px;
@@ -614,7 +629,7 @@ export component NuIdeWindow inherits Window {
                 width: 2px;
                 height: root.content-h;
                 visible: root.region-visible(1);
-                background: root.drag-mode == 2 ? IdeTheme.mint : IdeTheme.border-soft;
+                background: root.drag-mode == 2 ? IdeTheme.mint : transparent;
             }
             Rectangle {
                 x: root.center-x;
@@ -622,7 +637,7 @@ export component NuIdeWindow inherits Window {
                 width: root.center-w;
                 height: 2px;
                 visible: root.region-visible(2);
-                background: root.drag-mode == 3 ? IdeTheme.mint : IdeTheme.border-soft;
+                background: root.drag-mode == 3 ? IdeTheme.mint : transparent;
             }
         }
 
@@ -1020,6 +1035,26 @@ export component NuIdeWindow inherits Window {
         activated(id) => { root.settings-activated(id); }
         section-selected(i) => { root.settings-section-selected(i); }
         dismiss => { root.settings-dismiss(); }
+    }
+
+    // --- formulario de proveedores de OpenCode (encima de Configuración) ---
+    if root.provider-open: IdeProvider {
+        x: 0;
+        y: 0;
+        width: parent.width;
+        height: parent.height;
+        field-id: root.provider-id;
+        field-name: root.provider-name;
+        field-package: root.provider-package;
+        field-base-url: root.provider-base-url;
+        field-api-key: root.provider-api-key;
+        field-models: root.provider-models;
+        is-new: root.provider-new;
+        note: root.provider-note;
+        changed(i, v) => { root.provider-changed(i, v); }
+        save => { root.provider-save(); }
+        delete => { root.provider-delete(); }
+        cancel => { root.provider-cancel(); }
     }
 
     // --- módulo: visor de SQLite ---

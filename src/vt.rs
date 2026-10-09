@@ -53,6 +53,13 @@ pub struct Screen {
     /// cuyo texto o estilo cambió (una TUI que mueve un spinner paga una fila,
     /// no las 24-200 que se ven).
     sigs: Vec<u64>,
+    /// Flag de "sucio": se activa cuando llega salida nueva del PTY.
+    /// `changed_rows` solo recalcula si está activo, evitando trabajo cuando
+    /// la terminal está quieta.
+    dirty: bool,
+    /// Última selección usada en `changed_rows`. Si cambia, se fuerza el
+    /// recálculo aunque no haya salida nueva (la selección pinta fondo).
+    last_sel: Option<Selection>,
 }
 
 impl Screen {
@@ -62,6 +69,8 @@ impl Screen {
             rows: rows.max(1),
             cols: cols.max(1),
             sigs: Vec::new(),
+            dirty: true, // Primera vez: todo está "sucio" para dibujar la pantalla inicial.
+            last_sel: None,
         }
     }
 
@@ -71,6 +80,7 @@ impl Screen {
 
     pub fn process(&mut self, bytes: &[u8]) {
         self.parser.process(bytes);
+        self.dirty = true; // Llegó salida nueva: marcar para recalcular.
     }
 
     pub fn resize(&mut self, rows: u16, cols: u16) {
@@ -79,6 +89,7 @@ impl Screen {
         // El reflujo del texto invalida cualquier huella guardada.
         self.sigs.clear();
         self.parser.screen_mut().set_size(self.rows, self.cols);
+        self.dirty = true; // Resize: todo cambió.
     }
 
     /// Líneas que hay ahora mismo por encima de la pantalla visible (0 = la
@@ -157,8 +168,18 @@ impl Screen {
     }
 
     /// Filas que cambiaron desde la llamada anterior, como `(índice, tramos)`.
-    /// La primera vez (o tras un `resize`) devuelve todas.
+    /// La primera vez (o tras un `resize`) devuelve todas. Si no hay salida
+    /// nueva desde el último llamado y no cambió la selección, devuelve vacío
+    /// sin hacer trabajo.
     pub fn changed_rows(&mut self, sel: Option<Selection>) -> Vec<(usize, Vec<Run>)> {
+        // Si no llegó salida nueva y no cambió la selección, no hay nada que hacer.
+        let sel_changed = sel != self.last_sel;
+        self.last_sel = sel;
+        if !self.dirty && !sel_changed {
+            return Vec::new();
+        }
+        self.dirty = false;
+
         let cursor = self.cursor();
         let previous = std::mem::take(&mut self.sigs);
         let mut sigs: Vec<u64> = Vec::with_capacity(self.rows as usize);
@@ -195,24 +216,44 @@ impl Screen {
     /// Huella de la fila: recorre las celdas leyendo texto y estilo **sin
     /// asignar memoria** (el `contents()` de `vt100` es un `&str` prestado por
     /// la pantalla). Es el filtro barato para saber si hay que reconstruirla.
+    /// Usa un hash rápido (FNV-1a simplificado) en vez del `DefaultHasher` de
+    /// Rust, que es más caro. Para detectar cambios de una fila a la siguiente
+    /// es más que suficiente.
     fn row_hash(&self, row: u16, sel: Option<Selection>, cursor: Option<(u16, u16)>) -> u64 {
-        use std::hash::{Hash, Hasher};
-
         let screen = self.parser.screen();
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        // FNV-1a: rápido y buena distribución para strings cortos.
+        let mut hash: u64 = 0xcbf29ce484222325;
         for col in 0..self.cols {
             let Some(cell) = screen.cell(row, col) else {
                 continue;
             };
-            cell.contents().hash(&mut hasher);
+            // Hash del contenido de la celda (bytes).
+            for b in cell.contents().bytes() {
+                hash ^= b as u64;
+                hash = hash.wrapping_mul(0x100000001b3);
+            }
             let (fg, bg, bold) = Self::cell_paint(
                 cell,
                 cursor == Some((row, col)),
                 sel.is_some_and(|s| in_selection(s, row, col)),
             );
-            (fg, bg, bold).hash(&mut hasher);
+            // Hash de los colores y negrita (6 bytes).
+            hash ^= fg.0 as u64;
+            hash = hash.wrapping_mul(0x100000001b3);
+            hash ^= fg.1 as u64;
+            hash = hash.wrapping_mul(0x100000001b3);
+            hash ^= fg.2 as u64;
+            hash = hash.wrapping_mul(0x100000001b3);
+            hash ^= bg.0 as u64;
+            hash = hash.wrapping_mul(0x100000001b3);
+            hash ^= bg.1 as u64;
+            hash = hash.wrapping_mul(0x100000001b3);
+            hash ^= bg.2 as u64;
+            hash = hash.wrapping_mul(0x100000001b3);
+            hash ^= bold as u64;
+            hash = hash.wrapping_mul(0x100000001b3);
         }
-        hasher.finish()
+        hash
     }
 
     /// Tramos de una fila: agrupa celdas consecutivas del mismo estilo.
