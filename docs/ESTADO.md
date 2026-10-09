@@ -706,15 +706,15 @@ compresión; el visor muestra hasta 200 filas por tabla y no edita.
   app (`TextEdit`, forzado a esquema oscuro).
 - Tests nuevos: `src/jsonx.rs` (7) y `src/providers.rs` (4). Total **159** OK.
 
-### 3.34 Versión 0.2.1 e instalador
+### 3.34 Versión 0.2.2 e instalador
 
-- Bump a **0.2.1** en `Cargo.toml`, `Cargo.lock`, `res/nuide.rc`
+- Bump a **0.2.2** en `Cargo.toml`, `Cargo.lock`, `res/nuide.rc`
   (FileVersion/ProductVersion), `packaging/NuIde.iss` (AppVersion +
   VersionInfoVersion) y `CHANGELOG.md`.
 - `packaging/NuIde.iss`: la URL del publicador pasa al repositorio real
   (`github.com/nutoysaudio-code/NuIde`), que estaba en GitLab.
 - Instalador generado con `packaging/make_installer.ps1` (Inno Setup 6):
-  `releases/NuIde-0.2.1-setup.exe`.
+  `releases/NuIde-0.2.2-setup.exe`.
 
 ### 3.35 Menú contextual en las terminales y elevación
 
