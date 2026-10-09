@@ -716,6 +716,23 @@ compresión; el visor muestra hasta 200 filas por tabla y no edita.
 - Instalador generado con `packaging/make_installer.ps1` (Inno Setup 6):
   `releases/NuIde-0.2.1-setup.exe`.
 
+### 3.35 Menú contextual en las terminales y elevación
+
+- **Clic derecho** en las dos terminales (shell y panel de OpenCode) abre un menú
+  con **Copiar** (la selección), **Pegar** y **Elevar a administrador** (se
+  atenúa lo que no aplica). El `TerminalScreen` gana el callback
+  `context-requested`; el menú se dibuja en la ventana, anclado a la terminal.
+- **Elevación (Windows)**: nuevo `src/elevate.rs` (FFI a `ShellExecuteW` con el
+  verbo `runas`, e `IsUserAnAdmin` para consultar). Dos comandos en la paleta:
+  - *Terminal: nueva como administrador*: abre una shell elevada en su propia
+    ventana (UAC), en la raíz del proyecto, sin tocar la IDE.
+  - *NuIde: reiniciar como administrador*: relanza toda la IDE elevada —las
+    terminales del panel incluidas—. Con cambios sin guardar pasa por el diálogo
+    de confirmación (guardar/descartar/cancelar).
+- Un proceso no elevado **no puede** meter un proceso elevado en su propio
+  ConPTY: por eso la terminal embebida sólo es admin si lo es toda la IDE.
+- El pie muestra **ADMIN** cuando la app corre elevada.
+
 ## 4. Limitaciones conocidas
 
 - **Persistencia parcial.** Se recuerda el proyecto, el dock/visibilidad de los

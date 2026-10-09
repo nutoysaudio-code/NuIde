@@ -76,6 +76,11 @@ NuIde **compila** el código SpASM a binario nativo (AOT); el intérprete
 - El panel derecho es una **terminal igual**: arranca como shell y **`opencode`
   se lanza bajo demanda** (paleta → *Lanzar opencode*). Si salís de opencode,
   la terminal queda en la shell.
+- **Clic derecho** en cualquier terminal abre un menú con **Copiar**, **Pegar** y
+  **Elevar a administrador** (abre una shell elevada con UAC en la raíz del
+  proyecto). En Windows, *NuIde: reiniciar como administrador* (paleta) relanza
+  toda la IDE elevada —entonces las terminales del panel también lo son— y el pie
+  muestra **ADMIN**.
 
 ## 6. Git
 

@@ -33,6 +33,8 @@ export component IdeStatusBar inherits Rectangle {
     // Uso del sistema (porcentajes enteros), discreto a la derecha.
     in property <int> cpu: 0;
     in property <int> ram: 0;
+    // La app corre con privilegios de administrador (Windows).
+    in property <bool> elevated: false;
 
     height: IdeTheme.statusbar-h;
     background: IdeTheme.panel;
@@ -48,6 +50,19 @@ export component IdeStatusBar inherits Rectangle {
         alignment: start;
         cross-axis-alignment: center;
 
+        Text {
+            visible: root.elevated;
+            text: "ADMIN";
+            color: IdeTheme.amber;
+            font-family: IdeTheme.mono;
+            font-size: 10px;
+            font-weight: 700;
+            vertical-alignment: center;
+
+            Tooltip {
+                TipContent { text: "NuIde corre con privilegios de administrador: las terminales del panel son elevadas"; }
+            }
+        }
         IdeBranchIcon { }
         Text {
             text: root.branch;

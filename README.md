@@ -481,6 +481,7 @@ nuide/
     spasm_logic.rs         FFI de la lógica SpASM (wrappers seguros + tests)
     jsonx.rs               JSON con spans: edición quirúrgica de la config
     providers.rs           CRUD de proveedores de OpenCode (config global)
+    elevate.rs             elevación (UAC): terminal aparte y relanzar la IDE
     editor.rs              estado de la IDE (explorador, editor, terminales) + wiring
     main.rs                crea la ventana, engancha y corre
   ui/

@@ -69,6 +69,11 @@ export component NuIdeWindow inherits Window {
     in-out property <bool> explorer-show-generated: true;
     in-out property <bool> explorer-context-open: false;
     in-out property <[IdeMenuEntry]> explorer-context-items: [];
+    // Menú contextual de las terminales (clic derecho).
+    in-out property <bool> term-context-open: false;
+    in-out property <[IdeMenuEntry]> term-context-items: [];
+    in-out property <length> term-context-x: 0px;
+    in-out property <length> term-context-y: 0px;
     // Diálogo de entrada de texto.
     in-out property <bool> prompt-open: false;
     in-out property <string> prompt-title: "";
@@ -168,6 +173,8 @@ export component NuIdeWindow inherits Window {
     // Uso del sistema (porcentajes enteros).
     in-out property <int> cpu-percent: 0;
     in-out property <int> ram-percent: 0;
+    // La app corre con privilegios de administrador (Windows).
+    in-out property <bool> elevated: false;
 
     // Búsqueda del editor.
     in-out property <bool> find-open: false;
@@ -341,6 +348,10 @@ export component NuIdeWindow inherits Window {
     callback explorer-context-opened(int);
     callback explorer-context-command(string);
     callback explorer-context-close();
+    // Terminales: menú contextual (clic derecho).
+    callback term-context-opened(int);
+    callback term-context-command(string);
+    callback term-context-close();
     callback explorer-refresh();
     callback explorer-toggle-generated();
     // Diálogo de entrada de texto.
@@ -581,6 +592,7 @@ export component NuIdeWindow inherits Window {
         diagnostics: root.diagnostics;
         cpu: root.cpu-percent;
         ram: root.ram-percent;
+        elevated: root.elevated;
     }
 
     // --- área de contenido ---
@@ -746,6 +758,11 @@ export component NuIdeWindow inherits Window {
             selection-update(y, x) => { root.terminal-selection-update(y, x); }
             selection-end => { root.terminal-selection-end(); }
             paste-requested => { root.terminal-paste(); }
+            context-opened(x, y) => {
+                root.term-context-x = root.panel-x(2) + x;
+                root.term-context-y = IdeTheme.topbar-h + root.slot-y(root.dock-of(2), 2) + y;
+                root.term-context-opened(0);
+            }
             new-session => { root.new-session(); }
             close => { root.close-session(); }
             split => { root.split-terminal(); }
@@ -773,6 +790,11 @@ export component NuIdeWindow inherits Window {
             selection-end => { root.agent-selection-end(); }
             mouse-report(k, b, y, x) => { root.agent-mouse(k, b, y, x); }
             paste-requested => { root.agent-paste(); }
+            context-opened(x, y) => {
+                root.term-context-x = root.panel-x(1) + x;
+                root.term-context-y = IdeTheme.topbar-h + root.slot-y(root.dock-of(1), 1) + y;
+                root.term-context-opened(1);
+            }
         }
 
         // --- panel: control de código (Git) (dock configurable) ---
@@ -1002,6 +1024,26 @@ export component NuIdeWindow inherits Window {
         width: 200px;
         items: root.branch-menu-items;
         activated(id) => { root.branch-menu-command(id); }
+    }
+
+    // --- menú contextual de las terminales (clic derecho) ---
+    if root.term-context-open: Rectangle {
+        x: 0;
+        y: 0;
+        width: parent.width;
+        height: parent.height;
+        background: transparent;
+
+        TouchArea {
+            clicked => { root.term-context-close(); }
+        }
+    }
+    if root.term-context-open: IdeMenu {
+        x: root.term-context-x;
+        y: root.term-context-y;
+        width: 220px;
+        items: root.term-context-items;
+        activated(id) => { root.term-context-command(id); }
     }
 
     // --- visor de diff de Git ---

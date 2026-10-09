@@ -10,6 +10,7 @@ pub mod build;
 pub mod config;
 pub mod deploy;
 pub mod editor;
+pub mod elevate;
 pub mod explorer;
 pub mod git;
 pub mod highlight;

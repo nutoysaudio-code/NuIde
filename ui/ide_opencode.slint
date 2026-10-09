@@ -30,6 +30,8 @@ export component IdeOpenCode inherits FocusScope {
     callback mouse-report(int, int, length, length);
     // Pegar el portapapeles en el agente (botón del medio).
     callback paste-requested();
+    // Clic derecho: (x, y) relativos a la terminal, para abrir el menú contextual.
+    callback context-opened(length, length);
 
     focus-on-click: true;
 
@@ -146,6 +148,7 @@ export component IdeOpenCode inherits FocusScope {
             scrolled(dy) => { root.scrolled(dy); }
             mouse-report(k, b, y, x) => { root.focus(); root.mouse-report(k, b, y, x); }
             paste-requested => { root.focus(); root.paste-requested(); }
+            context-requested(y, x) => { root.focus(); root.context-opened(x, root.screen-top + y); }
         }
     }
 }

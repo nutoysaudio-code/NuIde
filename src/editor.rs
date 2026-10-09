@@ -31,6 +31,7 @@ use slint::{ComponentHandle, Model, ModelNotify, ModelRc, Timer, TimerMode, VecM
 use crate::build;
 use crate::config::Config;
 use crate::deploy::{self, DeployMsg};
+use crate::elevate;
 use crate::explorer::{Action, Explorer};
 use crate::git;
 use crate::highlight;
@@ -572,6 +573,7 @@ enum Command {
     NewFile,
     FindFiles,
     NewTerminal,
+    NewAdminTerminal,
     SplitTerminal,
     ToggleExplorer,
     ToggleAgent,
@@ -599,11 +601,12 @@ enum Command {
     TemplateInterpreter,
     TemplateEmpty,
     Preferences,
+    RelaunchElevated,
 }
 
 impl Command {
     /// Todos, en el orden en que se muestran.
-    const ALL: [Command; 52] = [
+    const ALL: [Command; 54] = [
         Command::Run,
         Command::Build,
         Command::BuildAndRun,
@@ -629,6 +632,7 @@ impl Command {
         Command::OpenFile,
         Command::NewFile,
         Command::NewTerminal,
+        Command::NewAdminTerminal,
         Command::SplitTerminal,
         Command::ToggleExplorer,
         Command::ToggleAgent,
@@ -656,6 +660,7 @@ impl Command {
         Command::TemplateInterpreter,
         Command::TemplateEmpty,
         Command::Preferences,
+        Command::RelaunchElevated,
     ];
 
     fn label(self) -> &'static str {
@@ -685,6 +690,7 @@ impl Command {
             Command::OpenFile => "Abrir archivo…",
             Command::NewFile => "Nuevo archivo…",
             Command::NewTerminal => "Nueva terminal",
+            Command::NewAdminTerminal => "Terminal: nueva como administrador",
             Command::SplitTerminal => "Dividir la terminal",
             Command::ToggleExplorer => "Ver: Explorador",
             Command::ToggleAgent => "Ver: OpenCode CLI",
@@ -712,6 +718,7 @@ impl Command {
             Command::TemplateInterpreter => "Plantilla: desarrollo (intérprete)…",
             Command::TemplateEmpty => "Plantilla: archivo vacío…",
             Command::Preferences => "Preferencias",
+            Command::RelaunchElevated => "NuIde: reiniciar como administrador",
         }
     }
 
@@ -738,6 +745,7 @@ impl Command {
             Command::CloseTab => "Ctrl+W",
             Command::FindFiles => "Ctrl+P",
             Command::NewTerminal | Command::SplitTerminal => "terminal",
+            Command::NewAdminTerminal => "admin",
             Command::ToggleExplorer
             | Command::ToggleAgent
             | Command::ToggleTerminal
@@ -760,6 +768,7 @@ impl Command {
                 "plantilla"
             }
             Command::Preferences => "Ctrl+,",
+            Command::RelaunchElevated => "admin",
             _ => "",
         }
     }
@@ -971,6 +980,8 @@ enum Confirm {
     CloseAll,
     /// Salir de la aplicación.
     Quit,
+    /// Reiniciar la aplicación elevada (UAC).
+    RelaunchElevated,
 }
 
 /// Confirmación de dos botones pendiente.
@@ -1105,6 +1116,11 @@ pub struct Ide {
     /// Menú contextual del explorador abierto y sus filas.
     explorer_context_open: bool,
     explorer_context_items: Vec<IdeMenuEntry>,
+    /// Menú contextual de las terminales (clic derecho): abierto, filas y a qué
+    /// terminal apunta (copiar/pegar).
+    term_context_open: bool,
+    term_context_items: Vec<IdeMenuEntry>,
+    term_context_target: Target,
     /// Diálogo de entrada de texto (nuevo archivo/carpeta, renombrar).
     prompt: Option<Prompt>,
     /// Confirmación de borrado o reemplazo pendiente.
@@ -1232,6 +1248,8 @@ pub struct Ide {
     provider_open: bool,
     provider_draft: ProviderDraft,
     provider_note: String,
+    /// Reinicio elevado pendiente: los callbacks guardan el estado y relanzan.
+    relaunch: bool,
     providers: Vec<crate::providers::Provider>,
     /// Nota para agregar a la salida del próximo build (p. ej. falta de cc).
     build_note: Option<String>,
@@ -1374,6 +1392,9 @@ impl Ide {
             explorer_selected: -1,
             explorer_context_open: false,
             explorer_context_items: Vec::new(),
+            term_context_open: false,
+            term_context_items: Vec::new(),
+            term_context_target: Target::Local,
             prompt: None,
             ask: None,
             tabs: Vec::new(),
@@ -1450,6 +1471,7 @@ impl Ide {
             provider_open: false,
             provider_draft: ProviderDraft::default(),
             provider_note: String::new(),
+            relaunch: false,
             providers: crate::providers::load_from(&crate::providers::config_dir()),
             build_note: None,
             git_status,
@@ -1976,6 +1998,73 @@ impl Ide {
             term_model: Rc::new(TermRows::default()),
         });
         self.local_active = self.local.len() - 1;
+    }
+
+    /// Abre una terminal **elevada** en su propia ventana (UAC), en la carpeta
+    /// del proyecto. No toca la IDE: sirve para un comando suelto que pide admin.
+    fn new_admin_terminal(&mut self) {
+        if elevate::is_elevated() {
+            self.admin_note(
+                "NuIde ya corre como administrador: las terminales del panel ya son elevadas.",
+            );
+            return;
+        }
+        let (shell, args) = pty::default_shell();
+        let dir = self.explorer.root().to_path_buf();
+        if let Err(e) = elevate::run_as_admin(&shell, &args, Some(&dir)) {
+            if !elevate::cancelled(&e) {
+                self.admin_note(&format!("no se pudo abrir la terminal elevada: {e}"));
+            }
+        }
+    }
+
+    /// Pide reiniciar toda la IDE elevada: así las terminales **embebidas** del
+    /// panel corren como administrador. Con cambios sin guardar, pasa por el
+    /// diálogo de confirmación.
+    fn request_relaunch_elevated(&mut self) {
+        if elevate::is_elevated() {
+            self.admin_note("NuIde ya corre como administrador.");
+            return;
+        }
+        if self.has_dirty() {
+            self.confirm = Some(Confirm::RelaunchElevated);
+            self.confirm_tab = None;
+        } else {
+            self.relaunch = true;
+        }
+    }
+
+    /// Si quedó pendiente un reinicio elevado: guarda el estado, lanza la copia
+    /// elevada y cierra esta instancia. Devuelve `true` si hay que salir.
+    fn take_relaunch(&mut self, w: &NuIdeWindow) -> bool {
+        if !self.relaunch {
+            return false;
+        }
+        self.relaunch = false;
+        self.save_state(w);
+        match elevate::relaunch_as_admin() {
+            Ok(()) => {
+                let _ = slint::quit_event_loop();
+                true
+            }
+            Err(e) => {
+                if !elevate::cancelled(&e) {
+                    self.admin_note(&format!("no se pudo reiniciar como administrador: {e}"));
+                }
+                false
+            }
+        }
+    }
+
+    /// Deja un mensaje avisando algo en la terminal local activa (si no hay, en la
+    /// del agente), con el mismo formato que los avisos de arranque de shell.
+    fn admin_note(&mut self, text: &str) {
+        let msg = format!("\r\n\x1b[33m[nuide] {text}\x1b[0m\r\n");
+        if let Some(s) = self.local.get_mut(self.local_active) {
+            s.screen.process(msg.as_bytes());
+        } else if let Some(a) = self.agent.as_mut() {
+            a.screen.process(msg.as_bytes());
+        }
     }
 }
 
@@ -2854,6 +2943,7 @@ impl Ide {
                 self.new_local_session();
                 self.resize_local();
             }
+            Command::NewAdminTerminal => self.new_admin_terminal(),
             Command::SplitTerminal => self.split_terminal(),
             Command::ToggleExplorer => self.toggle_panel(0),
             Command::ToggleAgent => self.toggle_panel(1),
@@ -2890,6 +2980,7 @@ impl Ide {
                 self.new_file_with(body);
             }
             Command::Preferences => self.prefs_toggle(),
+            Command::RelaunchElevated => self.request_relaunch_elevated(),
         }
     }
 
@@ -3059,7 +3150,7 @@ impl Ide {
                     let _ = self.save_tab(i);
                 }
             }
-            Some(Confirm::CloseAll) | Some(Confirm::Quit) => {
+            Some(Confirm::CloseAll) | Some(Confirm::Quit) | Some(Confirm::RelaunchElevated) => {
                 let dirty: Vec<usize> = self
                     .tabs
                     .iter()
@@ -3107,6 +3198,12 @@ impl Ide {
                 false
             }
             Some(Confirm::Quit) => true,
+            Some(Confirm::RelaunchElevated) => {
+                // El relanzamiento lo hace el callback, que tiene la ventana para
+                // guardar el estado: acá sólo queda la intención.
+                self.relaunch = true;
+                false
+            }
             None => false,
         }
     }
@@ -3269,6 +3366,32 @@ impl Ide {
             }
             "ctx.reveal" => reveal_in_explorer(&node.path),
             "ctx.refresh" => self.explorer.rebuild(),
+            _ => {}
+        }
+    }
+
+    /// Abre el menú contextual de una terminal (clic derecho): copiar, pegar y
+    /// elevar a administrador.
+    fn terminal_context(&mut self, target: Target) {
+        self.term_context_target = target;
+        let has_sel = !self.selected_text(target).is_empty();
+        let has_clip = read_clipboard().is_some_and(|t| !t.is_empty());
+        self.term_context_items = vec![
+            menu_entry("term.copy", "Copiar", "Ctrl+Shift+C", has_sel),
+            menu_entry("term.paste", "Pegar", "Ctrl+Shift+V", has_clip),
+            menu_sep(),
+            menu_entry("term.elevate", "Elevar a administrador", "UAC", true),
+        ];
+        self.term_context_open = true;
+    }
+
+    /// Ejecuta una acción del menú contextual de las terminales.
+    fn terminal_context_command(&mut self, id: &str) {
+        self.term_context_open = false;
+        match id {
+            "term.copy" => self.copy_selection(self.term_context_target),
+            "term.paste" => self.paste_into(self.term_context_target),
+            "term.elevate" => self.new_admin_terminal(),
             _ => {}
         }
     }
@@ -7021,6 +7144,7 @@ impl Ide {
                     Confirm::CloseTab => "Cerrar pestaña",
                     Confirm::CloseAll => "Cerrar todas las pestañas",
                     Confirm::Quit => "Salir de NuIde",
+                    Confirm::RelaunchElevated => "Reiniciar como administrador",
                 }
                 .into(),
             );
@@ -7028,6 +7152,7 @@ impl Ide {
                 Confirm::CloseTab => "cerrar",
                 Confirm::CloseAll => "cerrar todas",
                 Confirm::Quit => "salir",
+                Confirm::RelaunchElevated => "reiniciar como administrador",
             };
             w.set_confirm_message(
                 format!("Hay cambios sin guardar. ¿Querés guardarlos antes de {verb}?").into(),
@@ -7094,6 +7219,10 @@ impl Ide {
         w.set_explorer_context_open(self.explorer_context_open);
         w.set_explorer_context_items(ModelRc::from(Rc::new(VecModel::from(
             self.explorer_context_items.clone(),
+        ))));
+        w.set_term_context_open(self.term_context_open);
+        w.set_term_context_items(ModelRc::from(Rc::new(VecModel::from(
+            self.term_context_items.clone(),
         ))));
 
         // --- diálogos de entrada / borrado ---
@@ -8345,6 +8474,9 @@ pub fn attach(window: &NuIdeWindow, ide: Rc<RefCell<Ide>>) {
     // Fuentes, tamaño y acento (desde Preferencias).
     ide.borrow().apply_theme(window);
 
+    // Elevación (Windows): se consulta una sola vez y se refleja en el pie.
+    window.set_elevated(elevate::is_elevated());
+
     ide.borrow_mut().sync(window);
     // Restaura el tamaño/posición recordados (si los hay).
     ide.borrow().apply_window(window);
@@ -8638,6 +8770,7 @@ pub fn attach(window: &NuIdeWindow, ide: Rc<RefCell<Ide>>) {
             if let Some(w) = weak.upgrade() {
                 let mut e = ide.borrow_mut();
                 e.palette_accept_at(i);
+                e.take_relaunch(&w);
                 e.sync(&w);
             }
         });
@@ -9373,6 +9506,9 @@ pub fn attach(window: &NuIdeWindow, ide: Rc<RefCell<Ide>>) {
             if let Some(w) = weak.upgrade() {
                 let mut e = ide.borrow_mut();
                 let quit = e.confirm_save();
+                if !quit {
+                    e.take_relaunch(&w);
+                }
                 e.sync(&w);
                 if quit {
                     let _ = slint::quit_event_loop();
@@ -9387,6 +9523,9 @@ pub fn attach(window: &NuIdeWindow, ide: Rc<RefCell<Ide>>) {
             if let Some(w) = weak.upgrade() {
                 let mut e = ide.borrow_mut();
                 let quit = e.confirm_discard();
+                if !quit {
+                    e.take_relaunch(&w);
+                }
                 e.sync(&w);
                 if quit {
                     let _ = slint::quit_event_loop();
@@ -9515,6 +9654,46 @@ pub fn attach(window: &NuIdeWindow, ide: Rc<RefCell<Ide>>) {
                 let mut e = ide.borrow_mut();
                 e.paste_into(Target::Local);
                 e.sync_terms(&w);
+            }
+        });
+    }
+
+    // Menú contextual de las terminales (clic derecho): copiar, pegar, elevar.
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_term_context_opened(move |target| {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.terminal_context(if target == 1 {
+                    Target::Agent
+                } else {
+                    Target::Local
+                });
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_term_context_command(move |id| {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.terminal_context_command(&id);
+                e.sync(&w);
+                e.sync_terms(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_term_context_close(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.term_context_open = false;
+                e.sync(&w);
             }
         });
     }

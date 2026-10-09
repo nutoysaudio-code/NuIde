@@ -109,6 +109,8 @@ export component TerminalScreen inherits Rectangle {
     in property <bool> mouse-tracking: false;
     // Pegar el portapapeles (botón del medio).
     callback paste-requested();
+    // Clic derecho: abrir el menú contextual (y, x en píxeles del área).
+    callback context-requested(length, length);
     callback selection-start(length, length);
     callback selection-update(length, length);
     callback selection-end();
@@ -165,9 +167,13 @@ export component TerminalScreen inherits Rectangle {
         height: parent.height;
 
         pointer-event(event) => {
+            // El clic derecho abre el menú contextual de la terminal (copiar,
+            // pegar, elevar), siempre: incluso con mouse reporting.
+            if (event.kind == PointerEventKind.down && event.button == PointerEventButton.right) {
+                root.context-requested(self.mouse-y, self.mouse-x);
             // El botón del medio pega el portapapeles (convención de terminal),
             // con o sin mouse reporting.
-            if (event.kind == PointerEventKind.down && event.button == PointerEventButton.middle) {
+            } else if (event.kind == PointerEventKind.down && event.button == PointerEventButton.middle) {
                 root.paste-requested();
             } else if (root.mouse-tracking && !event.modifiers.shift) {
                 // Con mouse reporting el proceso se queda con el mouse. **Shift**
@@ -257,6 +263,8 @@ export component IdeTerminal inherits FocusScope {
     callback scrolled(length);
     // Pegar el portapapeles en la sesión enfocada (botón del medio).
     callback paste-requested();
+    // Clic derecho: (x, y) relativos a la terminal, para abrir el menú contextual.
+    callback context-opened(length, length);
     // Foco en un panel de la vista dividida (0 = izquierda, 1 = derecha).
     callback focus-pane(int);
 
@@ -369,6 +377,7 @@ export component IdeTerminal inherits FocusScope {
             scrolled(dy) => { root.scrolled(dy); }
             mouse-report(k, b, y, x) => { root.mouse-report(k, b, y, x); }
             paste-requested => { root.focus(); root.paste-requested(); }
+            context-requested(y, x) => { root.focus(); root.context-opened(x, root.header-h + y); }
         }
 
         if root.split-view: HorizontalLayout {
@@ -390,6 +399,7 @@ export component IdeTerminal inherits FocusScope {
                 scrolled(dy) => { root.scrolled(dy); }
                 mouse-report(k, b, y, x) => { root.focus(); root.focus-pane(0); root.mouse-report(k, b, y, x); }
                 paste-requested => { root.focus(); root.focus-pane(0); root.paste-requested(); }
+                context-requested(y, x) => { root.focus(); root.focus-pane(0); root.context-opened(x, root.header-h + y); }
             }
 
             Rectangle {
@@ -410,6 +420,7 @@ export component IdeTerminal inherits FocusScope {
                 scrolled(dy) => { root.focus-pane(1); root.scrolled(dy); }
                 mouse-report(k, b, y, x) => { root.focus(); root.focus-pane(1); root.mouse-report(k, b, y, x); }
                 paste-requested => { root.focus(); root.focus-pane(1); root.paste-requested(); }
+                context-requested(y, x) => { root.focus(); root.focus-pane(1); root.context-opened((root.width - 6px) / 2 + 6px + x, root.header-h + y); }
             }
         }
     }

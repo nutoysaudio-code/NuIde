@@ -21,6 +21,12 @@ versionado semántico.
 - **Minimizar / Maximizar** la ventana desde el menú de la barra superior.
 - `src/jsonx.rs`: utilidades JSON con *spans* (tolerantes a comentarios JSONC) y
   validador, base del CRUD.
+- **Menú contextual en las terminales** (clic derecho): **Copiar**, **Pegar** y
+  **Elevar a administrador**. Vale para la shell y para el panel de OpenCode CLI.
+- **Elevación (Windows):** la paleta suma *Terminal: nueva como administrador*
+  (shell elevada en ventana aparte, vía UAC) y *NuIde: reiniciar como
+  administrador* (relanza toda la IDE elevada). El pie muestra un distintivo
+  **ADMIN** cuando la app corre elevada.
 
 ### Cambiado
 
