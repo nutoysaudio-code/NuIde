@@ -4,7 +4,7 @@ Todos los cambios relevantes de NuIde. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/) y el proyecto usa
 versionado semántico.
 
-## [0.2.0] — 2026-10-08
+## [0.2.1] — 2026-10-08
 
 ### Agregado
 
