@@ -92,7 +92,8 @@ impl Toolchain {
                 .or_else(|| on_path(&["opencode.cmd", "opencode.exe", "opencode"])),
             nuide_cli: from_env("NUIDE_CLI")
                 .or_else(|| from_env("NUIDE_CLI_AGENT"))
-                .or_else(|| on_path(&["nuide-cli.exe", "nuide-cli"])),
+                .or_else(|| on_path(&["nuide-cli.exe", "nuide-cli"]))
+                .or_else(|| beside_exe("nuide-cli.exe")),
             frontend,
         }
     }
@@ -317,6 +318,14 @@ fn first_existing(candidates: &[&str]) -> Option<PathBuf> {
     candidates.iter().map(PathBuf::from).find(|p| p.is_file())
 }
 
+/// Un archivo que vive junto al ejecutable de NuIde (p. ej. `nuide-cli.exe`
+/// instalado en la misma carpeta `{app}`).
+fn beside_exe(name: &str) -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let candidate = exe.parent()?.join(name);
+    candidate.is_file().then_some(candidate)
+}
+
 /// El frontend vive junto a `spasmc.py`: `src/shared/spasmc.py` →
 /// `src/common/spasm-asm-gen.py`.
 fn frontend_beside(compiler: &Path) -> Option<PathBuf> {
@@ -365,6 +374,12 @@ mod tests {
     fn sin_compilador_de_c_no_se_pide_build() {
         let args = compile_args(Path::new("prog.spasm"), Path::new("build/prog.c"), false);
         assert!(!args.iter().any(|a| a == "--build"));
+    }
+
+    /// `beside_exe` no falla si el archivo no está al lado del ejecutable.
+    #[test]
+    fn beside_exe_devuelve_none_si_falta() {
+        assert!(beside_exe("__no_existe_nuide_cli__.exe").is_none());
     }
 
     /// Prueba real de que el CLI de OpenCode se puede lanzar y su salida llega

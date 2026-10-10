@@ -18,15 +18,22 @@ $ErrorActionPreference = "Stop"
 $repo = Split-Path -Parent $PSScriptRoot
 Set-Location $repo
 
-# --- 1) Binario release ---
+# --- 1) Binarios release ---
 if (-not $SkipBuild) {
     Write-Host "Compilando en modo release..."
     cargo build --release
     if ($LASTEXITCODE -ne 0) { throw "cargo build fallo ($LASTEXITCODE)." }
+
+    # Nuide-CLI es su propio workspace: se compila aparte.
+    Write-Host "Compilando Nuide-CLI (release)..."
+    cargo build --release --manifest-path (Join-Path $repo "nuide-cli\Cargo.toml")
+    if ($LASTEXITCODE -ne 0) { throw "cargo build de nuide-cli fallo ($LASTEXITCODE)." }
 }
 
 $exe = Join-Path $repo "target\release\nuide.exe"
 if (-not (Test-Path $exe)) { throw "No existe $exe. Corré el script sin -SkipBuild." }
+$cli = Join-Path $repo "nuide-cli\target\release\nuide-cli.exe"
+if (-not (Test-Path $cli)) { throw "No existe $cli. Corré el script sin -SkipBuild." }
 
 # El exe de release NO debe ser de consola (si no, aparece una terminal vacía
 # antes de la ventana). Se lee el campo Subsystem del encabezado PE.

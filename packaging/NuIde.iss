@@ -43,11 +43,13 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 [Tasks]
 Name: "desktopicon"; Description: "Crear un acceso directo en el escritorio"; GroupDescription: "Accesos directos:"
 Name: "associate"; Description: "Asociar los archivos .spasm con NuIde"; GroupDescription: "Integración:"; Flags: unchecked
+Name: "path"; Description: "Agregar NuIde y Nuide-CLI a la variable PATH"; GroupDescription: "Integración:"; Flags: checkedonce
 Name: "nodejs"; Description: "Instalar Node.js (necesario para las CLI de IA)"; GroupDescription: "Dependencias:"; Flags: checkedonce
 Name: "clis"; Description: "Instalar las CLI de IA (opencode y las demás)"; GroupDescription: "Dependencias:"; Flags: checkedonce
 
 [Files]
 Source: "..\target\release\{#AppExe}"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\nuide-cli\target\release\nuide-cli.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\docs\*"; DestDir: "{app}\docs"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "postinstall.ps1"; DestDir: "{app}"; Flags: ignoreversion
@@ -63,6 +65,7 @@ Root: HKCU; Subkey: "Software\Classes\NuIde.Spasm\DefaultIcon"; ValueType: strin
 Root: HKCU; Subkey: "Software\Classes\NuIde.Spasm\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#AppExe}"" ""%1"""; Tasks: associate
 
 [Run]
+Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\postinstall.ps1"" -AddPath"; StatusMsg: "Agregando NuIde y Nuide-CLI al PATH..."; Flags: runhidden waituntilterminated; Tasks: path
 Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\postinstall.ps1"" -Clis"; StatusMsg: "Instalando Node.js y las CLI de IA..."; Flags: runhidden waituntilterminated; Tasks: clis
 Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\postinstall.ps1"""; StatusMsg: "Instalando Node.js..."; Flags: runhidden waituntilterminated; Tasks: nodejs and not clis
 Filename: "{app}\{#AppExe}"; Description: "Ejecutar {#AppName}"; Flags: nowait postinstall skipifsilent

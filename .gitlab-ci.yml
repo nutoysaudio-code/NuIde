@@ -61,8 +61,11 @@ package:windows:
   script:
     - cargo build --release
     - .\target\release\nuide.exe --version
+    - cargo build --release --manifest-path nuide-cli\Cargo.toml
+    - .\nuide-cli\target\release\nuide-cli.exe --version
   artifacts:
     name: "NuIde-$CI_COMMIT_SHORT_SHA"
     paths:
       - target/release/nuide.exe
+      - nuide-cli/target/release/nuide-cli.exe
     expire_in: 2 weeks

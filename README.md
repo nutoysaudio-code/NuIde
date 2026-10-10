@@ -307,11 +307,14 @@ anterior y el mensaje va a la barra de estado.
 
 1. Variables de entorno: `NUIDE_SPASM`, `NUIDE_SPASMC`, `NUIDE_PYTHON` (también
    acepta `SPASM_EXE`, `SPASMC`, `PYTHON`), `NUIDE_SPASM_FRONTEND` (el parser,
-   `spasm-asm-gen.py`) y `NUIDE_AGENT` para el CLI de OpenCode.
+   `spasm-asm-gen.py`), `NUIDE_AGENT` para el CLI de OpenCode y `NUIDE_CLI` para
+   `nuide-cli`.
 2. Ubicaciones conocidas del ecosistema: `F:\SpASM\spasm.exe`,
    `F:\SpAMS-Oficial\src\shared\spasmc.py` y su frontend
    `...\src\common\spasm-asm-gen.py`.
 3. El `PATH`.
+4. Junto al ejecutable de NuIde (así encuentra `nuide-cli.exe` instalado en la
+   misma carpeta `{app}`).
 
 #### Nota sobre el Skill PTY
 
@@ -563,10 +566,15 @@ slint-viewer --screenshot ui.png ui/nuide_ui.slint
   logs de la CI) se respeta y no se pisa con `CONOUT$`.
 - El icono se regenera con:
   `powershell -ExecutionPolicy Bypass -File packaging/make_icon.ps1`.
-- **Instalador** (`packaging/NuIde.iss`, Inno Setup 6):
+- **Instalador** (`packaging/NuIde.iss`, Inno Setup 6). Además de NuIde, **copia
+  `nuide-cli.exe`** a la carpeta de instalación (el router/agente de modelos
+  gratis) y, si se marca la tarea, agrega esa carpeta al **PATH del usuario**
+  (`packaging/postinstall.ps1 -AddPath`), así `nuide-cli` queda disponible en
+  cualquier terminal.
 
   ```sh
   cargo build --release
+  cargo build --release --manifest-path nuide-cli/Cargo.toml
   iscc packaging\NuIde.iss      # deja releases\NuIde-<version>-setup.exe
   ```
 
