@@ -343,12 +343,12 @@ export component IdeTerminal inherits FocusScope {
                     activated => { root.session-selected(i); }
                 }
 
-                IdeHeaderButton { glyph: "+"; tip: "Nueva sesión de shell (F5 corre en la raíz del proyecto)"; activated => { root.new-session(); } }
+                IdeHeaderButton { glyph: "+"; tip: @tr("Nueva sesión de shell (F5 corre en la raíz del proyecto)"); activated => { root.new-session(); } }
 
                 Rectangle { horizontal-stretch: 1; background: transparent; }
 
-                IdeHeaderButton { glyph: "⬒"; split: true; tip: "Dividir la terminal en dos vistas"; activated => { root.split(); } }
-                IdeHeaderButton { glyph: "×"; danger: true; tip: "Cerrar esta sesion de terminal"; activated => { root.close(); } }
+                IdeHeaderButton { glyph: "⬒"; split: true; tip: @tr("Dividir la terminal en dos vistas"); activated => { root.split(); } }
+                IdeHeaderButton { glyph: "×"; danger: true; tip: @tr("Cerrar esta sesion de terminal"); activated => { root.close(); } }
             }
 
             Rectangle {

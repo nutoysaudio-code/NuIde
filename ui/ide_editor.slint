@@ -507,14 +507,14 @@ export component IdeEditor inherits FocusScope {
                         vertical-alignment: center;
                     }
 
-                    IdeFindButton { label: "‹"; tip: "Anterior coincidencia (Shift+F3)"; activated => { root.find-prev(); } }
-                    IdeFindButton { label: "›"; tip: "Siguiente coincidencia (F3)"; activated => { root.find-next(); } }
-                    IdeFindButton { label: "Aa"; active: root.find-case; tip: "Coincidir mayúsculas/minúsculas"; activated => { root.find-toggle-case(); } }
-                    IdeFindButton { label: "Palabra"; active: root.find-whole-word; tip: "Coincidir palabra completa"; activated => { root.find-toggle-word(); } }
-                    IdeFindButton { label: ".*"; active: root.find-regex; tip: "Expresión regular"; activated => { root.find-toggle-regex(); } }
-                    IdeFindButton { label: "Sel."; active: root.find-in-selection; tip: "Buscar sólo en la selección"; activated => { root.find-toggle-selection(); } }
-                    IdeFindButton { label: "⇄"; active: root.find-replace-open; tip: "Mostrar u ocultar el campo de reemplazo"; activated => { root.find-toggle-replace(); } }
-                    IdeFindButton { label: "×"; danger: true; tip: "Cerrar la búsqueda (Esc)"; activated => { root.find-close(); } }
+                    IdeFindButton { label: "‹"; tip: @tr("Anterior coincidencia (Shift+F3)"); activated => { root.find-prev(); } }
+                    IdeFindButton { label: "›"; tip: @tr("Siguiente coincidencia (F3)"); activated => { root.find-next(); } }
+                    IdeFindButton { label: "Aa"; active: root.find-case; tip: @tr("Coincidir mayúsculas/minúsculas"); activated => { root.find-toggle-case(); } }
+                    IdeFindButton { label: "Palabra"; active: root.find-whole-word; tip: @tr("Coincidir palabra completa"); activated => { root.find-toggle-word(); } }
+                    IdeFindButton { label: ".*"; active: root.find-regex; tip: @tr("Expresión regular"); activated => { root.find-toggle-regex(); } }
+                    IdeFindButton { label: "Sel."; active: root.find-in-selection; tip: @tr("Buscar sólo en la selección"); activated => { root.find-toggle-selection(); } }
+                    IdeFindButton { label: "⇄"; active: root.find-replace-open; tip: @tr("Mostrar u ocultar el campo de reemplazo"); activated => { root.find-toggle-replace(); } }
+                    IdeFindButton { label: "×"; danger: true; tip: @tr("Cerrar la búsqueda (Esc)"); activated => { root.find-close(); } }
                 }
 
                 if root.find-replace-open: HorizontalLayout {
@@ -576,8 +576,8 @@ export component IdeEditor inherits FocusScope {
                         }
                     }
 
-                    IdeFindButton { label: "Reemplazar"; tip: "Reemplazar esta coincidencia (Enter)"; activated => { root.replace-one(); } }
-                    IdeFindButton { label: "Todo"; tip: "Reemplazar todas las coincidencias"; activated => { root.replace-all(); } }
+                    IdeFindButton { label: "Reemplazar"; tip: @tr("Reemplazar esta coincidencia (Enter)"); activated => { root.replace-one(); } }
+                    IdeFindButton { label: "Todo"; tip: @tr("Reemplazar todas las coincidencias"); activated => { root.replace-all(); } }
                 }
             }
 
@@ -694,9 +694,9 @@ export component IdeEditor inherits FocusScope {
                 spacing: 4px;
                 alignment: start;
 
-                IdeFindButton { label: "−"; tip: "Alejar la imagen (Ctrl+-)"; activated => { root.image-zoom-out(); } }
-                IdeFindButton { label: "+"; tip: "Acercar la imagen (Ctrl++)"; activated => { root.image-zoom-in(); } }
-                IdeFindButton { label: "Ajustar"; tip: "Ajustar la imagen al tamaño del panel"; activated => { root.image-zoom-reset(); } }
+                IdeFindButton { label: "−"; tip: @tr("Alejar la imagen (Ctrl+-)"); activated => { root.image-zoom-out(); } }
+                IdeFindButton { label: "+"; tip: @tr("Acercar la imagen (Ctrl++)"); activated => { root.image-zoom-in(); } }
+                IdeFindButton { label: "Ajustar"; tip: @tr("Ajustar la imagen al tamaño del panel"); activated => { root.image-zoom-reset(); } }
             }
         }
 

@@ -290,7 +290,7 @@ export component IdeSettings inherits Rectangle {
                     mouse-cursor: MouseCursor.pointer;
                     clicked => { root.dismiss(); }
                 }
-                Tooltip { TipContent { text: "Cerrar (Esc) — los cambios ya quedaron guardados"; } }
+                Tooltip { TipContent { text: @tr("Cerrar (Esc) — los cambios ya quedaron guardados"); } }
             }
             Rectangle {
                 y: parent.height - IdeTheme.hairline;

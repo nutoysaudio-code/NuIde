@@ -267,50 +267,50 @@ export component IdePrefs inherits Rectangle {
                     label: "Transporte";
                     value: root.site-transport;
                     activated => { root.cycle-transport(); }
-                    Tooltip { TipContent { text: "FTP (21), FTPS (FTP + TLS, curl valida el certificado) o SFTP (SSH, 22)"; } }
+                    Tooltip { TipContent { text: @tr("FTP (21), FTPS (FTP + TLS, curl valida el certificado) o SFTP (SSH, 22)"); } }
                 }
                 PrefRow {
                     label: "Host";
                     value: root.site-host == "" ? "sin configurar" : root.site-host;
                     activated => { root.edit-site("host"); }
-                    Tooltip { TipContent { text: "Servidor del sitio, ej. ftp.midominio.com"; } }
+                    Tooltip { TipContent { text: @tr("Servidor del sitio, ej. ftp.midominio.com"); } }
                 }
                 PrefRow {
                     label: "Usuario";
                     value: root.site-user == "" ? "—" : root.site-user;
                     activated => { root.edit-site("user"); }
-                    Tooltip { TipContent { text: "Usuario de FTP/SFTP del hosting"; } }
+                    Tooltip { TipContent { text: @tr("Usuario de FTP/SFTP del hosting"); } }
                 }
                 PrefRow {
                     label: "Contraseña";
                     value: root.site-pass == "" ? "—" : "••••••••";
                     activated => { root.edit-site("pass"); }
-                    Tooltip { TipContent { text: "Se guarda en el config de NuIde (%APPDATA%), indexada por proyecto: no toca el repositorio"; } }
+                    Tooltip { TipContent { text: @tr("Se guarda en el config de NuIde (%APPDATA%), indexada por proyecto: no toca el repositorio"); } }
                 }
                 PrefRow {
                     label: "Carpeta remota";
                     value: root.site-remote == "" ? "—" : root.site-remote;
                     activated => { root.edit-site("remote"); }
-                    Tooltip { TipContent { text: "Ruta en el servidor donde cae el sitio, ej. public_html o /www/mi-sitio"; } }
+                    Tooltip { TipContent { text: @tr("Ruta en el servidor donde cae el sitio, ej. public_html o /www/mi-sitio"); } }
                 }
                 PrefRow {
                     label: "Subcarpeta local";
                     value: root.site-local-sub == "" ? "raíz del proyecto" : root.site-local-sub;
                     activated => { root.edit-site("local-sub"); }
-                    Tooltip { TipContent { text: "Qué carpeta del proyecto se sube, ej. build o dist (vacío = todo el proyecto)"; } }
+                    Tooltip { TipContent { text: @tr("Qué carpeta del proyecto se sube, ej. build o dist (vacío = todo el proyecto)"); } }
                 }
                 PrefRow {
                     label: "Extensiones";
                     value: root.site-include;
                     activated => { root.edit-site("include"); }
-                    Tooltip { TipContent { text: "Lista separada por coma de extensiones que se suben"; } }
+                    Tooltip { TipContent { text: @tr("Lista separada por coma de extensiones que se suben"); } }
                 }
                 PrefRow {
                     label: "Script de despliegue";
                     value: root.site-script == "" ? "deploy.spasm (si existe)" : root.site-script;
                     activated => { root.edit-site("script"); }
                     Tooltip {
-                        TipContent { text: "Script SpASM que decide qué subir. Imprime líneas «UPLOAD <local> [<remota>]», «SKIP <local>», «LOG <texto>». Sin script se sube la subcarpeta filtrando por extensión."; }
+                        TipContent { text: @tr("Script SpASM que decide qué subir. Imprime líneas «UPLOAD <local> [<remota>]», «SKIP <local>», «LOG <texto>». Sin script se sube la subcarpeta filtrando por extensión."); }
                     }
                 }
                 HorizontalLayout {
@@ -340,27 +340,27 @@ export component IdePrefs inherits Rectangle {
                     value: root.web-enabled ? "Activo" : "Apagado";
                     activated => { root.toggle-web(); }
                     Tooltip {
-                        TipContent { text: "Sirve la carpeta del proyecto en http://localhost:<puerto>/ con CORS, para ver el sitio antes de subirlo"; }
+                        TipContent { text: @tr("Sirve la carpeta del proyecto en http://localhost:<puerto>/ con CORS, para ver el sitio antes de subirlo"); }
                     }
                 }
                 PrefRow {
                     label: "Puerto";
                     value: root.web-port;
                     activated => { root.edit-web-port(); }
-                    Tooltip { TipContent { text: "Puerto local del servidor (1024-65535)"; } }
+                    Tooltip { TipContent { text: @tr("Puerto local del servidor (1024-65535)"); } }
                 }
                 PrefRow {
                     label: "Carpeta servida";
                     value: root.web-root == "" ? "raíz del proyecto" : root.web-root;
                     activated => { root.edit-web-root(); }
-                    Tooltip { TipContent { text: "Subcarpeta que se sirve, ej. build o dist (vacío = todo el proyecto)"; } }
+                    Tooltip { TipContent { text: @tr("Subcarpeta que se sirve, ej. build o dist (vacío = todo el proyecto)"); } }
                 }
                 PrefRow {
                     label: "CORS: origen permitido";
                     value: root.web-cors;
                     activated => { root.edit-web-cors(); }
                     Tooltip {
-                        TipContent { text: "Access-Control-Allow-Origin. * para cualquier origen; un dominio concreto si la página manda credenciales"; }
+                        TipContent { text: @tr("Access-Control-Allow-Origin. * para cualquier origen; un dominio concreto si la página manda credenciales"); }
                     }
                 }
                 PrefRow {
@@ -368,14 +368,14 @@ export component IdePrefs inherits Rectangle {
                     value: root.sqlite-module ? "Activo" : "Apagado";
                     activated => { root.toggle-sqlite(); }
                     Tooltip {
-                        TipContent { text: "Panel para mirar las tablas de una base .db del proyecto. Usa sqlite3.exe o Python, sin librerías extra"; }
+                        TipContent { text: @tr("Panel para mirar las tablas de una base .db del proyecto. Usa sqlite3.exe o Python, sin librerías extra"); }
                     }
                 }
                 PrefRow {
                     label: "Base abierta";
                     value: root.sqlite-db-name == "" ? "ninguna (clic para elegir)" : root.sqlite-db-name;
                     activated => { root.toggle-sqlite(); }
-                    Tooltip { TipContent { text: "Elegí un archivo .db / .sqlite; el panel se abre en cuanto hay base"; } }
+                    Tooltip { TipContent { text: @tr("Elegí un archivo .db / .sqlite; el panel se abre en cuanto hay base"); } }
                 }
 
                 PrefSection { title: "ATAJOS (clic para reasignar)"; }

@@ -431,6 +431,23 @@ Todo se aplica **en caliente** (se tocan los globales de `IdeTheme`) y se guarda
 en la config (`font.*`, `theme.accent`, `keys.*`). El tamaño del código llega al
 editor vía `IdeTheme.editor-font-size`.
 
+### Idioma de la interfaz (i18n)
+
+El idioma se elige en **Preferencias (`Ctrl+,`) → Interfaz → Idioma**
+(`es` / `en` / `pt-BR`) y se **aplica al reiniciar**. Los textos viven en un
+catálogo por idioma, `lang/<locale>/LC_MESSAGES/nuide.po`:
+
+- los `.slint` usan `@tr(...)` y Slint resuelve con las traducciones **empaquetadas**
+  por `build.rs` (`with_bundled_translations`), sin gettext en runtime;
+- el código Rust que arma texto (menús, paleta, configuración) usa
+  `i18n::t()`, que lee el mismo `.po` embebido.
+
+Hoy están traducidos los **tooltips** (73). El plan completo (desacoplar id de
+etiqueta en los menús, migrar el resto de los textos, CI) está en
+[`docs/I18N.md`](docs/I18N.md). Herramientas de extracción: `tools/i18n_slint.py`
+(envuelve tooltips en `@tr` y regenera el `.pot`) y `tools/i18n_po.py`
+(regenera los `.po`).
+
 ### Proveedores de OpenCode (configuración del CLI)
 
 La pantalla de configuración (`Ctrl+,`) tiene una sección **Proveedores** para
@@ -458,6 +475,9 @@ nuide/
   Cargo.lock               lock del proyecto (app independiente)
   build.rs                 compila la lógica SpASM (cc) + slint_build
   tools/regen_spasm.ps1     refresca spasm/generated/*.c con spasmc.py
+  tools/i18n_slint.py       envuelve los tooltips de ui/*.slint en @tr + .pot
+  tools/i18n_po.py          regenera lang/<locale>/LC_MESSAGES/nuide.po
+  lang/<locale>/LC_MESSAGES/nuide.po  catálogo de traducciones (es, en, pt-BR)
   spasm/
     *.spasm                lógica de la IDE en SpASM AOT
     generated/*.c          C generado (commiteado; no editar a mano)

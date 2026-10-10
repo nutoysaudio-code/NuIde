@@ -1,9 +1,19 @@
 fn main() {
-    slint_build::compile("ui/nuide_ui.slint").expect("failed to compile the NuIde Slint UI");
+    // Traducciones empaquetadas (i18n): `@tr(...)` en los `.slint` se resuelve
+    // contra `lang/<locale>/LC_MESSAGES/nuide.po`. Sin dependencia de gettext en
+    // runtime. El contexto por defecto se desactiva para que las claves sean el
+    // string plano (compartido con `i18n::t()` de Rust).
+    let config = slint_build::CompilerConfiguration::new()
+        .with_bundled_translations("lang")
+        .with_default_translation_context(slint_build::DefaultTranslationContext::None);
+    slint_build::compile_with_config("ui/nuide_ui.slint", config)
+        .expect("failed to compile the NuIde Slint UI");
 
     println!("cargo:rerun-if-changed=build.rs");
     // Todo el directorio `ui/`: la ventana importa los demás `.slint`.
     println!("cargo:rerun-if-changed=ui");
+    // Catálogo de traducciones.
+    println!("cargo:rerun-if-changed=lang");
     // Lógica SpASM: fuentes, C generado y wrappers FFI.
     println!("cargo:rerun-if-changed=spasm");
     compilar_logica_spasm();

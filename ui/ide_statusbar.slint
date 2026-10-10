@@ -60,7 +60,7 @@ export component IdeStatusBar inherits Rectangle {
             vertical-alignment: center;
 
             Tooltip {
-                TipContent { text: "NuIde corre con privilegios de administrador: las terminales del panel son elevadas"; }
+                TipContent { text: @tr("NuIde corre con privilegios de administrador: las terminales del panel son elevadas"); }
             }
         }
         IdeBranchIcon { }
@@ -72,7 +72,7 @@ export component IdeStatusBar inherits Rectangle {
             vertical-alignment: center;
 
             Tooltip {
-                TipContent { text: "Rama actual de Git - clic en el panel de código para cambiarla"; }
+                TipContent { text: @tr("Rama actual de Git - clic en el panel de código para cambiarla"); }
             }
         }
 
@@ -84,7 +84,7 @@ export component IdeStatusBar inherits Rectangle {
             vertical-alignment: center;
 
             Tooltip {
-                TipContent { text: "Errores y avisos del análisis del archivo abierto (F6); F8 salta al siguiente"; }
+                TipContent { text: @tr("Errores y avisos del análisis del archivo abierto (F6); F8 salta al siguiente"); }
             }
         }
 
@@ -98,7 +98,7 @@ export component IdeStatusBar inherits Rectangle {
             vertical-alignment: center;
 
             Tooltip {
-                TipContent { text: "Lenguaje detectado por la extensión del archivo activo"; }
+                TipContent { text: @tr("Lenguaje detectado por la extensión del archivo activo"); }
             }
         }
         IdeStatusDivider { }
@@ -110,7 +110,7 @@ export component IdeStatusBar inherits Rectangle {
             vertical-alignment: center;
 
             Tooltip {
-                TipContent { text: "Codificación con la que se lee y se guarda el archivo"; }
+                TipContent { text: @tr("Codificación con la que se lee y se guarda el archivo"); }
             }
         }
         IdeStatusDivider { }
@@ -122,7 +122,7 @@ export component IdeStatusBar inherits Rectangle {
             vertical-alignment: center;
 
             Tooltip {
-                TipContent { text: "Posición del cursor (línea, columna) en el editor"; }
+                TipContent { text: @tr("Posición del cursor (línea, columna) en el editor"); }
             }
         }
 

@@ -272,7 +272,7 @@ export component IdeGit inherits Rectangle {
         GitButton {
             label: "Inicializar repositorio";
             primary: true;
-            tip: "Crear un repositorio Git nuevo en la raíz del proyecto (git init)";
+            tip: @tr("Crear un repositorio Git nuevo en la raíz del proyecto (git init)");
             activated => { root.init-repo(); }
         }
     }
@@ -383,13 +383,13 @@ export component IdeGit inherits Rectangle {
             GitButton {
                 label: "Preparar todo";
                 enabled: !root.busy;
-                tip: "Preparar todos los cambios para el commit (git add -A)";
+                tip: @tr("Preparar todos los cambios para el commit (git add -A)");
                 activated => { root.stage-all(); }
             }
             GitButton {
                 label: "Quitar todo";
                 enabled: !root.busy;
-                tip: "Quitar todos los archivos del índice (git reset)";
+                tip: @tr("Quitar todos los archivos del índice (git reset)");
                 activated => { root.unstage-all(); }
             }
         }
@@ -406,13 +406,13 @@ export component IdeGit inherits Rectangle {
             GitButton {
                 label: "Bajar";
                 enabled: !root.busy;
-                tip: "Traer cambios del remoto (git pull)";
+                tip: @tr("Traer cambios del remoto (git pull)");
                 activated => { root.pull(); }
             }
             GitButton {
                 label: "Ramas";
                 enabled: !root.busy;
-                tip: "Ver y cambiar de rama (git branch)";
+                tip: @tr("Ver y cambiar de rama (git branch)");
                 activated => { root.branch-click(); }
             }
             Rectangle { horizontal-stretch: 1; background: transparent; }
@@ -420,7 +420,7 @@ export component IdeGit inherits Rectangle {
                 label: "Commit";
                 primary: true;
                 enabled: !root.busy && root.message != "";
-                tip: "Confirmar los cambios preparados (git commit)";
+                tip: @tr("Confirmar los cambios preparados (git commit)");
                 activated => { root.commit(); }
             }
         }

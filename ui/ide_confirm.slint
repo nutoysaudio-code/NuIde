@@ -109,18 +109,18 @@ export component IdeConfirm inherits Rectangle {
 
             ConfirmButton {
                 label: "Cancelar";
-                tip: "No hacer nada y cerrar (Esc)";
+                tip: @tr("No hacer nada y cerrar (Esc)");
                 activated => { root.cancel(); }
             }
             ConfirmButton {
                 label: "Descartar";
-                tip: "Descartar los cambios sin guardar";
+                tip: @tr("Descartar los cambios sin guardar");
                 activated => { root.discard(); }
             }
             ConfirmButton {
                 label: "Guardar";
                 primary: true;
-                tip: "Guardar los cambios y continuar";
+                tip: @tr("Guardar los cambios y continuar");
                 activated => { root.save(); }
             }
         }
@@ -199,7 +199,7 @@ export component IdeAsk inherits Rectangle {
 
             ConfirmButton {
                 label: "Cancelar";
-                tip: "No hacer nada y cerrar (Esc)";
+                tip: @tr("No hacer nada y cerrar (Esc)");
                 activated => { root.cancel(); }
             }
             ConfirmButton {

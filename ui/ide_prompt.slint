@@ -125,13 +125,13 @@ export component IdePrompt inherits Rectangle {
 
             PromptButton {
                 label: "Cancelar";
-                tip: "No hacer nada y cerrar (Esc)";
+                tip: @tr("No hacer nada y cerrar (Esc)");
                 activated => { root.cancel(); }
             }
             PromptButton {
                 label: "Aceptar";
                 primary: true;
-                tip: "Confirmar y cerrar (Enter)";
+                tip: @tr("Confirmar y cerrar (Enter)");
                 activated => { root.accept(); }
             }
         }

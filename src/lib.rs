@@ -14,6 +14,7 @@ pub mod elevate;
 pub mod explorer;
 pub mod git;
 pub mod highlight;
+pub mod i18n;
 pub mod jsonx;
 pub mod lint;
 pub mod providers;

@@ -1,0 +1,231 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: nuide\n"
+"Language: en\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+msgid "Cerrar el diálogo (Esc)"
+msgstr "Close the dialog (Esc)"
+
+msgid "No hacer nada y cerrar (Esc)"
+msgstr "Do nothing and close (Esc)"
+
+msgid "Descartar los cambios sin guardar"
+msgstr "Discard unsaved changes"
+
+msgid "Guardar los cambios y continuar"
+msgstr "Save changes and continue"
+
+msgid "Abrir el archivo en el editor (Enter)"
+msgstr "Open the file in the editor (Enter)"
+
+msgid "Descartar los cambios locales (git checkout --)"
+msgstr "Discard local changes (git checkout --)"
+
+msgid "Anterior coincidencia (Shift+F3)"
+msgstr "Previous match (Shift+F3)"
+
+msgid "Siguiente coincidencia (F3)"
+msgstr "Next match (F3)"
+
+msgid "Coincidir mayúsculas/minúsculas"
+msgstr "Match case"
+
+msgid "Coincidir palabra completa"
+msgstr "Match whole word"
+
+msgid "Expresión regular"
+msgstr "Regular expression"
+
+msgid "Buscar sólo en la selección"
+msgstr "Search only in the selection"
+
+msgid "Mostrar u ocultar el campo de reemplazo"
+msgstr "Show or hide the replace field"
+
+msgid "Cerrar la búsqueda (Esc)"
+msgstr "Close the search (Esc)"
+
+msgid "Reemplazar esta coincidencia (Enter)"
+msgstr "Replace this match (Enter)"
+
+msgid "Reemplazar todas las coincidencias"
+msgstr "Replace all matches"
+
+msgid "Alejar la imagen (Ctrl+-)"
+msgstr "Zoom out the image (Ctrl+-)"
+
+msgid "Acercar la imagen (Ctrl++)"
+msgstr "Zoom in the image (Ctrl++)"
+
+msgid "Ajustar la imagen al tamaño del panel"
+msgstr "Fit the image to the panel"
+
+msgid "Mostrar u ocultar archivos generados (build, target, node_modules)"
+msgstr "Show or hide generated files (build, target, node_modules)"
+
+msgid "Refrescar el árbol de archivos (F5)"
+msgstr "Refresh the file tree (F5)"
+
+msgid "Crear un repositorio Git nuevo en la raíz del proyecto (git init)"
+msgstr "Create a new Git repository at the project root (git init)"
+
+msgid "Preparar todos los cambios para el commit (git add -A)"
+msgstr "Stage all changes for the commit (git add -A)"
+
+msgid "Quitar todos los archivos del índice (git reset)"
+msgstr "Unstage all files (git reset)"
+
+msgid "Traer cambios del remoto (git pull)"
+msgstr "Pull changes from the remote (git pull)"
+
+msgid "Ver y cambiar de rama (git branch)"
+msgstr "View and switch branches (git branch)"
+
+msgid "Confirmar los cambios preparados (git commit)"
+msgstr "Commit the staged changes (git commit)"
+
+msgid "FTP (21), FTPS (FTP + TLS, curl valida el certificado) o SFTP (SSH, 22)"
+msgstr "FTP (21), FTPS (FTP + TLS, curl validates the certificate), or SFTP (SSH, 22)"
+
+msgid "Servidor del sitio, ej. ftp.midominio.com"
+msgstr "Site server, e.g. ftp.example.com"
+
+msgid "Usuario de FTP/SFTP del hosting"
+msgstr "Hosting FTP/SFTP user"
+
+msgid "Se guarda en el config de NuIde (%APPDATA%), indexada por proyecto: no toca el repositorio"
+msgstr "Stored in NuIde's config (%APPDATA%), indexed per project: it doesn't touch the repository"
+
+msgid "Ruta en el servidor donde cae el sitio, ej. public_html o /www/mi-sitio"
+msgstr "Path on the server where the site goes, e.g. public_html or /www/my-site"
+
+msgid "Qué carpeta del proyecto se sube, ej. build o dist (vacío = todo el proyecto)"
+msgstr "Which project folder is uploaded, e.g. build or dist (empty = whole project)"
+
+msgid "Lista separada por coma de extensiones que se suben"
+msgstr "Comma-separated list of extensions to upload"
+
+msgid "Script SpASM que decide qué subir. Imprime líneas «UPLOAD <local> [<remota>]», «SKIP <local>», «LOG <texto>». Sin script se sube la subcarpeta filtrando por extensión."
+msgstr "SpASM script that decides what to upload. It prints lines “UPLOAD <local> [<remote>]”, “SKIP <local>”, “LOG <text>”. Without a script, the subfolder is uploaded, filtered by extension."
+
+msgid "Sirve la carpeta del proyecto en http://localhost:<puerto>/ con CORS, para ver el sitio antes de subirlo"
+msgstr "Serves the project folder at http://localhost:<port>/ with CORS, to preview the site before uploading"
+
+msgid "Puerto local del servidor (1024-65535)"
+msgstr "Local server port (1024-65535)"
+
+msgid "Subcarpeta que se sirve, ej. build o dist (vacío = todo el proyecto)"
+msgstr "Subfolder served, e.g. build or dist (empty = whole project)"
+
+msgid "Access-Control-Allow-Origin. * para cualquier origen; un dominio concreto si la página manda credenciales"
+msgstr "Access-Control-Allow-Origin. * for any origin; a specific domain if the page sends credentials"
+
+msgid "Panel para mirar las tablas de una base .db del proyecto. Usa sqlite3.exe o Python, sin librerías extra"
+msgstr "Panel to browse the tables of a .db file in the project. Uses sqlite3.exe or Python, no extra libraries"
+
+msgid "Elegí un archivo .db / .sqlite; el panel se abre en cuanto hay base"
+msgstr "Pick a .db / .sqlite file; the panel opens as soon as there's a database"
+
+msgid "Confirmar y cerrar (Enter)"
+msgstr "Confirm and close (Enter)"
+
+msgid "Cerrar (Esc)"
+msgstr "Close (Esc)"
+
+msgid "Pide confirmación y saca el proveedor de la config global"
+msgstr "Asks for confirmation and removes the provider from the global config"
+
+msgid "Valida los campos y escribe la unión en opencode.json"
+msgstr "Validates the fields and writes the union into opencode.json"
+
+msgid "Expresión regular (en vez de texto literal)"
+msgstr "Regular expression (instead of literal text)"
+
+msgid "Reemplaza todas las coincidencias en el proyecto (cuidado: no se puede deshacer)"
+msgstr "Replaces all matches in the project (careful: cannot be undone)"
+
+msgid "Cerrar (Esc) — los cambios ya quedaron guardados"
+msgstr "Close (Esc) — changes are already saved"
+
+msgid "Buscar un archivo .db / .sqlite del proyecto"
+msgstr "Find a .db / .sqlite file in the project"
+
+msgid "Vuelve a leer tablas y filas de la base"
+msgstr "Re-reads the database tables and rows"
+
+msgid "NuIde corre con privilegios de administrador: las terminales del panel son elevadas"
+msgstr "NuIde is running with administrator privileges: the panel terminals are elevated"
+
+msgid "Rama actual de Git - clic en el panel de código para cambiarla"
+msgstr "Current Git branch - click the code panel to switch it"
+
+msgid "Errores y avisos del análisis del archivo abierto (F6); F8 salta al siguiente"
+msgstr "Errors and warnings from the analysis of the open file (F6); F8 jumps to the next"
+
+msgid "Lenguaje detectado por la extensión del archivo activo"
+msgstr "Language detected from the active file's extension"
+
+msgid "Codificación con la que se lee y se guarda el archivo"
+msgstr "Encoding used to read and save the file"
+
+msgid "Posición del cursor (línea, columna) en el editor"
+msgstr "Cursor position (line, column) in the editor"
+
+msgid "Nueva sesión de shell (F5 corre en la raíz del proyecto)"
+msgstr "New shell session (F5 runs at the project root)"
+
+msgid "Dividir la terminal en dos vistas"
+msgstr "Split the terminal into two views"
+
+msgid "Cerrar esta sesion de terminal"
+msgstr "Close this terminal session"
+
+msgid "Proyecto abierto - clic para elegir otra carpeta"
+msgstr "Open project - click to choose another folder"
+
+msgid "Abrir proyecto y archivos, guardar, cerrar pestañas y salir"
+msgstr "Open project and files, save, close tabs and exit"
+
+msgid "Deshacer/rehacer, buscar y reemplazar, ir a línea"
+msgstr "Undo/redo, find and replace, go to line"
+
+msgid "Dónde está acoplado cada panel (explorador, OpenCode, terminal, Git): clic para moverlo"
+msgstr "Where each panel is docked (Explorer, OpenCode, terminal, Git): click to move it"
+
+msgid "Correr el programa SpASM con la configuración activa (F5)"
+msgstr "Run the SpASM program with the active configuration (F5)"
+
+msgid "Transpilar y compilar a binario nativo (Ctrl+B) o compilar y ejecutar (Ctrl+Shift+B)"
+msgstr "Transpile and compile to a native binary (Ctrl+B), or compile and run (Ctrl+Shift+B)"
+
+msgid "Lanzar OpenCode o Nuide-CLI en el panel del agente"
+msgstr "Launch OpenCode or Nuide-CLI in the agent panel"
+
+msgid "Sintaxis de SpASM, atajos y acerca de NuIde (F1)"
+msgstr "SpASM syntax, shortcuts and about NuIde (F1)"
+
+msgid "Minimizar"
+msgstr "Minimize"
+
+msgid "Maximizar o restaurar"
+msgstr "Maximize or restore"
+
+msgid "Salir (pregunta si hay cambios sin guardar)"
+msgstr "Exit (asks if there are unsaved changes)"
+
+msgid "Elegir un proyecto existente (Ctrl+O)"
+msgstr "Choose an existing project (Ctrl+O)"
+
+msgid "Abrir un archivo suelto sin proyecto (Ctrl+Shift+O)"
+msgstr "Open a loose file with no project (Ctrl+Shift+O)"
+
+msgid "Crear un archivo nuevo en el proyecto (Ctrl+N)"
+msgstr "Create a new file in the project (Ctrl+N)"
+
+msgid "Idioma"
+msgstr "Language"
+
+msgid "Se aplica al reiniciar"
+msgstr "Applies after restart"

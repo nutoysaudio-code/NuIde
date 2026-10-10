@@ -207,12 +207,12 @@ export component IdeExplorer inherits Rectangle {
             ExplorerButton {
                 glyph: "◍";
                 active: !root.show-generated;
-                tip: "Mostrar u ocultar archivos generados (build, target, node_modules)";
+                tip: @tr("Mostrar u ocultar archivos generados (build, target, node_modules)");
                 activated => { root.toggle-generated(); }
             }
             ExplorerButton {
                 glyph: "⟳";
-                tip: "Refrescar el árbol de archivos (F5)";
+                tip: @tr("Refrescar el árbol de archivos (F5)");
                 activated => { root.refresh(); }
             }
         }

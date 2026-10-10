@@ -249,7 +249,7 @@ export component IdeProvider inherits FocusScope {
                     mouse-cursor: MouseCursor.pointer;
                     clicked => { root.cancel(); }
                 }
-                Tooltip { TipContent { text: "Cerrar (Esc)"; } }
+                Tooltip { TipContent { text: @tr("Cerrar (Esc)"); } }
             }
             Rectangle {
                 y: parent.height - IdeTheme.hairline;
@@ -333,13 +333,13 @@ export component IdeProvider inherits FocusScope {
             if !root.is-new: PBtn {
                 label: "Eliminar";
                 danger: true;
-                tip: "Pide confirmación y saca el proveedor de la config global";
+                tip: @tr("Pide confirmación y saca el proveedor de la config global");
                 activated => { root.delete(); }
             }
             PBtn {
                 label: "Guardar";
                 primary: true;
-                tip: "Valida los campos y escribe la unión en opencode.json";
+                tip: @tr("Valida los campos y escribe la unión en opencode.json");
                 activated => { root.save(); }
             }
         }

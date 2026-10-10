@@ -1180,6 +1180,8 @@ pub struct Ide {
     /// Preferencias: fuentes, tamaño del código y acento.
     sans: String,
     mono: String,
+    /// Idioma de la interfaz (`es`, `en`, `pt-BR`); se aplica al reiniciar.
+    language: String,
     editor_font_size: f32,
     accent: usize,
     /// Opacidad de las superficies de los paneles (ver `PANEL_ALPHAS`).
@@ -1320,6 +1322,11 @@ impl Ide {
             .filter(|s| !s.is_empty())
             .map(str::to_string)
             .unwrap_or_else(|| pick_font(MONO_FONTS, "Consolas"));
+        let language = config
+            .get("ui.language")
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+            .unwrap_or_else(|| crate::i18n::DEFAULT.to_string());
         let editor_font_size = config.f32("font.editor-size", 12.0).clamp(9.0, 24.0);
         let accent = config
             .usize("theme.accent", 0)
@@ -1427,6 +1434,7 @@ impl Ide {
             run_build_on_save,
             sans,
             mono,
+            language,
             editor_font_size,
             accent,
             panel_alpha,
@@ -4250,6 +4258,15 @@ impl Ide {
 
         // --- Interfaz (0) ---
         v.push(s(
+            "ui.language",
+            0,
+            2,
+            crate::i18n::t("Idioma"),
+            crate::i18n::display_name(&self.language).to_string(),
+            crate::i18n::t("Se aplica al reiniciar"),
+            0,
+        ));
+        v.push(s(
             "ui.font.mono",
             0,
             2,
@@ -4727,6 +4744,7 @@ impl Ide {
     /// Aplica el cambio de una fila de la pantalla de configuración.
     fn setting_set(&mut self, id: &str, value: &str) {
         match id {
+            "ui.language" => self.prefs_cycle_language(),
             "ui.font.mono" => self.prefs_cycle_mono(),
             "ui.font.sans" => self.prefs_cycle_sans(),
             "ui.font.size" => {
@@ -5061,6 +5079,18 @@ impl Ide {
         self.save_prefs();
     }
 
+    /// Cicla el idioma de la interfaz (`es` → `en` → `pt-BR`). Se aplica al
+    /// reiniciar: los `.slint` (`@tr`) y `i18n::t()` leen el catálogo al arrancar.
+    fn prefs_cycle_language(&mut self) {
+        let langs = crate::i18n::LANGS;
+        let idx = langs
+            .iter()
+            .position(|(l, _)| *l == self.language)
+            .unwrap_or(0);
+        self.language = langs[(idx + 1) % langs.len()].0.to_string();
+        self.save_prefs();
+    }
+
     fn prefs_cycle_sans(&mut self) {
         self.sans = next_family(SANS_FONTS, &self.sans);
         self.save_prefs();
@@ -5128,6 +5158,7 @@ impl Ide {
     fn save_prefs(&mut self) {
         self.config.set("font.sans", &self.sans);
         self.config.set("font.mono", &self.mono);
+        self.config.set("ui.language", &self.language);
         self.config.set("font.editor-size", self.editor_font_size);
         self.config.set("theme.accent", self.accent);
         self.config.set("theme.panel-alpha", self.panel_alpha);

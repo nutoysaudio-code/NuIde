@@ -197,13 +197,13 @@ export component IdeTopBar inherits Rectangle {
 
         Rectangle { width: 8px; background: transparent; }
 
-        file-item := IdeMenuItem { label: "Archivo"; tip: "Abrir proyecto y archivos, guardar, cerrar pestañas y salir"; active: root.active-menu == "Archivo"; activated => { root.menu-activated(self.label); } }
-        edit-item := IdeMenuItem { label: "Editar"; tip: "Deshacer/rehacer, buscar y reemplazar, ir a línea"; active: root.active-menu == "Editar"; activated => { root.menu-activated(self.label); } }
-        view-item := IdeMenuItem { label: "Ver"; tip: "Dónde está acoplado cada panel (explorador, OpenCode, terminal, Git): clic para moverlo"; active: root.active-menu == "Ver"; activated => { root.menu-activated(self.label); } }
-        IdeMenuItem { label: "Ejecutar"; tip: "Correr el programa SpASM con la configuración activa (F5)"; activated => { root.menu-activated(self.label); } }
-        IdeMenuItem { label: "Compilar"; tip: "Transpilar y compilar a binario nativo (Ctrl+B) o compilar y ejecutar (Ctrl+Shift+B)"; activated => { root.menu-activated(self.label); } }
-        agent-item := IdeMenuItem { label: "Agente"; tip: "Lanzar OpenCode o Nuide-CLI en el panel del agente"; active: root.active-menu == "Agente"; activated => { root.menu-activated(self.label); } }
-        help-item := IdeMenuItem { label: "Ayuda"; tip: "Sintaxis de SpASM, atajos y acerca de NuIde (F1)"; active: root.active-menu == "Ayuda"; activated => { root.menu-activated(self.label); } }
+        file-item := IdeMenuItem { label: "Archivo"; tip: @tr("Abrir proyecto y archivos, guardar, cerrar pestañas y salir"); active: root.active-menu == "Archivo"; activated => { root.menu-activated(self.label); } }
+        edit-item := IdeMenuItem { label: "Editar"; tip: @tr("Deshacer/rehacer, buscar y reemplazar, ir a línea"); active: root.active-menu == "Editar"; activated => { root.menu-activated(self.label); } }
+        view-item := IdeMenuItem { label: "Ver"; tip: @tr("Dónde está acoplado cada panel (explorador, OpenCode, terminal, Git): clic para moverlo"); active: root.active-menu == "Ver"; activated => { root.menu-activated(self.label); } }
+        IdeMenuItem { label: "Ejecutar"; tip: @tr("Correr el programa SpASM con la configuración activa (F5)"); activated => { root.menu-activated(self.label); } }
+        IdeMenuItem { label: "Compilar"; tip: @tr("Transpilar y compilar a binario nativo (Ctrl+B) o compilar y ejecutar (Ctrl+Shift+B)"); activated => { root.menu-activated(self.label); } }
+        agent-item := IdeMenuItem { label: "Agente"; tip: @tr("Lanzar OpenCode o Nuide-CLI en el panel del agente"); active: root.active-menu == "Agente"; activated => { root.menu-activated(self.label); } }
+        help-item := IdeMenuItem { label: "Ayuda"; tip: @tr("Sintaxis de SpASM, atajos y acerca de NuIde (F1)"); active: root.active-menu == "Ayuda"; activated => { root.menu-activated(self.label); } }
     }
 
     // Proyecto, centrado en la barra. Es clickeable: abre el selector de carpeta.
@@ -235,7 +235,7 @@ export component IdeTopBar inherits Rectangle {
         mouse-cursor: MouseCursor.pointer;
 
         Tooltip {
-            TipContent { text: "Proyecto abierto - clic para elegir otra carpeta"; }
+            TipContent { text: @tr("Proyecto abierto - clic para elegir otra carpeta"); }
         }
 
         clicked => { root.project-clicked(); }
@@ -258,9 +258,9 @@ export component IdeTopBar inherits Rectangle {
     }
 
     // Controles de ventana (decorativos en este esqueleto; cerrar sí cierra).
-    IdeWindowButton { x: parent.width - 96px; y: 5px; glyph: "—"; tip: "Minimizar"; activated => { root.menu-activated("Minimizar"); } }
-    IdeWindowButton { x: parent.width - 66px; y: 5px; glyph: "▢"; tip: "Maximizar o restaurar"; activated => { root.menu-activated("Maximizar"); } }
-    IdeWindowButton { x: parent.width - 36px; y: 5px; glyph: "×"; danger: true; tip: "Salir (pregunta si hay cambios sin guardar)"; activated => { root.close-requested(); } }
+    IdeWindowButton { x: parent.width - 96px; y: 5px; glyph: "—"; tip: @tr("Minimizar"); activated => { root.menu-activated("Minimizar"); } }
+    IdeWindowButton { x: parent.width - 66px; y: 5px; glyph: "▢"; tip: @tr("Maximizar o restaurar"); activated => { root.menu-activated("Maximizar"); } }
+    IdeWindowButton { x: parent.width - 36px; y: 5px; glyph: "×"; danger: true; tip: @tr("Salir (pregunta si hay cambios sin guardar)"); activated => { root.close-requested(); } }
 
     // Línea inferior de 1 px.
     Rectangle {

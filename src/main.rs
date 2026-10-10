@@ -32,6 +32,17 @@ fn main() -> Result<(), slint::PlatformError> {
     }
 
     let window = NuIdeWindow::new()?;
+
+    // i18n: fija el idioma ANTES de construir el estado (los `.slint` con `@tr`
+    // y el `i18n::t()` de Rust usan el mismo catálogo). `select_bundled_translation`
+    // exige que ya exista el primer componente.
+    let lang = nuide::config::Config::load()
+        .get("ui.language")
+        .unwrap_or(nuide::i18n::DEFAULT)
+        .to_string();
+    let _ = slint::select_bundled_translation(&lang);
+    nuide::i18n::set_locale(&lang);
+
     let ide = Ide::shared();
     editor::attach(&window, ide);
     window.run()

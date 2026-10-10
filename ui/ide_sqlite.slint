@@ -116,7 +116,7 @@ export component IdeSqlite inherits Rectangle {
                         mouse-cursor: MouseCursor.pointer;
                         clicked => { root.pick-db(); }
                     }
-                    Tooltip { TipContent { text: "Buscar un archivo .db / .sqlite del proyecto"; } }
+                    Tooltip { TipContent { text: @tr("Buscar un archivo .db / .sqlite del proyecto"); } }
                 }
 
                 btn-refresh := Rectangle {
@@ -138,7 +138,7 @@ export component IdeSqlite inherits Rectangle {
                         mouse-cursor: MouseCursor.pointer;
                         clicked => { root.refresh(); }
                     }
-                    Tooltip { TipContent { text: "Vuelve a leer tablas y filas de la base"; } }
+                    Tooltip { TipContent { text: @tr("Vuelve a leer tablas y filas de la base"); } }
                 }
             }
 
