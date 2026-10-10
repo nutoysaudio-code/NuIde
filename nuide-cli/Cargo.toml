@@ -1,0 +1,36 @@
+[package]
+name = "nuide-cli"
+version = "0.1.0"
+edition = "2021"
+description = "Nuide-CLI - OpenCode Agent built on SpASM"
+
+# Proyecto independiente: no forma parte del workspace de NuIde
+[workspace]
+
+[dependencies]
+# TUI (Ratatui + Crossterm)
+ratatui = "0.25"
+crossterm = "0.27"
+
+# Config + JSON
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Portable PTY + VT100 emulation
+portable-pty = "0.9"
+vt100 = "0.16"
+
+# Anyhow + dirs + libc
+anyhow = "1.0"
+dirs = "5.0"
+libc = "0.2"
+
+[build-dependencies]
+cc = "1"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = true
+panic = "abort"

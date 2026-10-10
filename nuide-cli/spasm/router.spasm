@@ -1,0 +1,180 @@
+programa "nuide_router"
+
+// Router de proveedores/modelos para Nuide-CLI (dialecto AOT).
+//
+// Objetivo: **gratis primero** + rotacion. El llamador (Rust) arma la lista de
+// candidatos y aca se elige el indice, respetando los ya agotados.
+//
+// Cada candidato se codifica como `free,power,cost` y los candidatos se separan
+// con `;`:
+//     "1,7,0;0,9,250;1,2,0"
+//   - free  : 1 si el modelo es gratuito, 0 si no.
+//   - power : capacidad declarada 0..9 (mayor = mas potente).
+//   - cost  : costo escalado a entero (x100 USD/Mtok input+output).
+//
+// Reglas de seleccion (mejor -> peor):
+//   1. los GRATUITOS antes que los pagos;
+//   2. tareas de calidad (refactor/debug/explain/architect/test): mayor power;
+//      tareas rapidas (complete/chat): menor costo;
+//   3. desempate: tareas de calidad -> menor costo; rapidas -> mayor power;
+//   4. empate final: gana el primero en aparecer.
+//
+// `excluded` es una lista de indices separados por coma ("0,2") que el llamador
+// va acumulando cuando un proveedor se queda sin cuota/da 429: asi se **rota**
+// al siguiente candidato sin perder la conversacion (que vive en Rust).
+//
+// Contrato FFI (ver ffi/router_ffi.c):
+//   int64_t nuide_router_pick(const char *task, const char *cands);
+//   int64_t nuide_router_pick_ex(const char *task, const char *cands,
+//                                const char *excluded);
+//   retornan el indice elegido (-1 si no hay candidatos validos).
+
+// 1 si la tarea prefiere el modelo mas potente; 0 si barato/rapido.
+func task_wants_power(task : string) -> int {
+    if (str_equals(task, "refactor") == 1) { return 1 }
+    if (str_equals(task, "debug") == 1) { return 1 }
+    if (str_equals(task, "explain") == 1) { return 1 }
+    if (str_equals(task, "architect") == 1) { return 1 }
+    if (str_equals(task, "test") == 1) { return 1 }
+    return 0
+}
+
+// 1 si `idx` aparece en `excluded` ("0,2,5"; vacio = ninguno).
+func is_excluded(idx : int, excluded : string) -> int {
+    let n = str_len(excluded)
+    if (n == 0) { return 0 }
+    let i = 0
+    let cur = 0
+    let has = 0
+    let is_sep = 0
+    let b = 0
+    while (i <= n) {
+        is_sep = 0
+        if (i == n) { is_sep = 1 }
+        if (i < n) {
+            if (str_byte_at(excluded, i) == 44) { is_sep = 1 }
+        }
+        if (is_sep == 1) {
+            if (has == 1) {
+                if (cur == idx) { return 1 }
+            }
+            cur = 0
+            has = 0
+        } else {
+            b = str_byte_at(excluded, i)
+            if (b >= 48) {
+                if (b <= 57) {
+                    cur = cur * 10 + (b - 48)
+                    has = 1
+                }
+            }
+        }
+        i += 1
+    }
+    return 0
+}
+
+// Elige el indice del mejor candidato no excluido. -1 si no hay ninguno.
+func router_pick_ex(task : string, cands : string, excluded : string) -> int {
+    let wants = task_wants_power(task)
+    let n = str_len(cands)
+    let i = 0
+    let rec = 0
+    let field = 0
+    let cur = 0
+    let has = 0
+    let free = 0
+    let power = 0
+    let cost = 0
+    let best_idx = -1
+    let best_free = 0
+    let best_power = 0
+    let best_cost = 0
+    let is_sep = 0
+    let ch = 0
+    let better = 0
+    while (i <= n) {
+        is_sep = 0
+        if (i == n) { is_sep = 1 }
+        if (i < n) {
+            ch = str_byte_at(cands, i)
+            if (ch == 59) { is_sep = 1 }
+        }
+        if (is_sep == 1) {
+            // Cierra el record: el ultimo campo es `cost`.
+            cost = cur
+            if (has == 1) {
+                if (is_excluded(rec, excluded) == 0) {
+                    if (best_idx == -1) {
+                        best_idx = rec
+                        best_free = free
+                        best_power = power
+                        best_cost = cost
+                    } else {
+                        better = 0
+                        if (free != best_free) {
+                            if (free > best_free) { better = 1 }
+                        } else {
+                            if (wants == 1) {
+                                if (power != best_power) {
+                                    if (power > best_power) { better = 1 }
+                                } else {
+                                    if (cost < best_cost) { better = 1 }
+                                }
+                            } else {
+                                if (cost != best_cost) {
+                                    if (cost < best_cost) { better = 1 }
+                                } else {
+                                    if (power > best_power) { better = 1 }
+                                }
+                            }
+                        }
+                        if (better == 1) {
+                            best_idx = rec
+                            best_free = free
+                            best_power = power
+                            best_cost = cost
+                        }
+                    }
+                }
+            }
+            rec += 1
+            field = 0
+            cur = 0
+            has = 0
+            free = 0
+            power = 0
+            cost = 0
+        } else {
+            if (ch == 44) {
+                if (field == 0) { free = cur }
+                if (field == 1) { power = cur }
+                field += 1
+                cur = 0
+                has = 0
+            } else {
+                if (ch >= 48) {
+                    if (ch <= 57) {
+                        cur = cur * 10 + (ch - 48)
+                        has = 1
+                    }
+                }
+            }
+        }
+        i += 1
+    }
+    return best_idx
+}
+
+// Compatibilidad: sin lista de excluidos.
+func router_pick(task : string, cands : string) -> int {
+    return router_pick_ex(task, cands, "")
+}
+
+// Expuesto por si el llamador necesita saber la clase de tarea.
+func router_is_power_task(task : string) -> int {
+    return task_wants_power(task)
+}
+
+main {
+}

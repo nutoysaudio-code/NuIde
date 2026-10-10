@@ -431,6 +431,7 @@ export component NuIdeWindow inherits Window {
     // Dónde anclar el desplegable abierto, según cuál sea.
     private property <length> menu-anchor: root.menu-open == "Archivo" ? topbar.file-menu-x
         : root.menu-open == "Editar" ? topbar.edit-menu-x
+        : root.menu-open == "Agente" ? topbar.agent-menu-x
         : root.menu-open == "Ayuda" ? topbar.help-menu-x
         : topbar.view-menu-x;
     private property <length> content-w: self.width;
@@ -978,8 +979,8 @@ export component NuIdeWindow inherits Window {
         cycle-dock(kind) => { root.cycle-dock(kind); }
     }
 
-    // --- desplegable de Archivo / Editar / Ayuda ---
-    if root.menu-open == "Archivo" || root.menu-open == "Editar" || root.menu-open == "Ayuda": IdeMenu {
+    // --- desplegable de Archivo / Editar / Agente / Ayuda ---
+    if root.menu-open == "Archivo" || root.menu-open == "Editar" || root.menu-open == "Agente" || root.menu-open == "Ayuda": IdeMenu {
         x: root.menu-anchor;
         y: IdeTheme.topbar-h;
         items: root.menu-items;

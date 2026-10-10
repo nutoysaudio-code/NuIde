@@ -1,0 +1,7 @@
+# Build de Rust.
+/target
+
+# Salidas del toolchain de SpASM / C.
+*.obj
+*.pdb
+*.ilk

@@ -147,6 +147,7 @@ export component IdeTopBar inherits Rectangle {
     out property <length> file-menu-x: file-item.x;
     out property <length> edit-menu-x: edit-item.x;
     out property <length> view-menu-x: view-item.x;
+    out property <length> agent-menu-x: agent-item.x;
     out property <length> help-menu-x: help-item.x;
 
     height: IdeTheme.topbar-h;
@@ -201,6 +202,7 @@ export component IdeTopBar inherits Rectangle {
         view-item := IdeMenuItem { label: "Ver"; tip: "Dónde está acoplado cada panel (explorador, OpenCode, terminal, Git): clic para moverlo"; active: root.active-menu == "Ver"; activated => { root.menu-activated(self.label); } }
         IdeMenuItem { label: "Ejecutar"; tip: "Correr el programa SpASM con la configuración activa (F5)"; activated => { root.menu-activated(self.label); } }
         IdeMenuItem { label: "Compilar"; tip: "Transpilar y compilar a binario nativo (Ctrl+B) o compilar y ejecutar (Ctrl+Shift+B)"; activated => { root.menu-activated(self.label); } }
+        agent-item := IdeMenuItem { label: "Agente"; tip: "Lanzar OpenCode o Nuide-CLI en el panel del agente"; active: root.active-menu == "Agente"; activated => { root.menu-activated(self.label); } }
         help-item := IdeMenuItem { label: "Ayuda"; tip: "Sintaxis de SpASM, atajos y acerca de NuIde (F1)"; active: root.active-menu == "Ayuda"; activated => { root.menu-activated(self.label); } }
     }
 

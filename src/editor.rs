@@ -602,11 +602,12 @@ enum Command {
     TemplateEmpty,
     Preferences,
     RelaunchElevated,
+    LaunchNuideCli,
 }
 
 impl Command {
     /// Todos, en el orden en que se muestran.
-    const ALL: [Command; 54] = [
+    const ALL: [Command; 55] = [
         Command::Run,
         Command::Build,
         Command::BuildAndRun,
@@ -661,6 +662,7 @@ impl Command {
         Command::TemplateEmpty,
         Command::Preferences,
         Command::RelaunchElevated,
+        Command::LaunchNuideCli,
     ];
 
     fn label(self) -> &'static str {
@@ -719,6 +721,7 @@ impl Command {
             Command::TemplateEmpty => "Plantilla: archivo vacío…",
             Command::Preferences => "Preferencias",
             Command::RelaunchElevated => "NuIde: reiniciar como administrador",
+            Command::LaunchNuideCli => "Lanzar Nuide-CLI (agente)",
         }
     }
 
@@ -769,6 +772,7 @@ impl Command {
             }
             Command::Preferences => "Ctrl+,",
             Command::RelaunchElevated => "admin",
+            Command::LaunchNuideCli => "nuide-cli",
             _ => "",
         }
     }
@@ -1140,7 +1144,8 @@ pub struct Ide {
     /// Dónde vive cada panel (Explorador, OpenCode, Terminal, Git). Los que
     /// comparten región se apilan.
     docks: [Dock; 4],
-    /// El menú desplegable abierto ("Archivo", "Editar", "Ver") o vacío.
+    /// El menú desplegable abierto ("Archivo", "Editar", "Ver", "Agente",
+    /// "Ayuda") o vacío.
     menu_open: String,
     /// Diálogo de "cambios sin guardar" pendiente.
     confirm: Option<Confirm>,
@@ -1678,6 +1683,27 @@ impl Ide {
             format!("& '{}'\r", bin.display())
         } else {
             format!("\"{}\"\r", bin.display())
+        };
+        self.write_to(Target::Agent, command.as_bytes());
+    }
+
+    /// Lanza la CLI propia de NuIde (`nuide-cli`) en el panel del agente, en la
+    /// raíz del proyecto: agente de código con router de modelos (gratis
+    /// primero), con la lógica de decisión en SpASM.
+    fn launch_nuide_cli(&mut self) {
+        let Some(bin) = self.toolchain.nuide_cli.clone() else {
+            return;
+        };
+        if !self.agent.as_ref().is_some_and(|a| a.alive) {
+            self.agent = None;
+            self.start_agent();
+        }
+        let root = self.explorer.root().to_path_buf();
+        let (shell, _) = pty::default_shell();
+        let command = if pty::is_powershell(&shell) {
+            format!("& '{}' --cwd '{}'\r", bin.display(), root.display())
+        } else {
+            format!("\"{}\" --cwd \"{}\"\r", bin.display(), root.display())
         };
         self.write_to(Target::Agent, command.as_bytes());
     }
@@ -2668,8 +2694,8 @@ impl Ide {
         match label {
             "Ejecutar" => self.run(None),
             "Compilar" => self.build(false),
-            // Archivo/Editar/Ver/Ayuda abren su desplegable (y lo cierran si ya está).
-            "Archivo" | "Editar" | "Ver" | "Ayuda" => {
+            // Archivo/Editar/Ver/Agente/Ayuda abren su desplegable (y lo cierran si ya está).
+            "Archivo" | "Editar" | "Ver" | "Agente" | "Ayuda" => {
                 self.menu_open = if self.menu_open == label {
                     String::new()
                 } else {
@@ -2981,6 +3007,7 @@ impl Ide {
             }
             Command::Preferences => self.prefs_toggle(),
             Command::RelaunchElevated => self.request_relaunch_elevated(),
+            Command::LaunchNuideCli => self.launch_nuide_cli(),
         }
     }
 
@@ -3229,6 +3256,13 @@ impl Ide {
             "edit.find" => self.find_open(false),
             "edit.replace" => self.find_open(true),
             "edit.goto-line" => self.palette_open(PaletteKind::GoToLine),
+            "agent.opencode" => self.launch_agent(),
+            "agent.nuidecli" => self.launch_nuide_cli(),
+            "agent.restart" => {
+                self.agent = None;
+                self.start_agent();
+            }
+            "agent.show" => self.toggle_panel(1),
             "help.about" => self.about_show(),
             "help.syntax" => self.spasm_help(),
             "help.keys" => self.prefs_toggle(),
@@ -3277,6 +3311,17 @@ impl Ide {
             menu_entry("edit.find", "Buscar", "Ctrl+F", has),
             menu_entry("edit.replace", "Reemplazar", "Ctrl+H", has),
             menu_entry("edit.goto-line", "Ir a línea…", "Ctrl+G", has),
+        ]
+    }
+
+    /// Filas del menú Agente (lanzar OpenCode o Nuide-CLI y manejar su panel).
+    fn agent_menu_items(&self) -> Vec<IdeMenuEntry> {
+        vec![
+            menu_entry("agent.opencode", "Lanzar OpenCode", "", true),
+            menu_entry("agent.nuidecli", "Lanzar Nuide-CLI (agente)", "router", true),
+            menu_sep(),
+            menu_entry("agent.restart", "Reiniciar la terminal", "", true),
+            menu_entry("agent.show", "Mostrar el panel del agente", "", true),
         ]
     }
 
@@ -4429,6 +4474,15 @@ impl Ide {
             0,
         ));
         v.push(s(
+            "agent.nuidecli",
+            3,
+            4,
+            "Lanzar Nuide-CLI",
+            "abrir".into(),
+            "Agente de código con router de modelos (gratis primero) sobre SpASM",
+            0,
+        ));
+        v.push(s(
             "agent.restart",
             3,
             4,
@@ -4749,6 +4803,7 @@ impl Ide {
             "term.restart" => self.restart_session(),
             "term.split" => self.split_terminal(),
             "agent.launch" => self.launch_agent(),
+            "agent.nuidecli" => self.launch_nuide_cli(),
             "agent.restart" => {
                 self.agent = None;
                 self.start_agent();
@@ -7129,6 +7184,7 @@ impl Ide {
         let menu_items: Vec<IdeMenuEntry> = match self.menu_open.as_str() {
             "Archivo" => self.file_menu_items(),
             "Editar" => self.edit_menu_items(),
+            "Agente" => self.agent_menu_items(),
             "Ayuda" => self.help_menu_items(),
             _ => Vec::new(),
         };
@@ -10459,6 +10515,19 @@ mod tests {
         ide.toggle_region(9);
 
         ide.close_menu();
+        assert!(ide.menu_open.is_empty());
+    }
+
+    #[test]
+    fn el_menu_agente_lista_nuide_cli() {
+        let mut ide = Ide::new();
+        ide.menu("Agente");
+        assert_eq!(ide.menu_open, "Agente");
+        let items = ide.agent_menu_items();
+        assert!(items.iter().any(|e| e.id.as_str() == "agent.nuidecli"));
+        assert!(items.iter().any(|e| e.id.as_str() == "agent.opencode"));
+        // Volver a abrir el mismo menú lo cierra.
+        ide.menu("Agente");
         assert!(ide.menu_open.is_empty());
     }
 

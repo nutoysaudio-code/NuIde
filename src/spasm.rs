@@ -40,6 +40,9 @@ pub struct Toolchain {
     /// CLI de OpenCode (`opencode.cmd` en Windows, `opencode` en el resto). Con
     /// él funciona el panel de agente.
     pub agent: Option<PathBuf>,
+    /// CLI propia de NuIde (`nuide-cli.exe`): agente de código con router de
+    /// modelos (gratis primero) escrito sobre SpASM. Se lanza desde la paleta.
+    pub nuide_cli: Option<PathBuf>,
     /// Frontend del compilador (`spasm-asm-gen.py`): tiene el tokenizer, el
     /// parser y el chequeo de tipos que usa el diagnóstico.
     pub frontend: Option<PathBuf>,
@@ -87,6 +90,9 @@ impl Toolchain {
             cc_native: detect_cc_native(),
             agent: from_env("NUIDE_AGENT")
                 .or_else(|| on_path(&["opencode.cmd", "opencode.exe", "opencode"])),
+            nuide_cli: from_env("NUIDE_CLI")
+                .or_else(|| from_env("NUIDE_CLI_AGENT"))
+                .or_else(|| on_path(&["nuide-cli.exe", "nuide-cli"])),
             frontend,
         }
     }
