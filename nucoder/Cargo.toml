@@ -1,8 +1,8 @@
 [package]
-name = "nuide-cli"
+name = "nucoder"
 version = "0.1.0"
 edition = "2021"
-description = "Nuide-CLI - OpenCode Agent built on SpASM"
+description = "NuCoder - agente de codigo con router de modelos (SpASM)"
 
 # Proyecto independiente: no forma parte del workspace de NuIde
 [workspace]

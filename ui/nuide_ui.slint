@@ -6,7 +6,7 @@ import { IdeStatusBar } from "ide_statusbar.slint";
 import { IdeExplorer } from "ide_explorer.slint";
 import { IdeEditor } from "ide_editor.slint";
 import { IdeTerminal } from "ide_terminal.slint";
-import { IdeOpenCode } from "ide_opencode.slint";
+import { IdeAgent } from "ide_agent.slint";
 import { IdeGit } from "ide_git.slint";
 import { DockDrag } from "ide_dock.slint";
 import { IdeViewMenu } from "ide_viewmenu.slint";
@@ -26,7 +26,7 @@ import { IdeAbout } from "ide_about.slint";
 // NuIde — IDE multi-lenguaje (walking skeleton)
 //
 // Monta el layout de la especificación: barra superior, tres columnas
-// (explorador / editor + terminal / OpenCode CLI) con divisores arrastrables, y
+// (explorador / editor + terminal / Agente CLI) con divisores arrastrables, y
 // barra inferior de estado. Los datos de archivos, código y terminales son
 // ilustrativos (ver docs/NUIDE_IDEA.md): sirven para iterar la UI sin motor.
 //
@@ -192,9 +192,9 @@ export component NuIdeWindow inherits Window {
     in-out property <string> find-replace-before: "";
     in-out property <string> find-replace-after: "";
 
-    // Panel del agente (OpenCode CLI): estado y scrollback.
+    // Panel del agente: estado y scrollback.
     in-out property <bool> agent-connected: false;
-    in-out property <string> agent-version: "OpenCode CLI";
+    in-out property <string> agent-version: "Agente";
     in-out property <string> agent-model: "por defecto";
     in-out property <int> agent-scroll-total: 0;
     in-out property <float> agent-scroll-pos: 1.0;
@@ -291,11 +291,11 @@ export component NuIdeWindow inherits Window {
     callback settings-activated(string);
     callback settings-section-selected(int);
     callback settings-dismiss();
-    // Proveedores de OpenCode (CRUD sobre la config global).
+    // Proveedores de NuCoder (CRUD sobre su config propia).
     in-out property <bool> provider-open: false;
     in-out property <string> provider-id: "";
     in-out property <string> provider-name: "";
-    in-out property <string> provider-package: "";
+    in-out property <bool> provider-free-only: false;
     in-out property <string> provider-base-url: "";
     in-out property <string> provider-api-key: "";
     in-out property <string> provider-models: "";
@@ -438,7 +438,7 @@ export component NuIdeWindow inherits Window {
     private property <length> content-h: max(0px, self.height - IdeTheme.topbar-h - IdeTheme.statusbar-h);
 
     // Cada panel tiene un dock (0 izquierda, 1 derecha, 2 abajo, 3 oculto) y los
-    // que comparten región se apilan en el orden 0 Explorador, 1 OpenCode,
+    // que comparten región se apilan en el orden 0 Explorador, 1 Agente,
     // 2 Terminal, 3 Git.
     function dock-of(panel: int) -> int {
         return panel == 0 ? root.dock-explorer
@@ -769,8 +769,8 @@ export component NuIdeWindow inherits Window {
             split => { root.split-terminal(); }
         }
 
-        // --- panel: OpenCode CLI (dock configurable) ---
-        IdeOpenCode {
+        // --- panel: agente (dock configurable) ---
+        IdeAgent {
             x: root.panel-x(1);
             y: root.slot-y(root.dock-of(1), 1);
             width: root.panel-w(1);
@@ -1080,7 +1080,7 @@ export component NuIdeWindow inherits Window {
         dismiss => { root.settings-dismiss(); }
     }
 
-    // --- formulario de proveedores de OpenCode (encima de Configuración) ---
+    // --- formulario de proveedores de NuCoder (encima de Configuración) ---
     if root.provider-open: IdeProvider {
         x: 0;
         y: 0;
@@ -1088,7 +1088,7 @@ export component NuIdeWindow inherits Window {
         height: parent.height;
         field-id: root.provider-id;
         field-name: root.provider-name;
-        field-package: root.provider-package;
+        field-free-only: root.provider-free-only;
         field-base-url: root.provider-base-url;
         field-api-key: root.provider-api-key;
         field-models: root.provider-models;

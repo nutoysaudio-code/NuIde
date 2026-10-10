@@ -208,26 +208,26 @@ mod tests {
         );
     }
 
-    /// Prueba de humo: `opencode` (un `.cmd` de npm en Windows) arranca dentro
-    /// de un PTY y emite algo. Se saltea si no está instalado.
+    /// Prueba de humo: NuCoder arranca dentro de un PTY y emite su versión.
+    /// Se saltea si no está construido/instalado.
     #[cfg(windows)]
     #[test]
-    fn el_pty_lanza_opencode() {
-        let Some(agent) = crate::spasm::Toolchain::discover().agent else {
-            eprintln!("test salteado: no se encontró opencode");
+    fn el_pty_lanza_nucoder() {
+        let Some(bin) = crate::spasm::Toolchain::discover().nucoder else {
+            eprintln!("test salteado: no se encontró nucoder");
             return;
         };
         let (tx, rx) = channel();
         let mut pty = Pty::spawn(
             0,
-            &agent.display().to_string(),
-            &[],
+            &bin.display().to_string(),
+            &["--version".to_string()],
             &std::env::temp_dir(),
             100,
             30,
             tx,
         )
-        .expect("abrir el PTY con opencode");
+        .expect("abrir el PTY con nucoder");
 
         let mut out: Vec<u8> = Vec::new();
         let deadline = Instant::now() + Duration::from_secs(20);
@@ -239,14 +239,12 @@ mod tests {
                     }
                     out.extend_from_slice(&bytes);
                 }
-                Ok(PtyEvent::Exit { code, .. }) => {
-                    panic!("opencode terminó demasiado pronto: código {code}");
-                }
+                Ok(PtyEvent::Exit { .. }) => break,
                 Err(_) => {}
             }
         }
         drop(pty);
-        assert!(!out.is_empty(), "opencode no emitió salida en el PTY");
+        assert!(!out.is_empty(), "nucoder no emitió salida en el PTY");
     }
 
     /// Prueba de ida y vuelta con una shell interactiva: se le mandan teclas y

@@ -1,4 +1,4 @@
-//! Build script de Nuide-CLI.
+//! Build script de NuCoder.
 //!
 //! Compila los wrappers FFI de `ffi/*.c`. Cada wrapper incluye el C generado
 //! de `spasm/generated/` (producido por `spasmc.py --target c`) y exporta los
@@ -39,5 +39,5 @@ fn compilar_logica_spasm() {
     );
     build
         .flag_if_supported("-std=c99")
-        .compile("nuide_cli_spasm");
+        .compile("nucoder_spasm");
 }

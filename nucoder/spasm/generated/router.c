@@ -1,5 +1,5 @@
 /* generado por spasm-c-gen (no editar a mano) */
-/* programa "nuide_router" */
+/* programa "nucoder_router" */
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>

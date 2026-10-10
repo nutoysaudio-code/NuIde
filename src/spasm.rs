@@ -37,12 +37,9 @@ pub struct Toolchain {
     pub cc: Option<String>,
     /// Compilador de C nativo detectado (PATH o MSVC), para el paso final.
     pub cc_native: Option<CCompiler>,
-    /// CLI de OpenCode (`opencode.cmd` en Windows, `opencode` en el resto). Con
-    /// él funciona el panel de agente.
-    pub agent: Option<PathBuf>,
-    /// CLI propia de NuIde (`nuide-cli.exe`): agente de código con router de
-    /// modelos (gratis primero) escrito sobre SpASM. Se lanza desde la paleta.
-    pub nuide_cli: Option<PathBuf>,
+    /// CLI de NuIde (`nucoder.exe`): agente de código con router de modelos
+    /// (gratis primero) escrito sobre SpASM. Se lanza desde el menú/paleta.
+    pub nucoder: Option<PathBuf>,
     /// Frontend del compilador (`spasm-asm-gen.py`): tiene el tokenizer, el
     /// parser y el chequeo de tipos que usa el diagnóstico.
     pub frontend: Option<PathBuf>,
@@ -88,12 +85,9 @@ impl Toolchain {
                     .map(|p| p.display().to_string())
                 }),
             cc_native: detect_cc_native(),
-            agent: from_env("NUIDE_AGENT")
-                .or_else(|| on_path(&["opencode.cmd", "opencode.exe", "opencode"])),
-            nuide_cli: from_env("NUIDE_CLI")
-                .or_else(|| from_env("NUIDE_CLI_AGENT"))
-                .or_else(|| on_path(&["nuide-cli.exe", "nuide-cli"]))
-                .or_else(|| beside_exe("nuide-cli.exe")),
+            nucoder: from_env("NUCODER")
+                .or_else(|| on_path(&["nucoder.exe", "nucoder"]))
+                .or_else(|| beside_exe("nucoder.exe")),
             frontend,
         }
     }
@@ -318,7 +312,7 @@ fn first_existing(candidates: &[&str]) -> Option<PathBuf> {
     candidates.iter().map(PathBuf::from).find(|p| p.is_file())
 }
 
-/// Un archivo que vive junto al ejecutable de NuIde (p. ej. `nuide-cli.exe`
+/// Un archivo que vive junto al ejecutable de NuIde (p. ej. `nucoder.exe`
 /// instalado en la misma carpeta `{app}`).
 fn beside_exe(name: &str) -> Option<PathBuf> {
     let exe = std::env::current_exe().ok()?;
@@ -379,26 +373,26 @@ mod tests {
     /// `beside_exe` no falla si el archivo no está al lado del ejecutable.
     #[test]
     fn beside_exe_devuelve_none_si_falta() {
-        assert!(beside_exe("__no_existe_nuide_cli__.exe").is_none());
+        assert!(beside_exe("__no_existe_nucoder__.exe").is_none());
     }
 
-    /// Prueba real de que el CLI de OpenCode se puede lanzar y su salida llega
-    /// por el canal (en Windows es un `.cmd`). Se saltea si no está instalado.
+    /// Prueba real de que NuCoder se puede lanzar y su salida llega por el canal.
+    /// Se saltea si no está construido/instalado.
     #[test]
-    fn el_agente_responde_a_version() {
-        let Some(agent) = Toolchain::discover().agent else {
-            eprintln!("test salteado: no se encontró opencode");
+    fn nucoder_responde_a_version() {
+        let Some(bin) = Toolchain::discover().nucoder else {
+            eprintln!("test salteado: no se encontró nucoder");
             return;
         };
         let (tx, rx) = std::sync::mpsc::channel();
         crate::terminal::spawn_streaming(
             0,
             &std::env::temp_dir(),
-            &agent.display().to_string(),
+            &bin.display().to_string(),
             &["--version".to_string()],
             tx,
         )
-        .expect("lanzar opencode");
+        .expect("lanzar nucoder");
 
         let mut lines = Vec::new();
         let mut exited = false;
@@ -411,8 +405,8 @@ mod tests {
             }
         }
         assert!(
-            lines.iter().any(|l| l.to_lowercase().contains("opencode")),
-            "el agente no devolvió su versión: {lines:?}"
+            lines.iter().any(|l| l.to_lowercase().contains("nucoder")),
+            "nucoder no devolvió su versión: {lines:?}"
         );
     }
 

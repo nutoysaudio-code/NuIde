@@ -1,4 +1,4 @@
-# Regenera el C de los módulos SpASM (dialecto AOT) de Nuide-CLI.
+# Regenera el C de los módulos SpASM (dialecto AOT) de NuCoder.
 #
 #   powershell -ExecutionPolicy Bypass -File tools/regen_spasm.ps1
 #
@@ -27,7 +27,7 @@ function Find-Spasmc {
     throw "No se encontró spasmc.py (definí NUIDE_SPASMC)"
 }
 
-$root = Split-Path -Parent $PSScriptRoot   # raíz del proyecto (nuide-cli/)
+$root = Split-Path -Parent $PSScriptRoot   # raíz del proyecto (nucoder/)
 $spasmDir = Join-Path $root "spasm"
 $outDir = Join-Path $spasmDir "generated"
 New-Item -ItemType Directory -Force $outDir | Out-Null

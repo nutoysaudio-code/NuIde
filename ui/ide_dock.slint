@@ -15,7 +15,7 @@ import { IdeTheme } from "ide_theme.slint";
 
 /// Estado del arrastre de paneles, compartido entre la cabecera y la ventana.
 export global DockDrag {
-    /// Panel agarrado ahora mismo: -0 Explorador, 1 OpenCode, 2 Terminal,
+    /// Panel agarrado ahora mismo: -0 Explorador, 1 Agente, 2 Terminal,
     /// 3 Git. -1 = no se está arrastrando nada.
     in-out property <int> panel: -1;
     /// Puntero en coordenadas de la *ventana* (la ventana las pasa a contenido).
@@ -29,7 +29,7 @@ export global DockDrag {
 
     public function name(panel: int) -> string {
         return panel == 0 ? "Explorador"
-            : panel == 1 ? "OpenCode CLI"
+            : panel == 1 ? "Agente"
             : panel == 2 ? "Terminal"
             : "Git";
     }

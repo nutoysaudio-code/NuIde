@@ -70,7 +70,7 @@ component IdeWindowButton inherits Rectangle {
 }
 
 // Botón de layout de la barra superior: muestra/oculta un área de la ventana.
-// `area`: 0 explorador (izquierda), 1 OpenCode (derecha), 2 terminal (abajo).
+// `area`: 0 explorador (izquierda), 1 Agente (derecha), 2 terminal (abajo).
 component IdeLayoutButton inherits Rectangle {
     in property <int> area: 0;
     in property <bool> active: false;
@@ -83,7 +83,7 @@ component IdeLayoutButton inherits Rectangle {
 
     // El tooltip explica qué hace cada botón de layout (no son obvios).
     private property <string> tip: root.area == 0 ? "Mostrar u ocultar la región izquierda (explorador y git)"
-        : root.area == 1 ? "Mostrar u ocultar la región derecha (OpenCode CLI)"
+        : root.area == 1 ? "Mostrar u ocultar la región derecha (agente)"
         : "Mostrar u ocultar la región inferior (terminal)";
 
     Tooltip {
@@ -201,10 +201,10 @@ export component IdeTopBar inherits Rectangle {
 
         file-item := IdeMenuItem { menu-id: "file"; label: @tr("Archivo"); tip: @tr("Abrir proyecto y archivos, guardar, cerrar pestañas y salir"); active: root.active-menu == "file"; activated => { root.menu-activated(self.menu-id); } }
         edit-item := IdeMenuItem { menu-id: "edit"; label: @tr("Editar"); tip: @tr("Deshacer/rehacer, buscar y reemplazar, ir a línea"); active: root.active-menu == "edit"; activated => { root.menu-activated(self.menu-id); } }
-        view-item := IdeMenuItem { menu-id: "view"; label: @tr("Ver"); tip: @tr("Dónde está acoplado cada panel (explorador, OpenCode, terminal, Git): clic para moverlo"); active: root.active-menu == "view"; activated => { root.menu-activated(self.menu-id); } }
+        view-item := IdeMenuItem { menu-id: "view"; label: @tr("Ver"); tip: @tr("Dónde está acoplado cada panel (explorador, agente, terminal, Git): clic para moverlo"); active: root.active-menu == "view"; activated => { root.menu-activated(self.menu-id); } }
         IdeMenuItem { menu-id: "run"; label: @tr("Ejecutar"); tip: @tr("Correr el programa SpASM con la configuración activa (F5)"); activated => { root.menu-activated(self.menu-id); } }
         IdeMenuItem { menu-id: "build"; label: @tr("Compilar"); tip: @tr("Transpilar y compilar a binario nativo (Ctrl+B) o compilar y ejecutar (Ctrl+Shift+B)"); activated => { root.menu-activated(self.menu-id); } }
-        agent-item := IdeMenuItem { menu-id: "agent"; label: @tr("Agente"); tip: @tr("Lanzar OpenCode o Nuide-CLI en el panel del agente"); active: root.active-menu == "agent"; activated => { root.menu-activated(self.menu-id); } }
+        agent-item := IdeMenuItem { menu-id: "agent"; label: @tr("Agente"); tip: @tr("Lanzar NuCoder en el panel del agente"); active: root.active-menu == "agent"; activated => { root.menu-activated(self.menu-id); } }
         help-item := IdeMenuItem { menu-id: "help"; label: @tr("Ayuda"); tip: @tr("Sintaxis de SpASM, atajos y acerca de NuIde (F1)"); active: root.active-menu == "help"; activated => { root.menu-activated(self.menu-id); } }
     }
 

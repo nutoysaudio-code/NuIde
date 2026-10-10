@@ -1,4 +1,4 @@
-//! Nuide-CLI — Router de proveedores AI (gratis primero) + agente de código.
+//! NuCoder — Router de proveedores AI (gratis primero) + agente de código.
 //!
 //! Lógica de decisión en SpASM (AOT → C → FFI): `spasm/router.spasm` elige
 //! proveedor/modelo por tarea+costo y rota cuando se agota la cuota.
@@ -20,13 +20,13 @@ use anyhow::{bail, Result};
 use serde_json::json;
 
 use crate::agent::{Agent, AgentEvent};
-use crate::config::{Config, Source};
+use crate::config::Config;
 
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
 
     if args.iter().any(|a| a == "--version" || a == "-V") {
-        println!("nuide-cli 0.2.0 (SpASM AOT + ratatui)");
+        println!("nucoder 0.2.0 (SpASM AOT + ratatui)");
         return Ok(());
     }
     if args.iter().any(|a| a == "--help" || a == "-h")
@@ -55,7 +55,7 @@ fn main() -> Result<()> {
         Some("ask") => {
             let prompt = args[1..].join(" ");
             if prompt.trim().is_empty() {
-                bail!("uso: nuide-cli ask \"<pregunta>\"");
+                bail!("uso: nucoder ask \"<pregunta>\"");
             }
             return run_ask(Config::load(), cwd, task, free_only, prompt);
         }
@@ -79,7 +79,7 @@ fn main() -> Result<()> {
         eprintln!("No hay proveedores configurados.");
         eprintln!("Cargá una API key gratuita, por ejemplo:");
         eprintln!(
-            "  nuide-cli provider add --id openrouter --name OpenRouter \\\n    --base-url https://openrouter.ai/api/v1 --api-key sk-or-... --free-only"
+            "  nucoder provider add --id openrouter --name OpenRouter \\\n    --base-url https://openrouter.ai/api/v1 --api-key sk-or-... --free-only"
         );
         eprintln!("Config propia: {}", config::own_config_path().display());
     }
@@ -96,7 +96,7 @@ fn subcommand_providers(args: &[String]) -> Result<()> {
         Some("add") => provider_add(args),
         Some("remove") | Some("rm") => {
             let Some(id) = args.get(2) else {
-                bail!("uso: nuide-cli provider remove <id>");
+                bail!("uso: nucoder provider remove <id>");
             };
             let mut cfg = Config::load();
             if cfg.remove_own(id) {
@@ -116,7 +116,7 @@ fn provider_add(args: &[String]) -> Result<()> {
     let base_url = value_of(args, "--base-url").or_else(|| value_of(args, "--baseURL"));
     let api_key = value_of(args, "--api-key").or_else(|| value_of(args, "--apiKey"));
     let (Some(id), Some(base_url)) = (id, base_url) else {
-        bail!("uso: nuide-cli provider add --id <id> --base-url <url> [--api-key <k>] [--name <n>] [--free-only] [--model <id>]...");
+        bail!("uso: nucoder provider add --id <id> --base-url <url> [--api-key <k>] [--name <n>] [--free-only] [--model <id>]...");
     };
     let name = value_of(args, "--name").unwrap_or_else(|| id.clone());
     let free_only = args.iter().any(|a| a == "--free-only");
@@ -152,7 +152,7 @@ fn provider_add(args: &[String]) -> Result<()> {
 
 fn subcommand_discover(args: &[String]) -> Result<()> {
     let Some(id) = args.get(1) else {
-        bail!("uso: nuide-cli discover <provider-id> [--save-free]");
+        bail!("uso: nucoder discover <provider-id> [--save-free]");
     };
     let save_free = args.iter().any(|a| a == "--save-free");
     let mut cfg = Config::load();
@@ -218,20 +218,13 @@ fn list_providers(cfg: &Config, free_only: bool) -> Result<()> {
         cands.len()
     );
     for p in &cfg.providers {
-        let origen = match p.source {
-            Source::Own => "propia",
-            Source::OpenCode => "opencode",
-        };
         let key = if p.api_key.is_empty() {
             "sin key"
         } else {
             "key✓"
         };
         let fo = if p.free_only { " · free-only" } else { "" };
-        println!(
-            "\n• {} [{}] ({}) {}{} — {}",
-            p.name, p.id, origen, key, fo, p.base_url
-        );
+        println!("\n• {} [{}] {}{} — {}", p.name, p.id, key, fo, p.base_url);
         for m in &p.models {
             let tag = if m.free { "free" } else { "pago" };
             println!(
@@ -340,17 +333,17 @@ fn values_of(args: &[String], flag: &str) -> Vec<String> {
 }
 
 fn print_help() {
-    println!("nuide-cli 0.2.0 — Router de modelos AI (gratis primero) + coder");
+    println!("nucoder 0.2.0 — Router de modelos AI (gratis primero) + coder");
     println!();
     println!("Uso:");
-    println!("  nuide-cli                          Abre la TUI (chat + herramientas)");
-    println!("  nuide-cli ask \"<pregunta>\"         Modo one-shot (imprime la respuesta)");
-    println!("  nuide-cli --route <task>           Muestra qué proveedor/modelo elegiría");
-    println!("  nuide-cli --providers              Lista proveedores y modelos");
-    println!("  nuide-cli provider add ...         Alta de proveedor (con su API key)");
-    println!("  nuide-cli provider remove <id>     Baja de proveedor propio");
-    println!("  nuide-cli discover <id> [--save-free]  Lista modelos del endpoint");
-    println!("  nuide-cli --version | --help");
+    println!("  nucoder                          Abre la TUI (chat + herramientas)");
+    println!("  nucoder ask \"<pregunta>\"         Modo one-shot (imprime la respuesta)");
+    println!("  nucoder --route <task>           Muestra qué proveedor/modelo elegiría");
+    println!("  nucoder --providers              Lista proveedores y modelos");
+    println!("  nucoder provider add ...         Alta de proveedor (con su API key)");
+    println!("  nucoder provider remove <id>     Baja de proveedor propio");
+    println!("  nucoder discover <id> [--save-free]  Lista modelos del endpoint");
+    println!("  nucoder --version | --help");
     println!();
     println!("Flags:");
     println!("  --free            Sólo modelos gratuitos");
@@ -358,7 +351,7 @@ fn print_help() {
     println!("  --cwd <path>      Raíz del proyecto (default: directorio actual)");
     println!();
     println!("Ejemplo (OpenRouter gratis):");
-    println!("  nuide-cli provider add --id openrouter --name OpenRouter \\");
+    println!("  nucoder provider add --id openrouter --name OpenRouter \\");
     println!("      --base-url https://openrouter.ai/api/v1 --api-key sk-or-... --free-only");
     println!();
     println!("Config propia: {}", config::own_config_path().display());

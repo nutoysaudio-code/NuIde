@@ -199,7 +199,7 @@ pub fn system_prompt(cwd: &std::path::Path) -> String {
         "Linux/macOS"
     };
     format!(
-        "Sos Nuide-CLI, un agente de programación en la terminal (estilo OpenCode).\n\
+        "Sos NuCoder, un agente de programación en la terminal.\n\
          Trabajás sobre el proyecto en: {}\n\
          Sistema: {platform}.\n\n\
          Usá las herramientas para inspeccionar y modificar archivos antes de responder. \

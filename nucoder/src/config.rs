@@ -1,12 +1,8 @@
-//! Configuración de Nuide-CLI.
+//! Configuración de NuCoder.
 //!
-//! Dos fuentes, unificadas (la propia gana):
-//!
-//!   1. **Propia** del CLI: `~/.config/nuide-cli/config.json` (o `$NUIDE_CLI_CONFIG`).
-//!      Es donde el usuario carga las **API keys** de los modelos gratuitos.
-//!   2. **De OpenCode**: `~/.config/opencode/opencode.json(c)` — se lee como
-//!      respaldo, tratando los esquemas `provider` (singular) y `providers`
-//!      (plural) como una unión.
+//! Única fuente: la config propia del CLI, `~/.config/nucoder/config.json`
+//! (o `$NUCODER_CONFIG`). Es donde el usuario carga las **API keys** de los
+//! modelos gratuitos.
 //!
 //! El costo se normaliza a un entero (`cost_scaled`, ×100 USD/Mtok) y la
 //! capacidad a `power` (0..9), para que la decisión del router viva en SpASM
@@ -30,15 +26,6 @@ pub const TASKS: [&str; 6] = [
     "architect",
 ];
 
-/// De dónde salió un proveedor.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Source {
-    /// Config propia del CLI (editable y persistente).
-    Own,
-    /// Config de OpenCode (sólo lectura).
-    OpenCode,
-}
-
 /// Un modelo de un proveedor.
 #[derive(Debug, Clone)]
 pub struct Model {
@@ -58,7 +45,6 @@ pub struct Provider {
     pub api_key: String,
     /// Si es verdadero, sólo se ofrecen los modelos gratuitos de este proveedor.
     pub free_only: bool,
-    pub source: Source,
     pub models: Vec<Model>,
 }
 
@@ -86,12 +72,11 @@ pub struct Candidate {
 }
 
 impl Config {
-    /// Carga y unifica las dos fuentes.
+    /// Carga la config propia.
     pub fn load() -> Self {
         let mut cfg = Config::default();
         let mut seen: HashSet<String> = HashSet::new();
 
-        // 1. Config propia.
         if let Some(v) = read_json(&own_path()) {
             cfg.free_only = v.get("free_only").and_then(Value::as_bool).unwrap_or(false);
             cfg.default_model = v
@@ -104,43 +89,6 @@ impl Config {
                     if let Some(prov) = parse_own_provider(p) {
                         seen.insert(prov.id.clone());
                         cfg.providers.push(prov);
-                    }
-                }
-            }
-        }
-
-        // 2. Config de OpenCode (respaldo).
-        if let Some(dir) = opencode_dir() {
-            let mut disabled: HashSet<String> = HashSet::new();
-            for file in ["opencode.json", "opencode.jsonc"] {
-                let Some(text) = read_json(&dir.join(file)) else {
-                    continue;
-                };
-                if cfg.default_model.is_none() {
-                    cfg.default_model = text
-                        .get("model")
-                        .and_then(Value::as_str)
-                        .map(str::to_string);
-                }
-                if let Some(list) = text.get("disabled_providers").and_then(Value::as_array) {
-                    for v in list {
-                        if let Some(s) = v.as_str() {
-                            disabled.insert(s.to_string());
-                        }
-                    }
-                }
-                for key in ["provider", "providers"] {
-                    let Some(obj) = text.get(key).and_then(Value::as_object) else {
-                        continue;
-                    };
-                    for (id, prov) in obj {
-                        if disabled.contains(id) || seen.contains(id) {
-                            continue;
-                        }
-                        if let Some(p) = parse_opencode_provider(id, prov) {
-                            seen.insert(id.clone());
-                            cfg.providers.push(p);
-                        }
                     }
                 }
             }
@@ -162,26 +110,20 @@ impl Config {
         }
     }
 
-    /// Elimina un proveedor propio. `true` si lo encontró.
+    /// Elimina un proveedor. `true` si lo encontró.
     pub fn remove_own(&mut self, id: &str) -> bool {
         let before = self.providers.len();
-        self.providers
-            .retain(|p| !(p.id == id && p.source == Source::Own));
+        self.providers.retain(|p| p.id != id);
         self.providers.len() != before
     }
 
-    /// Escribe la config propia (sólo los proveedores `Own`).
+    /// Escribe la config propia.
     pub fn save_own(&self) -> std::io::Result<PathBuf> {
         let path = own_path();
         if let Some(dir) = path.parent() {
             fs::create_dir_all(dir)?;
         }
-        let providers: Vec<Value> = self
-            .providers
-            .iter()
-            .filter(|p| p.source == Source::Own)
-            .map(provider_to_json)
-            .collect();
+        let providers: Vec<Value> = self.providers.iter().map(provider_to_json).collect();
         let doc = json!({
             "default_model": self.default_model,
             "free_only": self.free_only,
@@ -278,7 +220,6 @@ fn parse_own_provider(v: &Value) -> Option<Provider> {
         base_url,
         api_key,
         free_only,
-        source: Source::Own,
         models,
     })
 }
@@ -327,56 +268,6 @@ fn own_cost(v: &Value) -> i64 {
         Some(Value::Object(_)) => cost_from_object(v.get("cost").unwrap()),
         _ => 0,
     }
-}
-
-// ---------------------------------------------------------------------------
-// Parseo de la config de OpenCode
-// ---------------------------------------------------------------------------
-
-fn parse_opencode_provider(id: &str, prov: &Value) -> Option<Provider> {
-    let base_url = str_field(prov, &["options", "baseURL"])
-        .or_else(|| str_field(prov, &["settings", "baseURL"]))
-        .unwrap_or_default();
-    let api_key = str_field(prov, &["options", "apiKey"])
-        .or_else(|| str_field(prov, &["settings", "apiKey"]))
-        .or_else(|| env_api_key(prov))
-        .unwrap_or_default();
-    let name = str_field(prov, &["name"]).unwrap_or_else(|| id.to_string());
-
-    let mut models = Vec::new();
-    if let Some(obj) = prov.get("models").and_then(Value::as_object) {
-        for (model_id, m) in obj {
-            if m.get("disabled").and_then(Value::as_bool).unwrap_or(false) {
-                continue;
-            }
-            let mname = m
-                .get("name")
-                .and_then(Value::as_str)
-                .unwrap_or(model_id)
-                .to_string();
-            let cost = m.get("cost").map(cost_from_object).unwrap_or(0);
-            let free = looks_free(model_id, &mname) || cost == 0;
-            models.push(Model {
-                id: model_id.clone(),
-                name: mname.clone(),
-                free,
-                power: guess_power(&format!("{model_id} {mname}")),
-                cost_scaled: cost,
-            });
-        }
-    }
-    if models.is_empty() && base_url.is_empty() {
-        return None;
-    }
-    Some(Provider {
-        id: id.to_string(),
-        name,
-        base_url,
-        api_key,
-        free_only: false,
-        source: Source::OpenCode,
-        models,
-    })
 }
 
 fn cost_from_object(c: &Value) -> i64 {
@@ -480,27 +371,19 @@ fn provider_to_json(p: &Provider) -> Value {
 
 /// Carpeta de config propia del CLI.
 fn own_path() -> PathBuf {
-    if let Some(p) = std::env::var_os("NUIDE_CLI_CONFIG") {
+    if let Some(p) = std::env::var_os("NUCODER_CONFIG") {
         return PathBuf::from(p);
     }
     dirs::home_dir()
         .unwrap_or_else(|| PathBuf::from("."))
         .join(".config")
-        .join("nuide-cli")
+        .join("nucoder")
         .join("config.json")
 }
 
 /// Ruta de la config propia (para mostrar en mensajes).
 pub fn own_config_path() -> PathBuf {
     own_path()
-}
-
-/// Carpeta de config global de OpenCode: `~/.config/opencode`.
-fn opencode_dir() -> Option<PathBuf> {
-    let home = std::env::var_os("USERPROFILE")
-        .or_else(|| std::env::var_os("HOME"))
-        .map(PathBuf::from)?;
-    Some(home.join(".config").join("opencode"))
 }
 
 /// Lee y parsea un JSON (tolerando comentarios `//` y `/* */` de `.jsonc`).

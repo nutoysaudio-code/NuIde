@@ -12,14 +12,14 @@ use std::os::raw::c_char;
 use std::sync::Mutex;
 
 extern "C" {
-    fn nuide_router_pick_ex(
+    fn nucoder_router_pick_ex(
         task: *const c_char,
         cands: *const c_char,
         excluded: *const c_char,
     ) -> i64;
-    fn nuide_router_is_power_task(task: *const c_char) -> i64;
-    fn nuide_codeassist_keywords(lang: *const c_char) -> i64;
-    fn nuide_codeassist_out() -> *const c_char;
+    fn nucoder_router_is_power_task(task: *const c_char) -> i64;
+    fn nucoder_codeassist_keywords(lang: *const c_char) -> i64;
+    fn nucoder_codeassist_out() -> *const c_char;
 }
 
 static FFI: Mutex<()> = Mutex::new(());
@@ -37,7 +37,7 @@ pub fn router_pick(task: &str, cands: &str, excluded: &[usize]) -> Option<usize>
         .join(",");
     let ex = CString::new(ex).ok()?;
     let _guard = FFI.lock().unwrap_or_else(|e| e.into_inner());
-    let idx = unsafe { nuide_router_pick_ex(task.as_ptr(), cands.as_ptr(), ex.as_ptr()) };
+    let idx = unsafe { nucoder_router_pick_ex(task.as_ptr(), cands.as_ptr(), ex.as_ptr()) };
     (idx >= 0).then_some(idx as usize)
 }
 
@@ -47,7 +47,7 @@ pub fn router_is_power_task(task: &str) -> bool {
         return false;
     };
     let _guard = FFI.lock().unwrap_or_else(|e| e.into_inner());
-    unsafe { nuide_router_is_power_task(task.as_ptr()) != 0 }
+    unsafe { nucoder_router_is_power_task(task.as_ptr()) != 0 }
 }
 
 /// Lista de keywords de completado para `lang` (la produce SpASM). Disponible
@@ -59,8 +59,8 @@ pub fn codeassist_keywords(lang: &str) -> Vec<String> {
     };
     let _guard = FFI.lock().unwrap_or_else(|e| e.into_inner());
     unsafe {
-        nuide_codeassist_keywords(lang.as_ptr());
-        let ptr = nuide_codeassist_out();
+        nucoder_codeassist_keywords(lang.as_ptr());
+        let ptr = nucoder_codeassist_out();
         if ptr.is_null() {
             return Vec::new();
         }

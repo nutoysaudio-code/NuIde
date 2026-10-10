@@ -1,6 +1,6 @@
-programa "nuide_router"
+programa "nucoder_router"
 
-// Router de proveedores/modelos para Nuide-CLI (dialecto AOT).
+// Router de proveedores/modelos para NuCoder (dialecto AOT).
 //
 // Objetivo: **gratis primero** + rotacion. El llamador (Rust) arma la lista de
 // candidatos y aca se elige el indice, respetando los ya agotados.
@@ -24,8 +24,8 @@ programa "nuide_router"
 // al siguiente candidato sin perder la conversacion (que vive en Rust).
 //
 // Contrato FFI (ver ffi/router_ffi.c):
-//   int64_t nuide_router_pick(const char *task, const char *cands);
-//   int64_t nuide_router_pick_ex(const char *task, const char *cands,
+//   int64_t nucoder_router_pick(const char *task, const char *cands);
+//   int64_t nucoder_router_pick_ex(const char *task, const char *cands,
 //                                const char *excluded);
 //   retornan el indice elegido (-1 si no hay candidatos validos).
 

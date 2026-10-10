@@ -1,4 +1,4 @@
-//! Herramientas del agente (estilo OpenCode): leer, escribir, editar, listar,
+//! Herramientas del agente: leer, escribir, editar, listar,
 //! buscar por patrón, grep y ejecutar comandos. Todo con `std`, sin crates
 //! nuevos. Cada herramienta devuelve texto (es lo que ve el modelo).
 

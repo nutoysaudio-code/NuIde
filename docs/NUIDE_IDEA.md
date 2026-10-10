@@ -5,8 +5,8 @@ Referencia visual: [`../SpASM Studio con terminales integrados.png`](../SpASM%20
 
 NuIde es un editor de código con **soporte de SpASM** (transpiler + compilador
 nativo + lint) **y de otros lenguajes**, terminales integrados y un
-agente (OpenCode CLI). La imagen define el diseño visual; los ejemplos de
-código, versiones y respuestas de OpenCode son **contenido ilustrativo**, no
+agente (NuCoder). La imagen define el diseño visual; los ejemplos de
+código, versiones y respuestas de NuCoder son **contenido ilustrativo**, no
 especificaciones funcionales.
 
 ---
@@ -20,7 +20,7 @@ La ventana se divide en tres columnas y dos barras generales:
 | Barra superior | 42 px de alto | Icono y nombre, menú Archivo / Editar / Ver / Ejecutar, nombre del proyecto y controles de ventana |
 | Columna izquierda | 18 % del ancho | Explorador de archivos |
 | Columna central | 54 % del ancho | Editor de código y terminal inferior |
-| Columna derecha | 28 % del ancho | Terminal dedicada a OpenCode CLI |
+| Columna derecha | 28 % del ancho | Terminal dedicada a NuCoder |
 | Barra inferior | 28 px de alto | Rama Git, lenguaje, codificación y posición del cursor |
 
 Los divisores verticales y el divisor horizontal central **se pueden arrastrar**.
@@ -48,7 +48,7 @@ solo afecta al editor central.
 
 ### Panel derecho
 
-- Encabezado «OPENCODE CLI» y estado de conexión con un punto verde.
+- Encabezado «AGENTE» y estado de conexión con un punto verde.
 - Salida de terminal: comandos, progreso, propuestas y **diffs** (líneas
   agregadas en verde y eliminadas en rojo suave).
 - El prompt está dentro de la terminal. Ocupa toda la altura disponible y
@@ -90,6 +90,6 @@ monoespaciada del sistema. NuIde no depende de ningún kit compartido.
 | Explorador | `ui/ide_explorer.slint` |
 | Editor (pestañas, ruta, código) | `ui/ide_editor.slint` |
 | Terminal local | `ui/ide_terminal.slint` (`IdeTerminal` + `TerminalBody`) |
-| OpenCode CLI | `ui/ide_opencode.slint` |
+| NuCoder | `ui/ide_nucoder.slint` |
 | Layout, divisores y datos demo | `ui/nuide_ui.slint` |
 | Puente Rust | `src/editor.rs` |

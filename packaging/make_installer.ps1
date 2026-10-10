@@ -24,15 +24,15 @@ if (-not $SkipBuild) {
     cargo build --release
     if ($LASTEXITCODE -ne 0) { throw "cargo build fallo ($LASTEXITCODE)." }
 
-    # Nuide-CLI es su propio workspace: se compila aparte.
-    Write-Host "Compilando Nuide-CLI (release)..."
-    cargo build --release --manifest-path (Join-Path $repo "nuide-cli\Cargo.toml")
-    if ($LASTEXITCODE -ne 0) { throw "cargo build de nuide-cli fallo ($LASTEXITCODE)." }
+    # NuCoder es su propio workspace: se compila aparte.
+    Write-Host "Compilando NuCoder (release)..."
+    cargo build --release --manifest-path (Join-Path $repo "nucoder\Cargo.toml")
+    if ($LASTEXITCODE -ne 0) { throw "cargo build de nucoder fallo ($LASTEXITCODE)." }
 }
 
 $exe = Join-Path $repo "target\release\nuide.exe"
 if (-not (Test-Path $exe)) { throw "No existe $exe. Corré el script sin -SkipBuild." }
-$cli = Join-Path $repo "nuide-cli\target\release\nuide-cli.exe"
+$cli = Join-Path $repo "nucoder\target\release\nucoder.exe"
 if (-not (Test-Path $cli)) { throw "No existe $cli. Corré el script sin -SkipBuild." }
 
 # El exe de release NO debe ser de consola (si no, aparece una terminal vacía

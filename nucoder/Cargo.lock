@@ -285,7 +285,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "nuide-cli"
+name = "nucoder"
 version = "0.1.0"
 dependencies = [
  "anyhow",

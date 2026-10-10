@@ -20,6 +20,9 @@ msgstr ""
 msgid "Cerrar el diálogo (Esc)"
 msgstr ""
 
+msgid "AGENTE"
+msgstr ""
+
 msgid "Cancelar"
 msgstr ""
 
@@ -185,9 +188,6 @@ msgstr ""
 msgid "{}  ({})"
 msgstr ""
 
-msgid "OPENCODE CLI"
-msgstr ""
-
 msgid "  ({})"
 msgstr ""
 
@@ -344,13 +344,19 @@ msgstr ""
 msgid "Confirmar y cerrar (Enter)"
 msgstr ""
 
+msgid "Sí"
+msgstr ""
+
+msgid "No"
+msgstr ""
+
 msgid "Modelos (JSON)"
 msgstr ""
 
-msgid "Proveedor de OpenCode"
+msgid "Proveedor de NuCoder"
 msgstr ""
 
-msgid "Config global · unión de opencode.json y opencode.jsonc"
+msgid "Config propia · ~/.config/nucoder/config.json"
 msgstr ""
 
 msgid "Cerrar (Esc)"
@@ -362,7 +368,7 @@ msgstr ""
 msgid "Nombre"
 msgstr ""
 
-msgid "Package"
+msgid "Sólo gratis"
 msgstr ""
 
 msgid "baseURL"
@@ -374,10 +380,10 @@ msgstr ""
 msgid "Eliminar"
 msgstr ""
 
-msgid "Pide confirmación y saca el proveedor de la config global"
+msgid "Pide confirmación y saca el proveedor de la config de NuCoder"
 msgstr ""
 
-msgid "Valida los campos y escribe la unión en opencode.json"
+msgid "Valida los campos y escribe la config de NuCoder"
 msgstr ""
 
 msgid "Reempl."
@@ -398,7 +404,7 @@ msgstr ""
 msgid "Configuración"
 msgstr ""
 
-msgid "Interfaz, editor, terminales y agregados (FTP, SSH, OpenCode, web, SQLite)"
+msgid "Interfaz, editor, terminales y agregados (FTP, SSH, NuCoder, web, SQLite)"
 msgstr ""
 
 msgid "Cerrar (Esc) — los cambios ya quedaron guardados"
@@ -482,7 +488,7 @@ msgstr ""
 msgid "Ver"
 msgstr ""
 
-msgid "Dónde está acoplado cada panel (explorador, OpenCode, terminal, Git): clic para moverlo"
+msgid "Dónde está acoplado cada panel (explorador, agente, terminal, Git): clic para moverlo"
 msgstr ""
 
 msgid "Ejecutar"
@@ -500,7 +506,7 @@ msgstr ""
 msgid "Agente"
 msgstr ""
 
-msgid "Lanzar OpenCode o Nuide-CLI en el panel del agente"
+msgid "Lanzar NuCoder en el panel del agente"
 msgstr ""
 
 msgid "Ayuda"
@@ -537,9 +543,6 @@ msgid "oculto"
 msgstr ""
 
 msgid "Explorador"
-msgstr ""
-
-msgid "OpenCode CLI"
 msgstr ""
 
 msgid "Terminal"
@@ -659,7 +662,7 @@ msgstr ""
 msgid "Ver: Explorador"
 msgstr ""
 
-msgid "Ver: OpenCode CLI"
+msgid "Ver: Agente"
 msgstr ""
 
 msgid "Ver: Terminal"
@@ -734,7 +737,10 @@ msgstr ""
 msgid "NuIde: reiniciar como administrador"
 msgstr ""
 
-msgid "Lanzar Nuide-CLI (agente)"
+msgid "Lanzar NuCoder (agente)"
+msgstr ""
+
+msgid "No se encontró NuCoder (definí NUCODER o instalalo). El panel queda como terminal."
 msgstr ""
 
 msgid "Elegir carpeta del proyecto"
@@ -756,9 +762,6 @@ msgid "Cerrar todas"
 msgstr ""
 
 msgid "Salir"
-msgstr ""
-
-msgid "Lanzar OpenCode"
 msgstr ""
 
 msgid "Reiniciar la terminal"
@@ -812,7 +815,7 @@ msgstr ""
 msgid "Se puede mover cada panel arrastrando su cabecera"
 msgstr ""
 
-msgid "Región derecha (OpenCode CLI)"
+msgid "Región derecha (agente)"
 msgstr ""
 
 msgid "Prende o apaga la columna del agente"
@@ -887,10 +890,10 @@ msgstr ""
 msgid "Dos vistas lado a lado"
 msgstr ""
 
-msgid "CLI de OpenCode"
+msgid "NuCoder"
 msgstr ""
 
-msgid "Ruta de la CLI que se lanza bajo demanda con «Lanzar opencode»"
+msgid "Ruta del agente de código que se lanza con «Lanzar NuCoder»"
 msgstr ""
 
 msgid "Versión mostrada"
@@ -899,13 +902,7 @@ msgstr ""
 msgid "Etiqueta que se ve en la ficha del panel"
 msgstr ""
 
-msgid "Lanzar opencode"
-msgstr ""
-
-msgid "Inyecta el comando de opencode en la terminal del panel derecho"
-msgstr ""
-
-msgid "Lanzar Nuide-CLI"
+msgid "Lanzar NuCoder"
 msgstr ""
 
 msgid "Agente de código con router de modelos (gratis primero) sobre SpASM"
@@ -920,7 +917,7 @@ msgstr ""
 msgid "Agregar proveedor"
 msgstr ""
 
-msgid "Da de alta un proveedor nuevo en la config global de OpenCode"
+msgid "Da de alta un proveedor nuevo para NuCoder"
 msgstr ""
 
 msgid "FTP (21), FTPS (FTP + TLS) o SFTP (SSH, 22)"

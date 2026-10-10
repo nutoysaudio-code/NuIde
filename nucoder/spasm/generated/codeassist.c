@@ -1,5 +1,5 @@
 /* generado por spasm-c-gen (no editar a mano) */
-/* programa "nuide_codeassist" */
+/* programa "nucoder_codeassist" */
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>

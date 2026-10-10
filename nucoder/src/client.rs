@@ -1,4 +1,4 @@
-//! Cliente HTTP de Nuide-CLI: habla con cualquier endpoint **compatible-OpenAI**
+//! Cliente HTTP de NuCoder: habla con cualquier endpoint **compatible-OpenAI**
 //! (`POST {base}/chat/completions`, streaming SSE) y con `GET {base}/models`.
 //!
 //! No agrega crates de red: usa `curl.exe` como proceso hijo (igual que el resto
@@ -388,7 +388,7 @@ fn endpoint(base_url: &str, path: &str) -> String {
 }
 
 fn curl_bin() -> String {
-    std::env::var("NUIDE_CURL").unwrap_or_else(|_| "curl".to_string())
+    std::env::var("NUCODER_CURL").unwrap_or_else(|_| "curl".to_string())
 }
 
 fn write_temp(tag: &str, bytes: &[u8]) -> PathBuf {
@@ -397,7 +397,7 @@ fn write_temp(tag: &str, bytes: &[u8]) -> PathBuf {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_nanos())
         .unwrap_or(0);
-    p.push(format!("nuide-cli-{tag}-{}-{nanos}", std::process::id()));
+    p.push(format!("nucoder-{tag}-{}-{nanos}", std::process::id()));
     if let Ok(mut f) = std::fs::File::create(&p) {
         let _ = f.write_all(bytes);
     }

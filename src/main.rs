@@ -53,7 +53,7 @@ fn main() -> Result<(), slint::PlatformError> {
 /// El renderer software de Slint tiene un bug al maximizar: la ventana se vuelve
 /// transparente durante el resize grande. FemtoVG no tiene ese problema.
 ///
-/// Medido en NuIde con el panel de OpenCode abierto (una TUI que redibuja varias
+/// Medido en NuIde con el panel del agente abierto (una TUI que redibuja varias
 /// veces por segundo), mismo binario, cambiando sólo `SLINT_BACKEND`:
 ///
 /// | Renderer            | CPU en reposo | Memoria |

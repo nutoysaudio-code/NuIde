@@ -1,4 +1,4 @@
-//! TUI de Nuide-CLI: chat con streaming, estado del router y rotación.
+//! TUI de NuCoder: chat con streaming, estado del router y rotación.
 
 use std::io;
 use std::path::PathBuf;
@@ -86,7 +86,7 @@ impl App {
             model,
             quit: false,
         };
-        app.info("Nuide-CLI — coder con router de modelos (gratis primero).");
+        app.info("NuCoder — coder con router de modelos (gratis primero).");
         app.info("Enter para enviar · /refactor /debug /explain /test cambian la tarea · /free alterna gratis · /help · Ctrl+C sale.");
         app
     }
@@ -403,7 +403,7 @@ fn draw_header(f: &mut ratatui::Frame, app: &App, area: ratatui::layout::Rect) {
     let free = if app.free_only { " · SOLO GRATIS" } else { "" };
     let state = if app.running { " · trabajando…" } else { "" };
     let text = format!(
-        " Nuide-CLI  │ modelo: {} │ tarea: {}{}{}",
+        " NuCoder  │ modelo: {} │ tarea: {}{}{}",
         app.model, app.task, free, state
     );
     let style = Style::default()

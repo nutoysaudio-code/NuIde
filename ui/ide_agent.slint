@@ -3,14 +3,14 @@ import { TermLine } from "ide_types.slint";
 import { TerminalScreen } from "ide_terminal.slint";
 import { DockHandle } from "ide_dock.slint";
 
-// Panel derecho: la TUI de OpenCode CLI corriendo en un PTY (sin burbujas de
-// chat). Reutiliza `TerminalScreen`: mismo emulador, scrollback y selección que
-// la terminal local.
+// Panel derecho: la TUI del agente (NuCoder o una shell) corriendo en un PTY
+// (sin burbujas de chat). Reutiliza `TerminalScreen`: mismo emulador, scrollback
+// y selección que la terminal local.
 //
 // Hereda de `FocusScope` para recibir el teclado cuando se lo clickea. Como
 // `FocusScope` no tiene superficie propia, lo visual vive en el `Rectangle`
 // interno.
-export component IdeOpenCode inherits FocusScope {
+export component IdeAgent inherits FocusScope {
     in property <bool> connected: true;
     in property <[TermLine]> lines: [];
     in property <int> scroll-total: 0;
@@ -94,7 +94,7 @@ export component IdeOpenCode inherits FocusScope {
                 cross-axis-alignment: center;
 
                 Text {
-                    text: @tr("OPENCODE CLI");
+                    text: @tr("AGENTE");
                     color: IdeTheme.text-dim;
                     font-family: IdeTheme.sans;
                     font-size: 10px;
@@ -130,7 +130,7 @@ export component IdeOpenCode inherits FocusScope {
         }
 
         // --- ficha de sesión ---
-        // --- pantalla de la TUI (opencode) ---
+        // --- pantalla de la TUI (agente) ---
         TerminalScreen {
             x: 0;
             y: root.screen-top;

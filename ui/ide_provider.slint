@@ -3,12 +3,12 @@ import { TipContent } from "ide_tooltip.slint";
 import { Palette, TextEdit } from "std-widgets.slint";
 
 // ---------------------------------------------------------------------------
-// Formulario de un proveedor de OpenCode (CRUD sobre la config global
-// `~/.config/opencode/opencode.json(c)`).
+// Formulario de un proveedor de NuCoder (CRUD sobre su config propia
+// `~/.config/nucoder/config.json`).
 //
 // La pantalla de Configuración maneja los proveedores como filas de acción
 // ("editar" / "nuevo"); este diálogo edita los campos. Rust valida al guardar
-// (el campo «Modelos» es JSON crudo) y escribe la unión en `opencode.json`.
+// (el campo «Modelos» es un array JSON) y escribe la config de NuCoder.
 // ---------------------------------------------------------------------------
 
 // Botón del formulario.
@@ -103,6 +103,56 @@ component PRow inherits Rectangle {
     }
 }
 
+// Fila de interruptor (Sí/No) para un booleano.
+component PToggle inherits Rectangle {
+    in property <string> id: "";
+    in property <string> label: "";
+    in property <bool> on: false;
+    in property <string> hint: "";
+    callback changed(string, string);
+
+    height: 30px;
+
+    Text {
+        x: 0;
+        y: (parent.height - self.height) / 2;
+        width: 150px;
+        text: root.label;
+        color: IdeTheme.text-soft;
+        font-family: IdeTheme.sans;
+        font-size: 12px;
+        vertical-alignment: center;
+    }
+    Rectangle {
+        x: 160px;
+        y: (parent.height - 22px) / 2;
+        width: 64px;
+        height: 22px;
+        border-radius: 11px;
+        background: root.on ? IdeTheme.mint : IdeTheme.control;
+        border-width: 1px;
+        border-color: root.on ? transparent : IdeTheme.border-soft;
+
+        Text {
+            width: parent.width;
+            height: parent.height;
+            text: root.on ? @tr("Sí") : @tr("No");
+            color: root.on ? IdeTheme.bg : IdeTheme.text-soft;
+            font-family: IdeTheme.sans;
+            font-size: 11px;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+        TouchArea {
+            mouse-cursor: MouseCursor.pointer;
+            clicked => { root.changed(root.id, root.on ? "0" : "1"); }
+        }
+    }
+    if root.hint != "": Tooltip {
+        TipContent { text: root.hint; }
+    }
+}
+
 // Área de «Modelos» como JSON crudo (texto de varias líneas).
 component PModels inherits Rectangle {
     in property <string> text: "";
@@ -148,7 +198,7 @@ component PModels inherits Rectangle {
 export component IdeProvider inherits FocusScope {
     in property <string> field-id: "";
     in property <string> field-name: "";
-    in property <string> field-package: "";
+    in property <bool> field-free-only: false;
     in property <string> field-base-url: "";
     in property <string> field-api-key: "";
     in property <string> field-models: "";
@@ -212,7 +262,7 @@ export component IdeProvider inherits FocusScope {
             Text {
                 x: 20px;
                 y: 10px;
-                text: @tr("Proveedor de OpenCode");
+                text: @tr("Proveedor de NuCoder");
                 color: IdeTheme.text;
                 font-family: IdeTheme.sans;
                 font-size: 16px;
@@ -222,7 +272,7 @@ export component IdeProvider inherits FocusScope {
             Text {
                 x: 20px;
                 y: 31px;
-                text: @tr("Config global · unión de opencode.json y opencode.jsonc");
+                text: @tr("Config propia · ~/.config/nucoder/config.json");
                 color: IdeTheme.text-dim;
                 font-family: IdeTheme.sans;
                 font-size: 10px;
@@ -279,11 +329,11 @@ export component IdeProvider inherits FocusScope {
                 text: root.field-name;
                 changed(i, v) => { root.changed(i, v); }
             }
-            PRow {
-                id: "package";
-                label: @tr("Package");
-                text: root.field-package;
-                hint: "Runtime del proveedor, ej. @opencode/ai/providers/openai-compatible";
+            PToggle {
+                id: "free-only";
+                label: @tr("Sólo gratis");
+                on: root.field-free-only;
+                hint: "Ofrecer sólo los modelos gratuitos de este proveedor";
                 changed(i, v) => { root.changed(i, v); }
             }
             PRow {
@@ -333,13 +383,13 @@ export component IdeProvider inherits FocusScope {
             if !root.is-new: PBtn {
                 label: @tr("Eliminar");
                 danger: true;
-                tip: @tr("Pide confirmación y saca el proveedor de la config global");
+                tip: @tr("Pide confirmación y saca el proveedor de la config de NuCoder");
                 activated => { root.delete(); }
             }
             PBtn {
                 label: @tr("Guardar");
                 primary: true;
-                tip: @tr("Valida los campos y escribe la unión en opencode.json");
+                tip: @tr("Valida los campos y escribe la config de NuCoder");
                 activated => { root.save(); }
             }
         }

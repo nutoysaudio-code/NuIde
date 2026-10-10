@@ -14,7 +14,7 @@ decisiones de diseño, ver [`ESTADO.md`](ESTADO.md) y [`PLAN.md`](PLAN.md).
   (`NUIDE_SPASMC`, `NUIDE_PYTHON`, `NUIDE_CC`). Si falta alguna, lo dice y
   sigue funcionando como editor/terminal.
 - **Git** (opcional): el panel de control de código usa el `git` del `PATH`.
-- **Node.js** (opcional): lo necesitan las CLI de IA (OpenCode y las demás). El
+- **Node.js** (opcional): lo necesitan las CLI de IA (NuCoder y las demás). El
   instalador puede ponerlo.
 
 ## 2. Primer arranque
@@ -67,14 +67,14 @@ NuIde **compila** el código SpASM a binario nativo (AOT); el intérprete
   cierra, **⬒** divide en dos vistas (clic en una le da el foco).
 - Rueda y `Shift+PageUp/Down` recorren el **scrollback**; arrastrar **selecciona**
   y copia; `Ctrl+Shift+C`/`V` copian/pegan.
-- Si un programa pide el mouse (`vim`, la TUI de OpenCode…), los clics y la rueda
+- Si un programa pide el mouse (`vim`, la TUI de NuCoder…), los clics y la rueda
   se le **reenvían**. En ese caso **mantené `Shift` mientras arrastrás para
   seleccionar** (y se copia al soltar); el **botón del medio pega** el
   portapapeles. Vale igual para el panel derecho.
 - La paleta permite **renombrar** la sesión y **reiniciarla** (arranca en la raíz
   del proyecto).
-- El panel derecho es una **terminal igual**: arranca como shell y **`opencode`
-  se lanza bajo demanda** (paleta → *Lanzar opencode*). Si salís de opencode,
+- El panel derecho es una **terminal igual**: arranca como shell y **`nucoder`
+  se lanza bajo demanda** (paleta → *Lanzar nucoder*). Si salís de nucoder,
   la terminal queda en la shell.
 - **Clic derecho** en cualquier terminal abre un menú con **Copiar**, **Pegar** y
   **Elevar a administrador** (abre una shell elevada con UAC en la raíz del
@@ -105,7 +105,7 @@ NuIde **compila** el código SpASM a binario nativo (AOT); el intérprete
 - **`F1`** ayuda de sintaxis SpASM (lista palabras clave/builtins filtradas por la
   palabra bajo el cursor; al elegir, la inserta).
 - **`Ctrl+,`** Preferencias: fuentes, tamaño del código, acento, **opacidad de los
-  paneles**, tab, compilar al guardar, **Proveedores de OpenCode** y **atajos**
+  paneles**, tab, compilar al guardar, **Proveedores de NuCoder** y **atajos**
   (clic en uno y presioná la combinación nueva).
 - **Reordenar la ventana**: arrastrá el **asa** (las tres rayitas) de la cabecera
   de cualquier panel y soltala sobre la banda **Izquierda / Derecha / Abajo**;
@@ -164,10 +164,10 @@ Se activan en **Preferencias (`Ctrl+,`) → Módulos**.
   vuelve a leer la base. Necesita `sqlite3.exe` o Python en la máquina (se avisa
   si no hay ninguno).
 
-## 12. Proveedores de OpenCode
+## 12. Proveedores de NuCoder
 
 En **Preferencias (`Ctrl+,`) → Proveedores** están los proveedores del CLI de
-OpenCode. La lista muestra cada proveedor y una fila **Agregar proveedor**; al
+NuCoder. La lista muestra cada proveedor y una fila **Agregar proveedor**; al
 clic en uno se abre el formulario:
 
 - **ID**: la clave del proveedor en la config; cambiarlo lo **renombra**.
@@ -175,15 +175,15 @@ clic en uno se abre el formulario:
 - **Modelos**: el objeto JSON tal cual (se valida al guardar; tiene que ser un
   objeto `{ … }`).
 
-**Guardar** escribe la config global de OpenCode
-(`~/.config/opencode/opencode.json`), uniendo lo que hubiera en `opencode.jsonc`
+**Guardar** escribe la config global de NuCoder
+(`~/.config/nucoder/nucoder.json`), uniendo lo que hubiera en `nucoder.jsonc`
 (el `.jsonc` queda sin `providers`). La edición es quirúrgica: no toca `$schema`,
 `model` ni las claves del proveedor que la IDE no muestra (`env`, `modelID`,
 `limit`, `cost`…). Si un proveedor usa variables de entorno (`env`) y dejás la
 apiKey vacía, no se escribe una apiKey vacía encima. **Eliminar** pide
 confirmación y **Cancelar** / **Esc** cierran sin guardar.
 
-> Conviene tener un respaldo de `~/.config/opencode` antes de editar: los
+> Conviene tener un respaldo de `~/.config/nucoder` antes de editar: los
 > archivos contienen credenciales.
 
 ## 13. Problemas frecuentes

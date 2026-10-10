@@ -1,4 +1,4 @@
-programa "nuide_codeassist"
+programa "nucoder_codeassist"
 
 // Asistente de código: keywords de completado por lenguaje (dialecto AOT).
 // La lista sale por la global `codeassist_out`.

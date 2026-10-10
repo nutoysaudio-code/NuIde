@@ -1,12 +1,12 @@
-# Diseño de Nuide-CLI
+# Diseño de NuCoder
 
 ## Objetivo
 
 CLI independiente y agente de código para NuIde que:
 
 1. es un **router de proveedores AI gratis primero** (por tarea + costo),
-2. **carga sus propias API keys** (y además puede leer la config de OpenCode),
-3. es un **coder** estilo OpenCode (herramientas + bucle agéntico),
+2. **carga sus propias API keys** en su propia config,
+3. es un **coder** (herramientas + bucle agéntico),
 4. **rota** de proveedor sin perder la conversación cuando se agota la cuota,
 5. tiene la lógica de decisión en **SpASM** (AOT → C → FFI),
 6. usa una **TUI** (`ratatui` + `crossterm`).
@@ -25,8 +25,7 @@ para que SpASM compare enteros y no tenga que parsear JSON ni floats.
 ## Flujo
 
 ```
-config propia  ~/.config/nuide-cli/config.json      ┐
-config OpenCode ~/.config/opencode/opencode.json(c) ┴─▶ Config (union)
+config propia  ~/.config/nucoder/config.json
         │
         ▼
    Vec<Candidate {free, power, cost, ...}>

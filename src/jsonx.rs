@@ -1,9 +1,8 @@
 //! Utilidades JSON mínimas con conocimiento de *spans* (posiciones de bytes)
-//! para editar `opencode.json(c)` sin tocar el resto del archivo.
+//! para editar un JSON sin tocar el resto del archivo.
 //!
 //! No es una biblioteca completa: alcanza para localizar claves, reemplazar
-//! valores, validar sintaxis y hornear JSON. Tolera comentarios (JSONC), el
-//! formato que usa la config global de OpenCode.
+//! valores, validar sintaxis y hornear JSON. Tolera comentarios (JSONC).
 
 /// Valor JSON ya parseado (se usa para validar antes de guardar).
 #[derive(Debug, Clone, PartialEq)]

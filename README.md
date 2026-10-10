@@ -1,16 +1,16 @@
-# NuIde — IDE multi-lenguaje con SpASM, terminales y OpenCode
+# NuIde — IDE multi-lenguaje con SpASM, terminales y NuCoder
 
 IDE de escritorio con soporte de **SpASM** (transpilar, compilar, ejecutar y
 lint con su toolchain) **y de otros lenguajes**: explorador de archivos, editor
 de código con resaltado para ~24 lenguajes, terminal local y una terminal
-dedicada a **OpenCode CLI**.
+dedicada a **NuCoder**.
 
 NuIde es un **proyecto independiente**: una aplicación de escritorio en
 **Rust + Slint** que no depende del workspace de audio ni de ningún crate
 compartido de plugins. Sus dependencias son `slint` (UI), `arboard`
 (portapapeles), `portable-pty` + `vt100` (terminales reales), `rfd` (diálogos
-nativos) y `regex-lite` (búsqueda con expresiones regulares). Tiene su propio
-`[workspace]` para compilarse solo.
+nativos), `regex-lite` (búsqueda con expresiones regulares) y `serde_json`
+(config de NuCoder). Tiene su propio `[workspace]` para compilarse solo.
 
 La paleta es oscura y propia (instrumento electrónico sobrio): vive en
 `ui/ide_theme.slint`. La especificación visual está en
@@ -28,7 +28,7 @@ cargo run --bin nuide          # o `cargo build --release`
 ## Estado
 
 La terminal, el explorador, el editor (edición con resaltado y guardado), el
-panel de **OpenCode CLI** y el **control de código (Git)** ya son **reales**. La
+panel de **NuCoder** y el **control de código (Git)** ya son **reales**. La
 interfaz dejó de tener datos ilustrativos: la pantalla del editor sin archivos
 abiertos es una **página de bienvenida** real (accesos y atajos).
 
@@ -38,10 +38,10 @@ abiertos es una **página de bienvenida** real (accesos y atajos).
 | 2 | divisores arrastrables + scroll por área | ✅ |
 | 3 | explorador: abrir/cerrar carpetas y abrir archivos reales | ✅ |
 | 4 | editor: edición, guardado y resaltado real de SpASM | ✅ |
-| 5 | terminal real (PTY/ConPTY) + panel de OpenCode CLI | ✅ |
+| 5 | terminal real (PTY/ConPTY) + panel del agente | ✅ |
 | 6 | integración con el toolchain `spasm`/`spasmc` (build/run) | ✅ |
 | 7 | terminal: scrollback + selección y copia con el mouse | ✅ |
-| 8 | panel derecho: terminal real + opencode bajo demanda (TUI real) | ✅ |
+| 8 | panel derecho: terminal real + NuCoder bajo demanda (TUI real) | ✅ |
 | 9 | elegir proyecto (diálogo nativo) + recordarlo | ✅ |
 | 10 | editor: buscar/reemplazar + resaltados de contexto | ✅ |
 | 11 | layout modular: controles en la barra + menú Ver | ✅ |
@@ -65,10 +65,10 @@ abiertos es una **página de bienvenida** real (accesos y atajos).
 | 29 | Git avanzado: diff, ramas, pull, ahead/behind, descartar/amend | ✅ |
 | 30 | flujo SpASM: config de ejecución, plantillas y ayuda de sintaxis | ✅ |
 | 31 | preferencias (fuente/tamaño/acento) y atajos configurables | ✅ |
-| 32 | calidad/CI + icono + instalador Inno Setup (Node/CLI) + pie CPU/RAM | ✅ |
+| 32 | calidad/CI + icono + instalador Inno Setup (NuCoder opcional) + pie CPU/RAM | ✅ |
 | 33 | guía de usuario (`docs/GUIA.md`) + pulido | ✅ |
 | 34 | lógica de la IDE en **SpASM** (FFI AOT): diagnósticos y config | ✅ |
-| 35 | proveedores de OpenCode: CRUD sobre la config del CLI | ✅ |
+| 35 | proveedores de NuCoder: CRUD sobre la config del CLI | ✅ |
 
 > El parte de estado detallado —qué se cambió en cada iteración, limitaciones y
 > pendientes con su enfoque— está en [`docs/ESTADO.md`](docs/ESTADO.md).
@@ -112,7 +112,7 @@ La **raíz** es la carpeta del proyecto: la última elegida o la carpeta de
 lanzamiento. Se cambia con **clic en el nombre del proyecto** en la barra
 superior, que abre el diálogo nativo de carpetas (`rfd`). Al elegir otra, el
 explorador se reconstruye, el **panel derecho se reinicia** en la carpeta nueva
-(como terminal; opencode se lanza bajo demanda) y la elección se recuerda en
+(como terminal; NuCoder se lanza bajo demanda) y la elección se recuerda en
 `%APPDATA%\NuIde\config` para el próximo arranque.
 
 ### El editor (edición + resaltado)
@@ -263,7 +263,7 @@ invirtiendo la celda (sin calcular píxeles).
   familia monoespaciada instalada (JetBrains Mono / Cascadia Mono / Consolas;
   configurable en **Preferencias**) al arrancar, **mide** el ancho real de una
   celda y cada tramo se ubica por su columna (no por el ancho del texto). Así las
-  TUI con glifos de caja/bloque (la de `opencode`) quedan alineadas.
+  TUI con glifos de caja/bloque (la de NuCoder) quedan alineadas.
 
 Los menús **Ejecutar** y **Compilar** de la barra superior actúan sobre el
 archivo activo: **compilan** el `.spasm` a binario nativo (AOT); `spasmc.py`
@@ -307,13 +307,12 @@ anterior y el mensaje va a la barra de estado.
 
 1. Variables de entorno: `NUIDE_SPASM`, `NUIDE_SPASMC`, `NUIDE_PYTHON` (también
    acepta `SPASM_EXE`, `SPASMC`, `PYTHON`), `NUIDE_SPASM_FRONTEND` (el parser,
-   `spasm-asm-gen.py`), `NUIDE_AGENT` para el CLI de OpenCode y `NUIDE_CLI` para
-   `nuide-cli`.
+   `spasm-asm-gen.py`) y `NUCODER` para la ruta del agente NuCoder.
 2. Ubicaciones conocidas del ecosistema: `F:\SpASM\spasm.exe`,
    `F:\SpAMS-Oficial\src\shared\spasmc.py` y su frontend
    `...\src\common\spasm-asm-gen.py`.
 3. El `PATH`.
-4. Junto al ejecutable de NuIde (así encuentra `nuide-cli.exe` instalado en la
+4. Junto al ejecutable de NuIde (así encuentra `nucoder.exe` instalado en la
    misma carpeta `{app}`).
 
 #### Nota sobre el Skill PTY
@@ -326,29 +325,28 @@ Skill: implementa su propio PTY nativo (ConPTY) en Rust.
 La consola *lineal* de `src/terminal.rs` queda como utilidad heredada (la usan
 pruebas de integración del toolchain). El panel del agente ya no la usa.
 
-### El panel derecho (terminal + OpenCode CLI)
+### El panel derecho (terminal + NuCoder)
 
 El panel derecho es una **terminal real** (shell pwsh/cmd en la raíz del
-proyecto), igual que la inferior. `opencode` **no se abre solo**: se lanza
-cuando el usuario elige *Lanzar opencode* en la paleta. Si salís de opencode,
-la terminal queda en la shell y podés relanzarlo cuando quieras. Su TUI
-interactiva se renderiza con el mismo emulador (`vt`), con scrollback,
-selección/copia y las mismas teclas. El canal es propio (`agent_tx`/`agent_rx`)
-para no mezclar la salida con la terminal inferior.
+proyecto), igual que la inferior. **NuCoder no se abre solo**: se lanza cuando
+el usuario elige *Lanzar NuCoder* (menú **Agente** o paleta). Si no está
+instalado, el panel **queda como terminal** y avisa. Su TUI interactiva se
+renderiza con el mismo emulador (`vt`), con scrollback, selección/copia y las
+mismas teclas. El canal es propio (`agent_tx`/`agent_rx`) para no mezclar la
+salida con la terminal inferior.
 
 - Al arrancar se lanza una shell (pwsh/cmd) en la raíz del proyecto, sin
   inyectar nada.
-- **Lanzar opencode** (paleta) inyecta el comando de la CLI —entre comillas,
-  para que funcione aunque la ruta tenga espacios— en la shell abierta.
-- Si salís de opencode, queda en la shell y podés relanzarlo de nuevo desde la
-  paleta o tipeando el comando directamente.
-- Si la shell se cae (opencode al salir con `Ctrl+C` puede arrastrar la
-  consola), el panel **relanza la terminal solo** y vuelve a quedar operativo.
+- **Lanzar NuCoder** inyecta el comando de la CLI —entre comillas, para que
+  funcione aunque la ruta tenga espacios— en la shell abierta, con `--cwd`.
+- Si salís de NuCoder, queda en la shell y podés relanzarlo de nuevo desde el
+  menú o tipeando el comando directamente.
+- Si la shell se cae (NuCoder al salir con `Ctrl+C` puede arrastrar la consola),
+  el panel **relanza la terminal solo** y vuelve a quedar operativo.
 - Al cambiar de proyecto, se reinicia la terminal: la shell nueva arranca en el
-  cwd del proyecto (opencode no se relanza).
-- El encabezado y el modelo son configurables con `NUIDE_AGENT_VERSION` y
-  `NUIDE_AGENT_MODEL`.
-- El CLI se descubre como `opencode.cmd` (Windows), `opencode.exe` u `opencode`.
+  cwd del proyecto (NuCoder no se relanza).
+- El agente se descubre con `NUCODER`, en el `PATH` como `nucoder.exe`, o junto
+  al ejecutable de NuIde.
 - El **mouse reporting** funciona igual que en la terminal local: si la TUI lo
   pide, los clics/rueda se reenvían; si no, el mouse selecciona/copia.
 
@@ -452,23 +450,18 @@ completo (migrar el resto de los textos, dialogs, CI estricta) está en
 tooltips en `@tr`, arma el `.pot`, y con `--check` valida en CI) y
 `tools/i18n_po.py` (sincroniza los `.po`).
 
-### Proveedores de OpenCode (configuración del CLI)
+### Proveedores de NuCoder (configuración del CLI)
 
 La pantalla de configuración (`Ctrl+,`) tiene una sección **Proveedores** para
-dar de alta, editar y eliminar los proveedores del CLI de OpenCode sin tocar el
-JSON a mano. Edita la config global (`~/.config/opencode/opencode.json(c)`)
-tratando `opencode.json` y `opencode.jsonc` como una **unión**: al guardar, todo
-queda en `opencode.json` (se crea si falta) y se retira `providers` del `.jsonc`.
+dar de alta, editar y eliminar los proveedores del agente **NuCoder** sin editar
+el JSON a mano. Escribe la **config propia** de NuCoder
+(`~/.config/nucoder/config.json`, la misma que usa el CLI).
 
-- La escritura es **quirúrgica**: sólo se reemplaza el fragmento `providers`, así
-  que `$schema`, `model` y el resto del archivo quedan intactos. Los campos se
-  parchean *in-place*, conservando claves desconocidas (`env`, `modelID`,
-  `limit`, `cost`, …).
-- Campos: **ID** (la clave; renombrarlo mueve el proveedor), **Nombre**,
-  **Package**, **baseURL**, **apiKey** (oculta) y **Modelos** como **JSON crudo**
-  (se valida al guardar; debe ser un objeto).
-- No pisa credenciales por entorno: si un proveedor usa `env` y dejás apiKey
-  vacía, no se escribe `"apiKey": ""` encima.
+- Campos: **ID**, **Nombre**, **baseURL**, **apiKey** (oculta), **Sólo gratis**
+  (ofrecer únicamente los modelos gratuitos del proveedor) y **Modelos** como
+  **array JSON crudo** (se valida al guardar).
+- Al guardar se conserva el resto del archivo y las claves desconocidas de cada
+  proveedor.
 - **Eliminar** pide confirmación. `Esc` cierra el formulario.
 
 ## Estructura
@@ -490,7 +483,7 @@ nuide/
   src/
     lib.rs                 pub mod editor + explorer + highlight + pty + spasm + spasm_logic + terminal + ui + vt
     ui.rs                  slint::include_modules!()
-    spasm.rs               descubrimiento del toolchain (spasm/spasmc/cc/opencode)
+    spasm.rs               descubrimiento del toolchain (spasm/spasmc/cc/nucoder)
     pty.rs                 terminal real: ConPTY + hilos de lectura/escritura
     vt.rs                  emulador VT: pantalla → tramos con color
     lint.rs                diagnóstico de SpASM (corre el parser real)
@@ -504,7 +497,7 @@ nuide/
     config.rs              configuración persistida (parse en SpASM)
     spasm_logic.rs         FFI de la lógica SpASM (wrappers seguros + tests)
     jsonx.rs               JSON con spans: edición quirúrgica de la config
-    providers.rs           CRUD de proveedores de OpenCode (config global)
+    providers.rs           CRUD de proveedores de NuCoder (config propia)
     elevate.rs             elevación (UAC): terminal aparte y relanzar la IDE
     editor.rs              estado de la IDE (explorador, editor, terminales) + wiring
     main.rs                crea la ventana, engancha y corre
@@ -516,14 +509,14 @@ nuide/
     ide_explorer.slint     árbol de archivos
     ide_editor.slint       pestañas + ruta + área de código
     ide_terminal.slint     terminal local + `TerminalScreen` reutilizable
-    ide_opencode.slint     panel de OpenCode CLI (TUI en PTY)
+    ide_agent.slint        panel del agente (NuCoder o shell, TUI en PTY)
     ide_git.slint          panel de control de código (Git)
     ide_palette.slint      paleta de comandos / buscador de archivos
     ide_search.slint       buscar/reemplazar en el proyecto
     ide_diff.slint         visor de diff de Git
     ide_prefs.slint        preferencias y atajos
     ide_about.slint        diálogo "Acerca de"
-    ide_provider.slint     formulario de proveedor de OpenCode
+    ide_provider.slint     formulario de proveedor de NuCoder
     ide_menu.slint         menú desplegable (Archivo / Editar / Ayuda)
     ide_confirm.slint      diálogos de confirmación / eliminar
     ide_prompt.slint       diálogo de entrada de texto
@@ -567,14 +560,14 @@ slint-viewer --screenshot ui.png ui/nuide_ui.slint
 - El icono se regenera con:
   `powershell -ExecutionPolicy Bypass -File packaging/make_icon.ps1`.
 - **Instalador** (`packaging/NuIde.iss`, Inno Setup 6). Además de NuIde, **copia
-  `nuide-cli.exe`** a la carpeta de instalación (el router/agente de modelos
+  `nucoder.exe`** a la carpeta de instalación (el router/agente de modelos
   gratis) y, si se marca la tarea, agrega esa carpeta al **PATH del usuario**
-  (`packaging/postinstall.ps1 -AddPath`), así `nuide-cli` queda disponible en
+  (`packaging/postinstall.ps1 -AddPath`), así `nucoder` queda disponible en
   cualquier terminal.
 
   ```sh
   cargo build --release
-  cargo build --release --manifest-path nuide-cli/Cargo.toml
+  cargo build --release --manifest-path nucoder/Cargo.toml
   iscc packaging\NuIde.iss      # deja releases\NuIde-<version>-setup.exe
   ```
 
@@ -586,10 +579,11 @@ slint-viewer --screenshot ui.png ui/nuide_ui.slint
   powershell -ExecutionPolicy Bypass -File packaging\make_installer.ps1
   ```
 
-  Instala NuIde, crea accesos directos y puede **asociar `.spasm`**, **instalar
-  Node.js** (vía `winget`) y **las CLI de IA** (`packaging/postinstall.ps1`; hoy
-  `opencode-ai`, ampliable a kilo code / mimo). Las CLI son de Node, por eso Node
-  es una dependencia.
+  Instala NuIde, crea accesos directos y puede **asociar `.spasm`** e **instalar
+  NuCoder** (el agente de código con router de modelos). La tarea de NuCoder
+  viene marcada por defecto; si se desmarca, el panel del agente queda como
+  terminal. El instalador también puede **agregar la carpeta al PATH**
+  (`postinstall.ps1 -AddPath`).
 - La **CI** (`.gitlab-ci.yml`) corre `fmt`/`clippy -D warnings`/`test` en Linux y
   publica el `.exe` de release como artefacto en Windows.
 
@@ -641,7 +635,7 @@ Dos extras que se prenden y apagan, **sin dependencias nuevas**:
 
 ### Rendimiento
 
-Medido con la app abierta y el panel de OpenCode redibujando (**CPU en reposo /
+Medido con la app abierta y el panel del agente redibujando (**CPU en reposo /
 memoria**):
 
 | | antes | después |
@@ -673,7 +667,7 @@ Detalle en [`docs/ESTADO.md`](docs/ESTADO.md) (§3.25), con lo que queda pendien
   detecta la zona pulsada (huecos de 6 px) y reparte el espacio con
   `left-frac` / `right-frac` / `bottom-frac`. Cambiar la terminal inferior solo
   afecta a la columna central.
-- **Layout modular**: cada panel —**Explorador**, **OpenCode CLI** y
+- **Layout modular**: cada panel —**Explorador**, **Agente** y
   **Terminal**— tiene un **dock** (izquierda, derecha, abajo u oculto). Los que
   comparten lado **se apilan** (hasta 3 por lado). Se controla desde dos lugares:
   los **botones de layout** de la barra superior (prenden/apagan cada región:
@@ -698,7 +692,7 @@ Detalle en [`docs/ESTADO.md`](docs/ESTADO.md) (§3.25), con lo que queda pendien
 - **Explorador y editor reales**: clic en carpeta abre/cierra; clic en archivo lo
   abre en una pestaña con resaltado SpASM. La raíz del árbol se elige con clic en
   el nombre del proyecto (diálogo nativo) y se recuerda entre arranques.
-- **Foco de teclado**: `IdeTerminal`, `IdeEditor` e `IdeOpenCode` heredan de
+- **Foco de teclado**: `IdeTerminal`, `IdeEditor` e `IdeAgent` heredan de
   `FocusScope` y tienen `focus-on-click`. La ventana hace `forward-focus` a la
   terminal local, así que ésta recibe el teclado apenas se abre; clic en el
   editor le pasa el foco (para tipear código), y clic en cualquiera de las dos
@@ -711,7 +705,7 @@ Ordenados por impacto para usar el IDE día a día; el **plan en fases** complet
 [`docs/PLAN.md`](docs/PLAN.md).
 
 1. **Mouse reporting en las terminales.** Reenviar el mouse a los procesos que lo
-   pidan (la TUI de OpenCode, `vim`…) sin perder la selección/copia.
+   pidan (la TUI de NuCoder, `vim`…) sin perder la selección/copia.
 2. **Empaquetado.** `.exe` release con icono y versión, e instalador, como las
    otras apps del ecosistema.
 3. **Persistencia ampliada y búsqueda avanzada.** Recordar también las sesiones
@@ -721,12 +715,12 @@ Ordenados por impacto para usar el IDE día a día; el **plan en fases** complet
 
 Compilado y publicado: `github.com/nutoysaudio-code/NuIde` (`main`). 159 tests OK;
 clon limpio genera `nuide.exe`. Las dos terminales son PTY reales (shell local y
-TUI de `opencode`) con **mouse reporting**, el proyecto se elige con diálogo
+TUI de `nucoder`) con **mouse reporting**, el proyecto se elige con diálogo
 nativo y se recuerda, el editor tiene buscar/reemplazar (con **regex**, **en
 selección** e historial), autocierre/autoindentación, resaltados, **resaltado
 por lenguaje y visores** (imagen y vista previa de Markdown), **diagnóstico con
 el parser de SpASM**, **control de código (Git)** con **diff, ramas, pull y ahead/behind**,
 **paleta de comandos / buscador de archivos**, **buscar en todo el proyecto**, **menús Archivo/Editar**
 con guardar como y cierre confirmado, **explorador con operaciones de archivos**
-y un **CRUD de proveedores de OpenCode**; los paneles se acoplan/apilan por lado.
+y un **CRUD de proveedores de NuCoder**; los paneles se acoplan/apilan por lado.
 Falta local: los ítems de arriba.

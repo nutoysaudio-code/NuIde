@@ -23,7 +23,7 @@ con estas garantías:
 7. **Documentado y probado**: guía de usuario, tests y CI en verde.
 
 Lo que ya está hecho y no se repite: layout y docks, editor con resaltado por
-lenguaje y visores, terminales PTY (local + agente OpenCode), build/run,
+lenguaje y visores, terminales PTY (local + agente NuCoder), build/run,
 diagnóstico con el parser, esquema e ir a definición, Git (panel), bienvenida,
 paleta de comandos y buscador de archivos.
 
@@ -153,7 +153,7 @@ IDE sin romper el repo.
 
 ## Fase 6 — Terminal completa  ·  M  ·  must (mouse) + nice  ·  ✅ hecha (3.19)
 
-**Objetivo:** terminal sin fricción para `vim`, la TUI de OpenCode, etc.
+**Objetivo:** terminal sin fricción para `vim`, la TUI de NuCoder, etc.
 (Hecho: mouse reporting y sesiones renombrables/reiniciables. Pendiente de esta
 fase: persistencia de sesiones/scrollback y buscar en el scrollback.)
 
@@ -165,7 +165,7 @@ fase: persistencia de sesiones/scrollback y buscar en el scrollback.)
 - `nice` Buscar dentro del scrollback.
 
 **Archivos:** `src/vt.rs`, `src/editor.rs`, `ui/ide_terminal.slint`,
-`ui/ide_opencode.slint`.
+`ui/ide_nucoder.slint`.
 **Terminado:** usar `vim`/TUI con mouse y recuperar las terminales al reabrir.
 
 ---
@@ -261,7 +261,7 @@ al final porque es lo más grande y se apoya en toolchain y editor ya pulidos.
 ## Riesgos y dependencias
 
 - **Externas:** `git`, el toolchain SpASM (Python + frontend + `spasmc`) y
-  `opencode`. El IDE degrada con mensajes si faltan (ya lo hace), pero el
+  `nucoder`. El IDE degrada con mensajes si faltan (ya lo hace), pero el
   depurador y build dependen de que estén.
 - **`vt100`:** el mouse reporting depende de los modos que exponga el crate; si
   no alcanza, evaluar reemplazarlo o extenderlo.

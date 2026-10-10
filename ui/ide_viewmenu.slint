@@ -45,7 +45,7 @@ component IdeViewItem inherits Rectangle {
 }
 
 // Menú desplegable del ítem "Ver": controla dónde vive cada panel. `kind`:
-// 0 explorador, 1 OpenCode, 2 terminal, 3 control de código. El dock: 0
+// 0 explorador, 1 Agente, 2 terminal, 3 control de código. El dock: 0
 // izquierda, 1 derecha, 2 abajo, 3 oculto.
 export component IdeViewMenu inherits Rectangle {
     in property <int> dock-explorer: 0;
@@ -84,7 +84,7 @@ export component IdeViewMenu inherits Rectangle {
             activated(k) => { root.cycle-dock(k); }
         }
         IdeViewItem {
-            label: @tr("OpenCode CLI");
+            label: @tr("Agente");
             detail: root.dock-label(root.dock-agent);
             hidden: root.dock-agent == 3;
             kind: 1;

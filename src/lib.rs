@@ -1,4 +1,4 @@
-// NuIde — IDE multi-lenguaje con soporte de SpASM, terminales integrados y OpenCode CLI.
+// NuIde — IDE multi-lenguaje con soporte de SpASM, terminales integrados y NuCoder.
 //
 // Proyecto independiente: no es un plugin de audio ni depende de ningún crate
 // compartido del workspace NuToys. Solo usa `slint` para la UI y `arboard` para

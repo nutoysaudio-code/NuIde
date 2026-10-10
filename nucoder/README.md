@@ -1,12 +1,12 @@
-# Nuide-CLI
+# NuCoder
 
-Agente de código para la terminal (estilo OpenCode) con **router de proveedores
+Agente de código para la terminal con **router de proveedores
 AI gratis primero**. La **decisión de enrutamiento vive en SpASM** (dialecto
 compilado AOT → C → FFI) y la interfaz es una **TUI** (`ratatui` + `crossterm`).
 
 - **Router propio**: cargás las **API keys** de los modelos gratuitos (OpenRouter,
-  Groq, Cerebras, Gemini vía su endpoint OpenAI-compatible, etc.). No hace falta
-  tocar OpenCode: además, si existe la config de OpenCode, se lee como respaldo.
+  Groq, Cerebras, Gemini vía su endpoint OpenAI-compatible, etc.) en la config del
+  propio CLI.
 - **Coder**: bucle agéntico con herramientas para leer, escribir, editar y buscar
   archivos, y ejecutar comandos; streaming en vivo.
 - **Rotación**: si un proveedor se queda sin cuota (429/402), la key es inválida
@@ -17,13 +17,13 @@ compilado AOT → C → FFI) y la interfaz es una **TUI** (`ratatui` + `crosster
 | Componente | Estado |
 |---|---|
 | Router de proveedores/modelos (gratis primero + rotación) | ✅ real (SpASM) |
-| Config **propia** con API keys + unión con la de OpenCode | ✅ real |
+| Config **propia** con API keys | ✅ real |
 | Cliente HTTP compatible-OpenAI con **streaming SSE** (`curl`) | ✅ real |
 | Bucle agéntico con herramientas (read/write/edit/glob/grep/bash) | ✅ real |
 | Rotación por cuota/autenticación/servidor | ✅ real |
 | Descubrimiento de modelos (`GET /models`) y filtro de gratis | ✅ real |
 | TUI de chat (streaming, historial, tarea, modo gratis) | ✅ real |
-| Integración con NuIde (paleta → *Lanzar Nuide-CLI*) | ✅ |
+| Integración con NuIde (paleta → *Lanzar NuCoder*) | ✅ |
 | Completado semántico por AST (SpASM) | ⏳ pendiente |
 
 ## Cómo funciona el router
@@ -49,11 +49,11 @@ se **reenvía tal cual** al siguiente candidato.
 ## Uso
 
 ```powershell
-nuide-cli                       # TUI interactiva (chat + herramientas)
-nuide-cli ask "resumí el repo"  # one-shot: imprime la respuesta
-nuide-cli --route refactor      # qué proveedor/modelo elegiría
-nuide-cli --providers           # lista proveedores y modelos
-nuide-cli --free                # fuerza sólo modelos gratuitos
+nucoder                       # TUI interactiva (chat + herramientas)
+nucoder ask "resumí el repo"  # one-shot: imprime la respuesta
+nucoder --route refactor      # qué proveedor/modelo elegiría
+nucoder --providers           # lista proveedores y modelos
+nucoder --free                # fuerza sólo modelos gratuitos
 ```
 
 En la TUI: `Enter` envía; `/refactor`, `/debug`, `/explain`, `/test` cambian la
@@ -64,19 +64,19 @@ curso y `Ctrl+C` sale.
 
 ```powershell
 # OpenRouter (modelos :free)
-nuide-cli provider add --id openrouter --name OpenRouter `
+nucoder provider add --id openrouter --name OpenRouter `
     --base-url https://openrouter.ai/api/v1 --api-key sk-or-... --free-only
 
 # Descubrir modelos del endpoint y quedarse con los gratuitos
-nuide-cli discover openrouter --save-free
+nucoder discover openrouter --save-free
 
 # Gemini (endpoint OpenAI-compatible)
-nuide-cli provider add --id gemini --name Gemini `
+nucoder provider add --id gemini --name Gemini `
     --base-url https://generativelanguage.googleapis.com/v1beta/openai --api-key AIza...
 ```
 
 La lista de proveedores se guarda en la **config propia** del CLI:
-`~/.config/nuide-cli/config.json` (override con `NUIDE_CLI_CONFIG`). Formato:
+`~/.config/nucoder/config.json` (override con `NUCODER_CONFIG`). Formato:
 
 ```json
 {
@@ -97,7 +97,7 @@ La lista de proveedores se guarda en la **config propia** del CLI:
 ```
 
 Si existe `provider` en `api_key`, se prioriza la key; si querés una variable de
-entorno, usá `"env": ["OPENROUTER_API_KEY"]` (como OpenCode). Los modelos también
+entorno, usá `"env": ["OPENROUTER_API_KEY"]`. Los modelos también
 se pueden declarar como `"models": ["id-del-modelo"]`.
 
 ## Arquitectura
@@ -105,9 +105,9 @@ se pueden declarar como `"models": ["id-del-modelo"]`.
 ```
 spasm/*.spasm ── spasmc.py --target c ──▶ spasm/generated/*.c  (commiteado)
 ffi/*_ffi.c   incluye el generado y exporta los simbolos nuide_*
-build.rs (cc) ──▶ staticlib enlazada a nuide-cli.exe
+build.rs (cc) ──▶ staticlib enlazada a nucoder.exe
 src/ffi.rs    extern "C" + wrappers (mutex: el C usa buffers estaticos)
-src/config.rs config propia + union con la de OpenCode; candidatos
+src/config.rs config propia (API keys y modelos); candidatos
 src/client.rs cliente HTTP (curl) con streaming SSE y clasificacion de errores
 src/agent.rs  bucle del agente + rotacion de proveedores
 src/tools.rs  herramientas (read/write/edit/list_dir/glob/grep/bash)
@@ -117,8 +117,8 @@ src/main.rs   CLI (TUI, one-shot, proveedores, discover)
 
 | Modulo SpASM | Exporta |
 |---|---|
-| `spasm/router.spasm` | `nuide_router_pick`, `nuide_router_pick_ex`, `nuide_router_is_power_task` |
-| `spasm/codeassist.spasm` | `nuide_codeassist_keywords` (+ global `codeassist_out`) |
+| `spasm/router.spasm` | `nucoder_router_pick`, `nucoder_router_pick_ex`, `nucoder_router_is_power_task` |
+| `spasm/codeassist.spasm` | `nucoder_codeassist_keywords` (+ global `codeassist_out`) |
 
 Regenerar el C: `powershell -ExecutionPolicy Bypass -File tools/regen_spasm.ps1`
 (requiere Python + `spasmc.py`; rutas con `NUIDE_PYTHON` / `NUIDE_SPASMC`).
@@ -126,8 +126,8 @@ Regenerar el C: `powershell -ExecutionPolicy Bypass -File tools/regen_spasm.ps1`
 ## Compilar
 
 ```sh
-cargo build --release --bin nuide-cli
-# binario: target/release/nuide-cli.exe
+cargo build --release --bin nucoder
+# binario: target/release/nucoder.exe
 ```
 
 Un clone limpio compila sin Python (el C va commiteado); sólo necesita un

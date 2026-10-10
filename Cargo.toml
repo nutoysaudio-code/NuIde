@@ -27,6 +27,8 @@ vt100 = "0.16.2"
 # Búsqueda con expresiones regulares en el editor. `regex-lite` es la variante
 # liviana (sin tablas Unicode) pensada para casos simples como éste.
 regex-lite = "0.1"
+# JSON para leer/escribir la config de NuCoder (proveedores).
+serde_json = "1.0"
 # Diálogo nativo de carpetas para elegir el proyecto.
 rfd = "0.17.2"
 slint = "1.0"

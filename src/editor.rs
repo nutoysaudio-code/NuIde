@@ -10,7 +10,7 @@
 //! (ConPTY en Windows) con un proceso persistente; los bytes crudos los
 //! interpreta el emulador de `vt`. Escribir es mandarle teclas al proceso. En la
 //! terminal local corre una shell; en el panel del agente corre una shell que
-//! lanza `opencode` al arrancar (si sale de opencode, queda en la shell). Los
+//! lanza `NuCoder` al arrancar (si sale de NuCoder, queda en la shell). Los
 //! menús Ejecutar/Compilar escriben la orden en la shell local, así la salida
 //! aparece ahí.
 //!
@@ -309,7 +309,7 @@ struct LocalSession {
 /// `VecModel` no tiene un "cambiar fila": lo que hay es `remove` + `insert`, que
 /// mandan `row_removed`/`row_added` y hacen que Slint **destruya el elemento del
 /// `for` y cree uno nuevo** (con sus `Text` y el shaping de cada tramo). Medido
-/// en reposo con el panel de OpenCode abierto, eso era el ~70 % del CPU.
+/// en reposo con el panel de Agente abierto, eso era el ~70 % del CPU.
 ///
 /// `TermRows` guarda el mismo `Vec` y avisa con `row_changed`: Slint re-usa el
 /// elemento existente y sólo re-evalúa sus bindings.
@@ -398,7 +398,7 @@ impl TermSel {
 enum Target {
     /// Terminal local inferior (una shell).
     Local,
-    /// Panel derecho del agente (la TUI de `opencode`).
+    /// Panel derecho del agente (la TUI de `NuCoder`).
     Agent,
 }
 
@@ -695,7 +695,7 @@ impl Command {
             Command::NewAdminTerminal => crate::i18n::t("Terminal: nueva como administrador"),
             Command::SplitTerminal => crate::i18n::t("Dividir la terminal"),
             Command::ToggleExplorer => crate::i18n::t("Ver: Explorador"),
-            Command::ToggleAgent => crate::i18n::t("Ver: OpenCode CLI"),
+            Command::ToggleAgent => crate::i18n::t("Ver: Agente"),
             Command::ToggleTerminal => crate::i18n::t("Ver: Terminal"),
             Command::ToggleGit => crate::i18n::t("Ver: Control de código"),
             Command::GitRefresh => crate::i18n::t("Git: refrescar"),
@@ -721,7 +721,7 @@ impl Command {
             Command::TemplateEmpty => crate::i18n::t("Plantilla: archivo vacío…"),
             Command::Preferences => crate::i18n::t("Preferencias"),
             Command::RelaunchElevated => crate::i18n::t("NuIde: reiniciar como administrador"),
-            Command::LaunchNuideCli => crate::i18n::t("Lanzar Nuide-CLI (agente)"),
+            Command::LaunchNuideCli => crate::i18n::t("Lanzar NuCoder (agente)"),
         }
     }
 
@@ -772,7 +772,7 @@ impl Command {
             }
             Command::Preferences => "Ctrl+,",
             Command::RelaunchElevated => "admin",
-            Command::LaunchNuideCli => "nuide-cli",
+            Command::LaunchNuideCli => "nucoder",
             _ => "",
         }
     }
@@ -996,20 +996,20 @@ enum Ask {
     ReplaceInProject,
     /// Descartar los cambios de un archivo de Git.
     Discard { path: String, untracked: bool },
-    /// Eliminar un proveedor de OpenCode de la config global.
+    /// Eliminar un proveedor de NuCoder.
     DeleteProvider(String),
 }
 
-/// Borrador del proveedor de OpenCode que se edita en el formulario.
+/// Borrador del proveedor de NuCoder que se edita en el formulario.
 struct ProviderDraft {
     /// Id original (vacío si es un proveedor nuevo).
     original_id: String,
     id: String,
     name: String,
-    package: String,
     base_url: String,
     api_key: String,
-    /// Texto JSON del objeto `models` (se valida como JSON al guardar).
+    free_only: bool,
+    /// Texto JSON del array `models` (se valida como JSON al guardar).
     models: String,
 }
 
@@ -1019,10 +1019,10 @@ impl Default for ProviderDraft {
             original_id: String::new(),
             id: String::new(),
             name: String::new(),
-            package: "@opencode/ai/providers/openai-compatible".to_string(),
             base_url: String::new(),
             api_key: String::new(),
-            models: "{}".to_string(),
+            free_only: false,
+            models: "[]".to_string(),
         }
     }
 }
@@ -1141,7 +1141,7 @@ pub struct Ide {
     show_left: bool,
     show_right: bool,
     show_bottom: bool,
-    /// Dónde vive cada panel (Explorador, OpenCode, Terminal, Git). Los que
+    /// Dónde vive cada panel (Explorador, Agente, Terminal, Git). Los que
     /// comparten región se apilan.
     docks: [Dock; 4],
     /// El menú desplegable abierto ("file", "edit", "view", "agent", "help") o
@@ -1251,7 +1251,7 @@ pub struct Ide {
     /// --- pantalla de configuración ---
     settings_open: bool,
     settings_section: usize,
-    /// CRUD de proveedores de OpenCode (config global).
+    /// CRUD de proveedores de Agente (config global).
     provider_open: bool,
     provider_draft: ProviderDraft,
     provider_note: String,
@@ -1272,7 +1272,7 @@ pub struct Ide {
     /// Menú de ramas abierto y sus filas.
     branch_menu: bool,
     branch_items: Vec<IdeMenuEntry>,
-    /// Panel del agente: `opencode` en un PTY con su propia pantalla. Canal
+    /// Panel del agente: `NuCoder` en un PTY con su propia pantalla. Canal
     /// aparte para no mezclar la salida con la terminal local.
     agent: Option<LocalSession>,
     agent_tx: Sender<PtyEvent>,
@@ -1485,7 +1485,7 @@ impl Ide {
             provider_draft: ProviderDraft::default(),
             provider_note: String::new(),
             relaunch: false,
-            providers: crate::providers::load_from(&crate::providers::config_dir()),
+            providers: crate::providers::load(),
             build_note: None,
             git_status,
             git_note: String::new(),
@@ -1507,7 +1507,7 @@ impl Ide {
         ide.new_local_session();
         ide.explorer.set_show_generated(show_generated);
         // En las pruebas no se lanza la TUI real (abriría procesos de más); el
-        // arranque de `opencode` en un PTY se cubre con `pty::tests`.
+        // arranque de `NuCoder` en un PTY se cubre con `pty::tests`.
         if !cfg!(test) {
             ide.start_agent();
             ide.restore_tabs();
@@ -1633,8 +1633,8 @@ impl Ide {
 
 impl Ide {
     /// Lanza una **terminal pura** en el panel derecho: una shell real en la
-    /// raíz del proyecto, como la inferior. `opencode` no se abre solo: se
-    /// inyecta cuando el usuario elige *Lanzar opencode* (paleta). Si opencode
+    /// raíz del proyecto, como la inferior. `NuCoder` no se abre solo: se
+    /// inyecta cuando el usuario elige *Lanzar NuCoder* (paleta). Si NuCoder
     /// se cierra, la terminal queda en la shell.
     fn start_agent(&mut self) {
         let (shell, args) = pty::default_shell();
@@ -1674,38 +1674,21 @@ impl Ide {
         });
     }
 
-    /// Inyecta el comando que arranca `opencode` en la shell del panel derecho,
-    /// sólo si el usuario lo pidió. Si la shell está muerta, la relanza antes.
-    fn launch_agent(&mut self) {
-        let Some(bin) = self.toolchain.agent.clone() else {
-            return;
-        };
+    /// Lanza NuCoder en el panel del agente, en la raíz del proyecto: agente de
+    /// código con router de modelos (gratis primero), con la decisión en SpASM.
+    /// Si no está instalado, avisa y deja el panel como terminal.
+    fn launch_nucoder(&mut self) {
         if !self.agent.as_ref().is_some_and(|a| a.alive) {
             self.agent = None;
             self.start_agent();
         }
-        // Con comillas, para que funcione aunque la ruta tenga espacios. En
-        // PowerShell hace falta el operador de llamada `&`.
-        let (shell, _) = pty::default_shell();
-        let command = if pty::is_powershell(&shell) {
-            format!("& '{}'\r", bin.display())
-        } else {
-            format!("\"{}\"\r", bin.display())
-        };
-        self.write_to(Target::Agent, command.as_bytes());
-    }
-
-    /// Lanza la CLI propia de NuIde (`nuide-cli`) en el panel del agente, en la
-    /// raíz del proyecto: agente de código con router de modelos (gratis
-    /// primero), con la lógica de decisión en SpASM.
-    fn launch_nuide_cli(&mut self) {
-        let Some(bin) = self.toolchain.nuide_cli.clone() else {
+        let Some(bin) = self.toolchain.nucoder.clone() else {
+            let msg = crate::i18n::t(
+                "No se encontró NuCoder (definí NUCODER o instalalo). El panel queda como terminal.",
+            );
+            self.write_to(Target::Agent, format!("{msg}\r\n").as_bytes());
             return;
         };
-        if !self.agent.as_ref().is_some_and(|a| a.alive) {
-            self.agent = None;
-            self.start_agent();
-        }
         let root = self.explorer.root().to_path_buf();
         let (shell, _) = pty::default_shell();
         let command = if pty::is_powershell(&shell) {
@@ -1978,15 +1961,15 @@ impl Ide {
         self.config.set("project", dir.display());
         self.config.save();
         // El agente corre en la raíz del proyecto: se le cambia la carpeta sin
-        // reiniciarlo (opencode tiene el comando `/cd`).
+        // reiniciarlo (NuCoder tiene el comando `/cd`).
         self.retarget_agent(&dir);
         // Las migas de pan dependen de la raíz; se rehace el editor.
         self.editor_full = true;
     }
 
     /// Reinicia la terminal del panel derecho en la carpeta nueva: la shell
-    /// arranca en el cwd del proyecto. opencode no se relanza (se lanza sólo
-    /// bajo demanda con *Lanzar opencode*).
+    /// arranca en el cwd del proyecto. NuCoder no se relanza (se lanza sólo
+    /// bajo demanda con *Lanzar NuCoder*).
     fn retarget_agent(&mut self, _dir: &Path) {
         self.agent = None;
         self.start_agent();
@@ -2725,7 +2708,7 @@ impl Ide {
     }
 
     /// Cambia un panel de dock (izquierda → derecha → abajo → oculto). `kind`:
-    /// 0 Explorador, 1 OpenCode, 2 Terminal, 3 Control de código.
+    /// 0 Explorador, 1 Agente, 2 Terminal, 3 Control de código.
     fn cycle_dock(&mut self, kind: i32) {
         if let Some(dock) = self.docks.get_mut(kind as usize) {
             *dock = dock.next();
@@ -3015,11 +2998,11 @@ impl Ide {
             }
             Command::Preferences => self.prefs_toggle(),
             Command::RelaunchElevated => self.request_relaunch_elevated(),
-            Command::LaunchNuideCli => self.launch_nuide_cli(),
+            Command::LaunchNuideCli => self.launch_nucoder(),
         }
     }
 
-    /// Muestra u oculta un panel (0 Explorador, 1 OpenCode, 2 Terminal, 3 Git).
+    /// Muestra u oculta un panel (0 Explorador, 1 Agente, 2 Terminal, 3 Git).
     /// Si estaba oculto vuelve a un dock por defecto y enciende la región.
     fn toggle_panel(&mut self, i: usize) {
         const DEFAULT: [Dock; 4] = [Dock::Left, Dock::Right, Dock::Bottom, Dock::Left];
@@ -3264,8 +3247,7 @@ impl Ide {
             "edit.find" => self.find_open(false),
             "edit.replace" => self.find_open(true),
             "edit.goto-line" => self.palette_open(PaletteKind::GoToLine),
-            "agent.opencode" => self.launch_agent(),
-            "agent.nuidecli" => self.launch_nuide_cli(),
+            "agent.nucoder" => self.launch_nucoder(),
             "agent.restart" => {
                 self.agent = None;
                 self.start_agent();
@@ -3352,18 +3334,12 @@ impl Ide {
         ]
     }
 
-    /// Filas del menú Agente (lanzar OpenCode o Nuide-CLI y manejar su panel).
+    /// Filas del menú Agente (lanzar NuCoder y manejar su panel).
     fn agent_menu_items(&self) -> Vec<IdeMenuEntry> {
         vec![
             menu_entry(
-                "agent.opencode",
-                crate::i18n::t("Lanzar OpenCode"),
-                "",
-                true,
-            ),
-            menu_entry(
-                "agent.nuidecli",
-                crate::i18n::t("Lanzar Nuide-CLI (agente)"),
+                "agent.nucoder",
+                crate::i18n::t("Lanzar NuCoder (agente)"),
                 "router",
                 true,
             ),
@@ -4288,7 +4264,7 @@ impl Ide {
         "Interfaz",
         "Editor",
         "Terminales",
-        "Agente OpenCode",
+        "Agente",
         "Proveedores",
         "Despliegue",
         "Módulos",
@@ -4394,7 +4370,7 @@ impl Ide {
         v.push(b(
             "ui.show.right",
             0,
-            crate::i18n::t("Región derecha (OpenCode CLI)"),
+            crate::i18n::t("Región derecha (agente)"),
             self.show_right,
             crate::i18n::t("Prende o apaga la columna del agente"),
             0,
@@ -4518,20 +4494,20 @@ impl Ide {
             0,
         ));
 
-        // --- Agente OpenCode (3) ---
-        let agent = self
+        // --- Agente (3) ---
+        let nucoder = self
             .toolchain
-            .agent
+            .nucoder
             .as_ref()
             .map(|p| p.display().to_string())
-            .unwrap_or_else(|| "no encontrado (defini NUIDE_AGENT)".to_string());
+            .unwrap_or_else(|| "no encontrado (defini NUCODER)".to_string());
         v.push(s(
             "agent.bin",
             3,
             6,
-            crate::i18n::t("CLI de OpenCode"),
-            agent,
-            crate::i18n::t("Ruta de la CLI que se lanza bajo demanda con «Lanzar opencode»"),
+            crate::i18n::t("NuCoder"),
+            nucoder,
+            crate::i18n::t("Ruta del agente de código que se lanza con «Lanzar NuCoder»"),
             0,
         ));
         v.push(s(
@@ -4544,19 +4520,10 @@ impl Ide {
             0,
         ));
         v.push(s(
-            "agent.launch",
+            "agent.nucoder",
             3,
             4,
-            crate::i18n::t("Lanzar opencode"),
-            "abrir".into(),
-            crate::i18n::t("Inyecta el comando de opencode en la terminal del panel derecho"),
-            0,
-        ));
-        v.push(s(
-            "agent.nuidecli",
-            3,
-            4,
-            crate::i18n::t("Lanzar Nuide-CLI"),
+            crate::i18n::t("Lanzar NuCoder"),
             "abrir".into(),
             crate::i18n::t("Agente de código con router de modelos (gratis primero) sobre SpASM"),
             0,
@@ -4587,12 +4554,12 @@ impl Ide {
                 format!("{} ({})", p.name, p.id)
             };
             let hint = if p.base_url.is_empty() {
-                "Config global de OpenCode (~/.config/opencode)".to_string()
+                "Config de NuCoder (~/.config/nucoder/config.json)".to_string()
             } else {
-                format!("{} · config global", p.base_url)
+                format!("{} · config de NuCoder", p.base_url)
             };
             v.push(s(
-                &format!("ocp.edit:{}", p.id),
+                &format!("nuc.edit:{}", p.id),
                 4,
                 4,
                 &label,
@@ -4602,12 +4569,12 @@ impl Ide {
             ));
         }
         v.push(s(
-            "ocp.add",
+            "nuc.add",
             4,
             4,
             crate::i18n::t("Agregar proveedor"),
             "nuevo".into(),
-            crate::i18n::t("Da de alta un proveedor nuevo en la config global de OpenCode"),
+            crate::i18n::t("Da de alta un proveedor nuevo para NuCoder"),
             0,
         ));
 
@@ -4884,8 +4851,7 @@ impl Ide {
             "term.new" => self.new_session(),
             "term.restart" => self.restart_session(),
             "term.split" => self.split_terminal(),
-            "agent.launch" => self.launch_agent(),
-            "agent.nuidecli" => self.launch_nuide_cli(),
+            "agent.nucoder" => self.launch_nucoder(),
             "agent.restart" => {
                 self.agent = None;
                 self.start_agent();
@@ -4896,9 +4862,9 @@ impl Ide {
             "site.ssh" => self.deploy_ssh_terminal(),
             "sqlite.pick" => self.sqlite_pick_db(),
             "sqlite.reload" => self.sqlite_reload(),
-            "ocp.add" => self.provider_open_new(),
-            id if id.starts_with("ocp.edit:") => {
-                self.provider_open_edit(&id["ocp.edit:".len()..]);
+            "nuc.add" => self.provider_open_new(),
+            id if id.starts_with("nuc.edit:") => {
+                self.provider_open_edit(&id["nuc.edit:".len()..]);
             }
             other => {
                 // Un atajo: empieza a capturar la combinación nueva.
@@ -4937,11 +4903,11 @@ impl Ide {
         w.set_settings_rows(rows.as_slice().into());
     }
 
-    // --- CRUD de proveedores de OpenCode (config global) ---
+    // --- CRUD de proveedores de Agente (config global) ---
 
     /// Abre el formulario vacío (dar de alta).
     fn provider_open_new(&mut self) {
-        self.providers = crate::providers::load_from(&crate::providers::config_dir());
+        self.providers = crate::providers::load();
         self.provider_draft = ProviderDraft::default();
         self.provider_note.clear();
         self.provider_open = true;
@@ -4949,7 +4915,7 @@ impl Ide {
 
     /// Abre el formulario con un proveedor existente.
     fn provider_open_edit(&mut self, id: &str) {
-        self.providers = crate::providers::load_from(&crate::providers::config_dir());
+        self.providers = crate::providers::load();
         let Some(p) = self.providers.iter().find(|p| p.id == id) else {
             return;
         };
@@ -4957,9 +4923,9 @@ impl Ide {
             original_id: p.id.clone(),
             id: p.id.clone(),
             name: p.name.clone(),
-            package: p.package.clone(),
             base_url: p.base_url.clone(),
             api_key: p.api_key.clone(),
+            free_only: p.free_only,
             models: p.models.clone(),
         };
         self.provider_note.clear();
@@ -4971,9 +4937,9 @@ impl Ide {
         match field {
             "id" => self.provider_draft.id = value.into(),
             "name" => self.provider_draft.name = value.into(),
-            "package" => self.provider_draft.package = value.into(),
             "base-url" => self.provider_draft.base_url = value.into(),
             "api-key" => self.provider_draft.api_key = value.into(),
+            "free-only" => self.provider_draft.free_only = value == "1",
             "models" => self.provider_draft.models = value.into(),
             _ => {}
         }
@@ -5001,16 +4967,17 @@ impl Ide {
             self.provider_note = format!("Ya existe un proveedor llamado «{id}».");
             return;
         }
-        // Los modelos se validan como objeto JSON (dijo el usuario: JSON crudo).
+        // Los modelos se validan como array JSON.
         let models = if self.provider_draft.models.trim().is_empty() {
-            "{}".to_string()
+            "[]".to_string()
         } else {
             self.provider_draft.models.trim().to_string()
         };
-        match crate::jsonx::parse(&models) {
-            Ok(crate::jsonx::Value::Object(_)) => {}
+        match serde_json::from_str::<serde_json::Value>(&models) {
+            Ok(serde_json::Value::Array(_)) => {}
             Ok(_) => {
-                self.provider_note = "«Modelos» tiene que ser un objeto JSON (con llaves).".into();
+                self.provider_note =
+                    "«Modelos» tiene que ser un array JSON (con corchetes).".into();
                 return;
             }
             Err(e) => {
@@ -5020,9 +4987,9 @@ impl Ide {
         }
 
         let name = self.provider_draft.name.trim().to_string();
-        let package = self.provider_draft.package.trim().to_string();
         let base_url = self.provider_draft.base_url.trim().to_string();
         let api_key = self.provider_draft.api_key.trim().to_string();
+        let free_only = self.provider_draft.free_only;
 
         let mut list = std::mem::take(&mut self.providers);
         match list
@@ -5030,33 +4997,21 @@ impl Ide {
             .find(|p| p.id == self.provider_draft.original_id)
         {
             Some(p) => {
-                // No pisar con vacío lo que el proveedor resolvía por `env`
-                // u otro mecanismo: sólo se escribe un campo si el usuario puso
-                // algo o si el proveedor ya lo tenía.
-                let had_package = !p.package.is_empty();
-                let had_base_url = !p.base_url.is_empty();
-                let had_api_key = !p.api_key.is_empty();
                 p.rename(&id);
                 p.set_name(&name);
-                if !package.is_empty() || had_package {
-                    p.set_package(&package);
-                }
-                if !base_url.is_empty() || had_base_url {
-                    p.set_base_url(&base_url);
-                }
-                if !api_key.is_empty() || had_api_key {
-                    p.set_api_key(&api_key);
-                }
+                p.set_base_url(&base_url);
+                p.set_api_key(&api_key);
+                p.set_free_only(free_only);
                 p.set_models(&models);
             }
             None => {
                 let p = crate::providers::Provider::from_fields(
-                    &id, &name, &package, &base_url, &api_key, &models,
+                    &id, &name, &base_url, &api_key, free_only, &models,
                 );
                 list.push(p);
             }
         }
-        match crate::providers::save_into(&crate::providers::config_dir(), &list) {
+        match crate::providers::save(&list) {
             Ok(_) => {
                 self.provider_open = false;
                 self.provider_note.clear();
@@ -5082,7 +5037,7 @@ impl Ide {
     fn provider_do_delete(&mut self, id: &str) {
         let mut list = std::mem::take(&mut self.providers);
         list.retain(|p| p.id != id);
-        match crate::providers::save_into(&crate::providers::config_dir(), &list) {
+        match crate::providers::save(&list) {
             Ok(_) => {
                 self.provider_open = false;
                 self.provider_note.clear();
@@ -7461,7 +7416,7 @@ impl Ide {
                 w.set_ask_title(crate::i18n::t("Eliminar proveedor").into());
                 w.set_ask_message(
                     crate::i18n::tf(
-                        "¿Eliminar el proveedor «{}» de la config global de OpenCode?",
+                        "¿Eliminar el proveedor «{}» de la config de NuCoder?",
                         &[id.as_str()],
                     )
                     .into(),
@@ -7569,11 +7524,11 @@ impl Ide {
         w.set_sqlite_busy(self.sqlite_busy);
         // Pantalla de configuración.
         self.sync_settings(w);
-        // Formulario de proveedores de OpenCode.
+        // Formulario de proveedores de NuCoder.
         w.set_provider_open(self.provider_open);
         w.set_provider_id(self.provider_draft.id.clone().into());
         w.set_provider_name(self.provider_draft.name.clone().into());
-        w.set_provider_package(self.provider_draft.package.clone().into());
+        w.set_provider_free_only(self.provider_draft.free_only);
         w.set_provider_base_url(self.provider_draft.base_url.clone().into());
         w.set_provider_api_key(self.provider_draft.api_key.clone().into());
         w.set_provider_models(self.provider_draft.models.clone().into());
@@ -7925,7 +7880,7 @@ impl Ide {
                         .process(format!("\r\n[proceso terminado: {code}]\r\n").as_bytes());
                 }
                 // El panel derecho es una terminal que se recupera sola: si la
-                // shell se cae — opencode al salir con Ctrl+C puede arrastrar
+                // shell se cae — NuCoder al salir con Ctrl+C puede arrastrar
                 // toda la consola — se relanza para dejar siempre un prompt
                 // usable. (La terminal inferior queda muerta a propósito.)
                 if matches!(target, Target::Agent) {
@@ -9284,7 +9239,7 @@ pub fn attach(window: &NuIdeWindow, ide: Rc<RefCell<Ide>>) {
             }
         });
     }
-    // Formulario de proveedores de OpenCode.
+    // Formulario de proveedores de Agente.
     {
         let ide = Rc::clone(&ide);
         let weak = window.as_weak();
@@ -10625,13 +10580,12 @@ mod tests {
     }
 
     #[test]
-    fn el_menu_agente_lista_nuide_cli() {
+    fn el_menu_agente_lista_nucoder() {
         let mut ide = Ide::new();
         ide.menu("agent");
         assert_eq!(ide.menu_open, "agent");
         let items = ide.agent_menu_items();
-        assert!(items.iter().any(|e| e.id.as_str() == "agent.nuidecli"));
-        assert!(items.iter().any(|e| e.id.as_str() == "agent.opencode"));
+        assert!(items.iter().any(|e| e.id.as_str() == "agent.nucoder"));
         // Volver a abrir el mismo menú lo cierra.
         ide.menu("agent");
         assert!(ide.menu_open.is_empty());
