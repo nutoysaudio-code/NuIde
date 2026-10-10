@@ -15,7 +15,11 @@ use std::collections::HashMap;
 use std::sync::OnceLock;
 
 /// Idiomas disponibles: `(locale, nombre nativo)`.
-pub const LANGS: [(&str, &str); 3] = [("es", "Español"), ("en", "English"), ("pt-BR", "Português (BR)")];
+pub const LANGS: [(&str, &str); 3] = [
+    ("es", "Español"),
+    ("en", "English"),
+    ("pt-BR", "Português (BR)"),
+];
 
 /// Locale por defecto.
 pub const DEFAULT: &str = "es";
@@ -86,7 +90,10 @@ fn parse_po(text: &str) -> HashMap<String, String> {
 /// Quita las comillas y desescapa `\n`, `\"`, `\\` y `\t`.
 fn unquote(s: &str) -> String {
     let s = s.trim();
-    let inner = s.strip_prefix('"').and_then(|s| s.strip_suffix('"')).unwrap_or(s);
+    let inner = s
+        .strip_prefix('"')
+        .and_then(|s| s.strip_suffix('"'))
+        .unwrap_or(s);
     let mut out = String::with_capacity(inner.len());
     let mut chars = inner.chars();
     while let Some(c) = chars.next() {
@@ -139,5 +146,32 @@ mod tests {
             Some("Close the search (Esc)")
         );
         assert!(m.contains_key("Idioma"));
+    }
+
+    /// El `.pot` tiene que estar al día con `@tr`/`t()` del código. Se saltea si
+    /// no hay Python (igual que el test del C generado de SpASM).
+    #[test]
+    fn el_pot_esta_al_dia() {
+        use std::process::Command;
+        let Some(py) = ["python", "python3", "py"].into_iter().find(|c| {
+            Command::new(c)
+                .arg("--version")
+                .output()
+                .map(|o| o.status.success())
+                .unwrap_or(false)
+        }) else {
+            eprintln!("test salteado: falta Python");
+            return;
+        };
+        let out = Command::new(py)
+            .args(["tools/i18n_extract.py", "--check"])
+            .output()
+            .expect("correr tools/i18n_extract.py");
+        assert!(
+            out.status.success(),
+            "i18n desactualizado:\n{}{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
     }
 }

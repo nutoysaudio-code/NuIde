@@ -15,7 +15,7 @@ component MenuRow inherits Rectangle {
     background: (root.enabled && ta.has-hover) ? IdeTheme.control-hi : transparent;
 
     if root.id != "" && root.detail != "": Tooltip {
-        TipContent { text: root.label + "  (" + root.detail + ")"; }
+        TipContent { text: @tr("{}  ({})", root.label, root.detail); }
     }
 
     // Separador.

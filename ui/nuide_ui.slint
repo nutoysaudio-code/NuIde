@@ -429,10 +429,10 @@ export component NuIdeWindow inherits Window {
     // --- geometría derivada (todo relativo al área de contenido) ---
     private property <length> view-menu-x: topbar.view-menu-x;
     // Dónde anclar el desplegable abierto, según cuál sea.
-    private property <length> menu-anchor: root.menu-open == "Archivo" ? topbar.file-menu-x
-        : root.menu-open == "Editar" ? topbar.edit-menu-x
-        : root.menu-open == "Agente" ? topbar.agent-menu-x
-        : root.menu-open == "Ayuda" ? topbar.help-menu-x
+    private property <length> menu-anchor: root.menu-open == "file" ? topbar.file-menu-x
+        : root.menu-open == "edit" ? topbar.edit-menu-x
+        : root.menu-open == "agent" ? topbar.agent-menu-x
+        : root.menu-open == "help" ? topbar.help-menu-x
         : topbar.view-menu-x;
     private property <length> content-w: self.width;
     private property <length> content-h: max(0px, self.height - IdeTheme.topbar-h - IdeTheme.statusbar-h);
@@ -969,7 +969,7 @@ export component NuIdeWindow inherits Window {
     }
 
     // --- desplegable de "Ver" (paneles) ---
-    if root.menu-open == "Ver": IdeViewMenu {
+    if root.menu-open == "view": IdeViewMenu {
         x: root.menu-anchor;
         y: IdeTheme.topbar-h;
         dock-explorer: root.dock-explorer;
@@ -980,7 +980,7 @@ export component NuIdeWindow inherits Window {
     }
 
     // --- desplegable de Archivo / Editar / Agente / Ayuda ---
-    if root.menu-open == "Archivo" || root.menu-open == "Editar" || root.menu-open == "Agente" || root.menu-open == "Ayuda": IdeMenu {
+    if root.menu-open == "file" || root.menu-open == "edit" || root.menu-open == "agent" || root.menu-open == "help": IdeMenu {
         x: root.menu-anchor;
         y: IdeTheme.topbar-h;
         items: root.menu-items;

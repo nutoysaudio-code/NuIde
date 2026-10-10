@@ -3,6 +3,8 @@ import { TipContent } from "ide_tooltip.slint";
 
 // Elemento de menú de la barra superior.
 component IdeMenuItem inherits Rectangle {
+    // Identificador estable del menú (no se traduce). La `label` sí.
+    in property <string> menu-id: "";
     in property <string> label: "Archivo";
     in property <bool> active: false;
     // Texto del tooltip al pasar el cursor (qué abre este menú).
@@ -197,13 +199,13 @@ export component IdeTopBar inherits Rectangle {
 
         Rectangle { width: 8px; background: transparent; }
 
-        file-item := IdeMenuItem { label: "Archivo"; tip: @tr("Abrir proyecto y archivos, guardar, cerrar pestañas y salir"); active: root.active-menu == "Archivo"; activated => { root.menu-activated(self.label); } }
-        edit-item := IdeMenuItem { label: "Editar"; tip: @tr("Deshacer/rehacer, buscar y reemplazar, ir a línea"); active: root.active-menu == "Editar"; activated => { root.menu-activated(self.label); } }
-        view-item := IdeMenuItem { label: "Ver"; tip: @tr("Dónde está acoplado cada panel (explorador, OpenCode, terminal, Git): clic para moverlo"); active: root.active-menu == "Ver"; activated => { root.menu-activated(self.label); } }
-        IdeMenuItem { label: "Ejecutar"; tip: @tr("Correr el programa SpASM con la configuración activa (F5)"); activated => { root.menu-activated(self.label); } }
-        IdeMenuItem { label: "Compilar"; tip: @tr("Transpilar y compilar a binario nativo (Ctrl+B) o compilar y ejecutar (Ctrl+Shift+B)"); activated => { root.menu-activated(self.label); } }
-        agent-item := IdeMenuItem { label: "Agente"; tip: @tr("Lanzar OpenCode o Nuide-CLI en el panel del agente"); active: root.active-menu == "Agente"; activated => { root.menu-activated(self.label); } }
-        help-item := IdeMenuItem { label: "Ayuda"; tip: @tr("Sintaxis de SpASM, atajos y acerca de NuIde (F1)"); active: root.active-menu == "Ayuda"; activated => { root.menu-activated(self.label); } }
+        file-item := IdeMenuItem { menu-id: "file"; label: @tr("Archivo"); tip: @tr("Abrir proyecto y archivos, guardar, cerrar pestañas y salir"); active: root.active-menu == "file"; activated => { root.menu-activated(self.menu-id); } }
+        edit-item := IdeMenuItem { menu-id: "edit"; label: @tr("Editar"); tip: @tr("Deshacer/rehacer, buscar y reemplazar, ir a línea"); active: root.active-menu == "edit"; activated => { root.menu-activated(self.menu-id); } }
+        view-item := IdeMenuItem { menu-id: "view"; label: @tr("Ver"); tip: @tr("Dónde está acoplado cada panel (explorador, OpenCode, terminal, Git): clic para moverlo"); active: root.active-menu == "view"; activated => { root.menu-activated(self.menu-id); } }
+        IdeMenuItem { menu-id: "run"; label: @tr("Ejecutar"); tip: @tr("Correr el programa SpASM con la configuración activa (F5)"); activated => { root.menu-activated(self.menu-id); } }
+        IdeMenuItem { menu-id: "build"; label: @tr("Compilar"); tip: @tr("Transpilar y compilar a binario nativo (Ctrl+B) o compilar y ejecutar (Ctrl+Shift+B)"); activated => { root.menu-activated(self.menu-id); } }
+        agent-item := IdeMenuItem { menu-id: "agent"; label: @tr("Agente"); tip: @tr("Lanzar OpenCode o Nuide-CLI en el panel del agente"); active: root.active-menu == "agent"; activated => { root.menu-activated(self.menu-id); } }
+        help-item := IdeMenuItem { menu-id: "help"; label: @tr("Ayuda"); tip: @tr("Sintaxis de SpASM, atajos y acerca de NuIde (F1)"); active: root.active-menu == "help"; activated => { root.menu-activated(self.menu-id); } }
     }
 
     // Proyecto, centrado en la barra. Es clickeable: abre el selector de carpeta.

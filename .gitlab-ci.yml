@@ -19,7 +19,7 @@ default:
   before_script:
     - rustup component add rustfmt clippy
     - apt-get update -qq
-    - apt-get install -y -qq libfontconfig1-dev libxkbcommon-dev libxcb-shape0-dev libxcb-xfixes0-dev libgl1-mesa-dev pkg-config
+    - apt-get install -y -qq libfontconfig1-dev libxkbcommon-dev libxcb-shape0-dev libxcb-xfixes0-dev libgl1-mesa-dev pkg-config python3
 
 fmt:
   stage: check
@@ -30,6 +30,12 @@ clippy:
   stage: check
   script:
     - cargo clippy --all-targets -- -D warnings
+
+# El catálogo de traducciones tiene que estar al día con `@tr`/`t()` del código.
+i18n:
+  stage: check
+  script:
+    - python3 tools/i18n_extract.py --check
 
 test:
   stage: test

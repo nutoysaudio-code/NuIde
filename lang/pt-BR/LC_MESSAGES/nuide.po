@@ -23,6 +23,12 @@ msgstr "Abrir o arquivo no editor (Enter)"
 msgid "Descartar los cambios locales (git checkout --)"
 msgstr "Descartar as alterações locais (git checkout --)"
 
+msgid " (sin guardar)"
+msgstr " (não salvo)"
+
+msgid " [activa]"
+msgstr " [ativa]"
+
 msgid "Anterior coincidencia (Shift+F3)"
 msgstr "Correspondência anterior (Shift+F3)"
 
@@ -85,6 +91,15 @@ msgstr "Ver e trocar de branch (git branch)"
 
 msgid "Confirmar los cambios preparados (git commit)"
 msgstr "Confirmar as alterações preparadas (git commit)"
+
+msgid "{}  ({})"
+msgstr "{}  ({})"
+
+msgid "  ({})"
+msgstr "  ({})"
+
+msgid "Filtrar comandos o archivos por nombre"
+msgstr "Filtrar comandos ou arquivos por nome"
 
 msgid "FTP (21), FTPS (FTP + TLS, curl valida el certificado) o SFTP (SSH, 22)"
 msgstr "FTP (21), FTPS (FTP + TLS, o curl valida o certificado) ou SFTP (SSH, 22)"
@@ -182,29 +197,50 @@ msgstr "Dividir o terminal em duas vistas"
 msgid "Cerrar esta sesion de terminal"
 msgstr "Fechar esta sessão de terminal"
 
-msgid "Proyecto abierto - clic para elegir otra carpeta"
-msgstr "Projeto aberto - clique para escolher outra pasta"
+msgid "Archivo"
+msgstr "Arquivo"
 
 msgid "Abrir proyecto y archivos, guardar, cerrar pestañas y salir"
 msgstr "Abrir projeto e arquivos, salvar, fechar abas e sair"
 
+msgid "Editar"
+msgstr "Editar"
+
 msgid "Deshacer/rehacer, buscar y reemplazar, ir a línea"
 msgstr "Desfazer/refazer, buscar e substituir, ir para linha"
+
+msgid "Ver"
+msgstr "Ver"
 
 msgid "Dónde está acoplado cada panel (explorador, OpenCode, terminal, Git): clic para moverlo"
 msgstr "Onde cada painel está acoplado (explorador, OpenCode, terminal, Git): clique para mover"
 
+msgid "Ejecutar"
+msgstr "Executar"
+
 msgid "Correr el programa SpASM con la configuración activa (F5)"
 msgstr "Rodar o programa SpASM com a configuração ativa (F5)"
+
+msgid "Compilar"
+msgstr "Compilar"
 
 msgid "Transpilar y compilar a binario nativo (Ctrl+B) o compilar y ejecutar (Ctrl+Shift+B)"
 msgstr "Transpilar e compilar para binário nativo (Ctrl+B) ou compilar e executar (Ctrl+Shift+B)"
 
+msgid "Agente"
+msgstr "Agente"
+
 msgid "Lanzar OpenCode o Nuide-CLI en el panel del agente"
 msgstr "Lançar OpenCode ou Nuide-CLI no painel do agente"
 
+msgid "Ayuda"
+msgstr "Ajuda"
+
 msgid "Sintaxis de SpASM, atajos y acerca de NuIde (F1)"
 msgstr "Sintaxe do SpASM, atalhos e sobre o NuIde (F1)"
+
+msgid "Proyecto abierto - clic para elegir otra carpeta"
+msgstr "Projeto aberto - clique para escolher outra pasta"
 
 msgid "Minimizar"
 msgstr ""
@@ -215,6 +251,33 @@ msgstr "Maximizar ou restaurar"
 msgid "Salir (pregunta si hay cambios sin guardar)"
 msgstr "Sair (pergunta se há alterações não salvas)"
 
+msgid "Clic para mover {} (actualmente: {})"
+msgstr "Clique para mover {} (atualmente: {})"
+
+msgid "izquierda"
+msgstr "esquerda"
+
+msgid "derecha"
+msgstr "direita"
+
+msgid "abajo"
+msgstr "abaixo"
+
+msgid "oculto"
+msgstr "oculto"
+
+msgid "Explorador"
+msgstr "Explorador"
+
+msgid "OpenCode CLI"
+msgstr "OpenCode CLI"
+
+msgid "Terminal"
+msgstr "Terminal"
+
+msgid "Control de código"
+msgstr "Controle de código"
+
 msgid "Elegir un proyecto existente (Ctrl+O)"
 msgstr "Escolher um projeto existente (Ctrl+O)"
 
@@ -223,6 +286,84 @@ msgstr "Abrir um arquivo avulso sem projeto (Ctrl+Shift+O)"
 
 msgid "Crear un archivo nuevo en el proyecto (Ctrl+N)"
 msgstr "Criar um arquivo novo no projeto (Ctrl+N)"
+
+msgid "Nuevo archivo…"
+msgstr "Novo arquivo…"
+
+msgid "Abrir archivo…"
+msgstr "Abrir arquivo…"
+
+msgid "Abrir carpeta…"
+msgstr "Abrir pasta…"
+
+msgid "Guardar"
+msgstr "Salvar"
+
+msgid "Guardar como…"
+msgstr "Salvar como…"
+
+msgid "Cerrar pestaña"
+msgstr "Fechar aba"
+
+msgid "Cerrar todas"
+msgstr "Fechar todas"
+
+msgid "Salir"
+msgstr "Sair"
+
+msgid "Deshacer"
+msgstr "Desfazer"
+
+msgid "Rehacer"
+msgstr "Refazer"
+
+msgid "Cortar"
+msgstr "Recortar"
+
+msgid "Copiar"
+msgstr "Copiar"
+
+msgid "Pegar"
+msgstr "Colar"
+
+msgid "Seleccionar todo"
+msgstr "Selecionar tudo"
+
+msgid "Buscar"
+msgstr "Buscar"
+
+msgid "Reemplazar"
+msgstr "Substituir"
+
+msgid "Ir a línea…"
+msgstr "Ir para linha…"
+
+msgid "Lanzar OpenCode"
+msgstr "Iniciar OpenCode"
+
+msgid "Lanzar Nuide-CLI (agente)"
+msgstr "Iniciar Nuide-CLI (agente)"
+
+msgid "Reiniciar la terminal"
+msgstr "Reiniciar o terminal"
+
+msgid "Mostrar el panel del agente"
+msgstr "Mostrar o painel do agente"
+
+msgid "Acerca de..."
+msgstr "Sobre..."
+
+msgid "Ayuda de sintaxis SpASM"
+msgstr "Ajuda de sintaxe SpASM"
+
+msgid "Preferencias y atajos"
+msgstr "Preferências e atalhos"
+
+msgid "Abrir carpeta de configuración"
+msgstr "Abrir pasta de configuração"
+
+msgid "Ver repositorio"
+msgstr "Ver repositório"
 
 msgid "Idioma"
 msgstr ""

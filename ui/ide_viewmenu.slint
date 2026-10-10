@@ -15,7 +15,7 @@ component IdeViewItem inherits Rectangle {
     background: ta.has-hover ? IdeTheme.control-hi : transparent;
 
     Tooltip {
-        TipContent { text: "Clic para mover " + root.label + " (actualmente: " + root.detail + ")"; }
+        TipContent { text: @tr("Clic para mover {} (actualmente: {})", root.label, root.detail); }
     }
 
     Text {
@@ -55,10 +55,10 @@ export component IdeViewMenu inherits Rectangle {
     callback cycle-dock(int);
 
     function dock-label(value: int) -> string {
-        return value == 0 ? "izquierda"
-            : value == 1 ? "derecha"
-            : value == 2 ? "abajo"
-            : "oculto";
+        return value == 0 ? @tr("izquierda")
+            : value == 1 ? @tr("derecha")
+            : value == 2 ? @tr("abajo")
+            : @tr("oculto");
     }
 
     width: 220px;
@@ -77,28 +77,28 @@ export component IdeViewMenu inherits Rectangle {
         alignment: start;
 
         IdeViewItem {
-            label: "Explorador";
+            label: @tr("Explorador");
             detail: root.dock-label(root.dock-explorer);
             hidden: root.dock-explorer == 3;
             kind: 0;
             activated(k) => { root.cycle-dock(k); }
         }
         IdeViewItem {
-            label: "OpenCode CLI";
+            label: @tr("OpenCode CLI");
             detail: root.dock-label(root.dock-agent);
             hidden: root.dock-agent == 3;
             kind: 1;
             activated(k) => { root.cycle-dock(k); }
         }
         IdeViewItem {
-            label: "Terminal";
+            label: @tr("Terminal");
             detail: root.dock-label(root.dock-terminal);
             hidden: root.dock-terminal == 3;
             kind: 2;
             activated(k) => { root.cycle-dock(k); }
         }
         IdeViewItem {
-            label: "Control de código";
+            label: @tr("Control de código");
             detail: root.dock-label(root.dock-git);
             hidden: root.dock-git == 3;
             kind: 3;

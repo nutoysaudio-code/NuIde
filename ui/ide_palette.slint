@@ -14,7 +14,7 @@ component PaletteRow inherits Rectangle {
     background: root.selected ? IdeTheme.selection : (ta.has-hover ? IdeTheme.control : transparent);
 
     Tooltip {
-        TipContent { text: root.label + (root.detail != "" ? "  (" + root.detail + ")" : ""); }
+        TipContent { text: root.label + (root.detail != "" ? @tr("  ({})", root.detail) : ""); }
     }
 
     Text {
@@ -104,7 +104,7 @@ export component IdePalette inherits Rectangle {
             vertical-alignment: center;
 
             Tooltip {
-                TipContent { text: root.title == "Comandos" ? "Filtrar comandos por nombre" : "Filtrar archivos por ruta"; }
+                TipContent { text: @tr("Filtrar comandos o archivos por nombre"); }
             }
         }
 

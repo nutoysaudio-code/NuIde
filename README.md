@@ -442,11 +442,12 @@ catálogo por idioma, `lang/<locale>/LC_MESSAGES/nuide.po`:
 - el código Rust que arma texto (menús, paleta, configuración) usa
   `i18n::t()`, que lee el mismo `.po` embebido.
 
-Hoy están traducidos los **tooltips** (73). El plan completo (desacoplar id de
-etiqueta en los menús, migrar el resto de los textos, CI) está en
-[`docs/I18N.md`](docs/I18N.md). Herramientas de extracción: `tools/i18n_slint.py`
-(envuelve tooltips en `@tr` y regenera el `.pot`) y `tools/i18n_po.py`
-(regenera los `.po`).
+Hoy están traducidos los **tooltips** (73), las **etiquetas del menú superior y del
+menú Ver**, y los **ítems de los menús** (Archivo/Editar/Agente/Ayuda). El plan
+completo (migrar el resto de los textos, dialogs, CI estricta) está en
+[`docs/I18N.md`](docs/I18N.md). Herramientas: `tools/i18n_extract.py` (envuelve
+tooltips en `@tr`, arma el `.pot`, y con `--check` valida en CI) y
+`tools/i18n_po.py` (sincroniza los `.po`).
 
 ### Proveedores de OpenCode (configuración del CLI)
 
@@ -475,8 +476,8 @@ nuide/
   Cargo.lock               lock del proyecto (app independiente)
   build.rs                 compila la lógica SpASM (cc) + slint_build
   tools/regen_spasm.ps1     refresca spasm/generated/*.c con spasmc.py
-  tools/i18n_slint.py       envuelve los tooltips de ui/*.slint en @tr + .pot
-  tools/i18n_po.py          regenera lang/<locale>/LC_MESSAGES/nuide.po
+  tools/i18n_extract.py     envuelve tooltips en @tr + arma el .pot (--check en CI)
+  tools/i18n_po.py          sincroniza lang/<locale>/LC_MESSAGES/nuide.po
   lang/<locale>/LC_MESSAGES/nuide.po  catálogo de traducciones (es, en, pt-BR)
   spasm/
     *.spasm                lógica de la IDE en SpASM AOT

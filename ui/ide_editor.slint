@@ -16,7 +16,7 @@ component IdeTabButton inherits Rectangle {
     background: root.active ? IdeTheme.control : (ta.has-hover ? IdeTheme.control-hi : transparent);
 
     Tooltip {
-        TipContent { text: root.title + (root.dirty ? " (sin guardar)" : "") + (root.active ? " [activa]" : ""); }
+        TipContent { text: root.title + (root.dirty ? @tr(" (sin guardar)") : "") + (root.active ? @tr(" [activa]") : ""); }
     }
 
     // Subrayado menta de la pestaña activa.

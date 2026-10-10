@@ -1144,8 +1144,8 @@ pub struct Ide {
     /// Dónde vive cada panel (Explorador, OpenCode, Terminal, Git). Los que
     /// comparten región se apilan.
     docks: [Dock; 4],
-    /// El menú desplegable abierto ("Archivo", "Editar", "Ver", "Agente",
-    /// "Ayuda") o vacío.
+    /// El menú desplegable abierto ("file", "edit", "view", "agent", "help") o
+    /// vacío. Son **ids** estables, no las etiquetas visibles.
     menu_open: String,
     /// Diálogo de "cambios sin guardar" pendiente.
     confirm: Option<Confirm>,
@@ -2697,17 +2697,17 @@ impl Ide {
         self.set_cursor(Cursor { line: new, col: 0 }, old, false);
     }
 
-    /// Acciones del menú superior.
-    fn menu(&mut self, label: &str) {
-        match label {
-            "Ejecutar" => self.run(None),
-            "Compilar" => self.build(false),
-            // Archivo/Editar/Ver/Agente/Ayuda abren su desplegable (y lo cierran si ya está).
-            "Archivo" | "Editar" | "Ver" | "Agente" | "Ayuda" => {
-                self.menu_open = if self.menu_open == label {
+    /// Acciones del menú superior (ids estables; las etiquetas son traducibles).
+    fn menu(&mut self, id: &str) {
+        match id {
+            "run" => self.run(None),
+            "build" => self.build(false),
+            // file/edit/view/agent/help abren su desplegable (y lo cierran si ya está).
+            "file" | "edit" | "view" | "agent" | "help" => {
+                self.menu_open = if self.menu_open == id {
                     String::new()
                 } else {
-                    label.to_string()
+                    id.to_string()
                 };
             }
             _ => {}
@@ -3290,17 +3290,37 @@ impl Ide {
     fn file_menu_items(&self) -> Vec<IdeMenuEntry> {
         let has = !self.tabs.is_empty();
         vec![
-            menu_entry("file.new", "Nuevo archivo…", "Ctrl+N", true),
-            menu_entry("file.open", "Abrir archivo…", "Ctrl+O", true),
-            menu_entry("file.open-folder", "Abrir carpeta…", "", true),
+            menu_entry("file.new", crate::i18n::t("Nuevo archivo…"), "Ctrl+N", true),
+            menu_entry(
+                "file.open",
+                crate::i18n::t("Abrir archivo…"),
+                "Ctrl+O",
+                true,
+            ),
+            menu_entry(
+                "file.open-folder",
+                crate::i18n::t("Abrir carpeta…"),
+                "",
+                true,
+            ),
             menu_sep(),
-            menu_entry("file.save", "Guardar", "Ctrl+S", has),
-            menu_entry("file.save-as", "Guardar como…", "Ctrl+Shift+S", has),
+            menu_entry("file.save", crate::i18n::t("Guardar"), "Ctrl+S", has),
+            menu_entry(
+                "file.save-as",
+                crate::i18n::t("Guardar como…"),
+                "Ctrl+Shift+S",
+                has,
+            ),
             menu_sep(),
-            menu_entry("file.close", "Cerrar pestaña", "Ctrl+W", has),
-            menu_entry("file.close-all", "Cerrar todas", "", has),
+            menu_entry(
+                "file.close",
+                crate::i18n::t("Cerrar pestaña"),
+                "Ctrl+W",
+                has,
+            ),
+            menu_entry("file.close-all", crate::i18n::t("Cerrar todas"), "", has),
             menu_sep(),
-            menu_entry("file.exit", "Salir", "", true),
+            menu_entry("file.exit", crate::i18n::t("Salir"), "", true),
         ]
     }
 
@@ -3308,40 +3328,85 @@ impl Ide {
     fn edit_menu_items(&self) -> Vec<IdeMenuEntry> {
         let has = !self.tabs.is_empty();
         vec![
-            menu_entry("edit.undo", "Deshacer", "Ctrl+Z", has),
-            menu_entry("edit.redo", "Rehacer", "Ctrl+Y", has),
+            menu_entry("edit.undo", crate::i18n::t("Deshacer"), "Ctrl+Z", has),
+            menu_entry("edit.redo", crate::i18n::t("Rehacer"), "Ctrl+Y", has),
             menu_sep(),
-            menu_entry("edit.cut", "Cortar", "Ctrl+X", has),
-            menu_entry("edit.copy", "Copiar", "Ctrl+C", has),
-            menu_entry("edit.paste", "Pegar", "Ctrl+V", has),
-            menu_entry("edit.select-all", "Seleccionar todo", "Ctrl+A", has),
+            menu_entry("edit.cut", crate::i18n::t("Cortar"), "Ctrl+X", has),
+            menu_entry("edit.copy", crate::i18n::t("Copiar"), "Ctrl+C", has),
+            menu_entry("edit.paste", crate::i18n::t("Pegar"), "Ctrl+V", has),
+            menu_entry(
+                "edit.select-all",
+                crate::i18n::t("Seleccionar todo"),
+                "Ctrl+A",
+                has,
+            ),
             menu_sep(),
-            menu_entry("edit.find", "Buscar", "Ctrl+F", has),
-            menu_entry("edit.replace", "Reemplazar", "Ctrl+H", has),
-            menu_entry("edit.goto-line", "Ir a línea…", "Ctrl+G", has),
+            menu_entry("edit.find", crate::i18n::t("Buscar"), "Ctrl+F", has),
+            menu_entry("edit.replace", crate::i18n::t("Reemplazar"), "Ctrl+H", has),
+            menu_entry(
+                "edit.goto-line",
+                crate::i18n::t("Ir a línea…"),
+                "Ctrl+G",
+                has,
+            ),
         ]
     }
 
     /// Filas del menú Agente (lanzar OpenCode o Nuide-CLI y manejar su panel).
     fn agent_menu_items(&self) -> Vec<IdeMenuEntry> {
         vec![
-            menu_entry("agent.opencode", "Lanzar OpenCode", "", true),
-            menu_entry("agent.nuidecli", "Lanzar Nuide-CLI (agente)", "router", true),
+            menu_entry(
+                "agent.opencode",
+                crate::i18n::t("Lanzar OpenCode"),
+                "",
+                true,
+            ),
+            menu_entry(
+                "agent.nuidecli",
+                crate::i18n::t("Lanzar Nuide-CLI (agente)"),
+                "router",
+                true,
+            ),
             menu_sep(),
-            menu_entry("agent.restart", "Reiniciar la terminal", "", true),
-            menu_entry("agent.show", "Mostrar el panel del agente", "", true),
+            menu_entry(
+                "agent.restart",
+                crate::i18n::t("Reiniciar la terminal"),
+                "",
+                true,
+            ),
+            menu_entry(
+                "agent.show",
+                crate::i18n::t("Mostrar el panel del agente"),
+                "",
+                true,
+            ),
         ]
     }
 
     /// Filas del menú Ayuda.
     fn help_menu_items(&self) -> Vec<IdeMenuEntry> {
         vec![
-            menu_entry("help.about", "Acerca de...", "", true),
-            menu_entry("help.syntax", "Ayuda de sintaxis SpASM", "F1", true),
-            menu_entry("help.keys", "Preferencias y atajos", "Ctrl+,", true),
+            menu_entry("help.about", crate::i18n::t("Acerca de..."), "", true),
+            menu_entry(
+                "help.syntax",
+                crate::i18n::t("Ayuda de sintaxis SpASM"),
+                "F1",
+                true,
+            ),
+            menu_entry(
+                "help.keys",
+                crate::i18n::t("Preferencias y atajos"),
+                "Ctrl+,",
+                true,
+            ),
             menu_sep(),
-            menu_entry("help.config", "Abrir carpeta de configuración", "", true),
-            menu_entry("help.repo", "Ver repositorio", "", true),
+            menu_entry(
+                "help.config",
+                crate::i18n::t("Abrir carpeta de configuración"),
+                "",
+                true,
+            ),
+            menu_entry("help.repo", crate::i18n::t("Ver repositorio"), "", true),
         ]
     }
 }
@@ -7213,10 +7278,10 @@ impl Ide {
         w.set_dock_git(self.docks[3].code());
         w.set_menu_open(self.menu_open.clone().into());
         let menu_items: Vec<IdeMenuEntry> = match self.menu_open.as_str() {
-            "Archivo" => self.file_menu_items(),
-            "Editar" => self.edit_menu_items(),
-            "Agente" => self.agent_menu_items(),
-            "Ayuda" => self.help_menu_items(),
+            "file" => self.file_menu_items(),
+            "edit" => self.edit_menu_items(),
+            "agent" => self.agent_menu_items(),
+            "help" => self.help_menu_items(),
             _ => Vec::new(),
         };
         w.set_menu_items(ModelRc::from(Rc::new(VecModel::from(menu_items))));
@@ -10526,14 +10591,14 @@ mod tests {
         assert!(ide.show_left && ide.show_right && ide.show_bottom);
         assert!(ide.menu_open.is_empty());
 
-        ide.menu("Ver");
-        assert_eq!(ide.menu_open, "Ver");
+        ide.menu("view");
+        assert_eq!(ide.menu_open, "view");
         // Volver a abrir el mismo menú lo cierra.
-        ide.menu("Ver");
+        ide.menu("view");
         assert!(ide.menu_open.is_empty());
         // Archivo y Editar abren su menú.
-        ide.menu("Archivo");
-        assert_eq!(ide.menu_open, "Archivo");
+        ide.menu("file");
+        assert_eq!(ide.menu_open, "file");
         assert!(!ide.file_menu_items().is_empty());
 
         ide.toggle_region(0);
@@ -10552,13 +10617,13 @@ mod tests {
     #[test]
     fn el_menu_agente_lista_nuide_cli() {
         let mut ide = Ide::new();
-        ide.menu("Agente");
-        assert_eq!(ide.menu_open, "Agente");
+        ide.menu("agent");
+        assert_eq!(ide.menu_open, "agent");
         let items = ide.agent_menu_items();
         assert!(items.iter().any(|e| e.id.as_str() == "agent.nuidecli"));
         assert!(items.iter().any(|e| e.id.as_str() == "agent.opencode"));
         // Volver a abrir el mismo menú lo cierra.
-        ide.menu("Agente");
+        ide.menu("agent");
         assert!(ide.menu_open.is_empty());
     }
 
@@ -10958,8 +11023,8 @@ mod tests {
     #[test]
     fn el_menu_ejecuta_y_cierra() {
         let mut ide = Ide::new();
-        ide.menu("Editar");
-        assert_eq!(ide.menu_open, "Editar");
+        ide.menu("edit");
+        assert_eq!(ide.menu_open, "edit");
         assert!(!ide.edit_menu_items().is_empty());
 
         ide.menu_command("edit.find");
