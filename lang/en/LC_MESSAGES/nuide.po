@@ -5,20 +5,50 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 
+msgid "por NuToys Audio"
+msgstr "by NuToys Audio"
+
+msgid "IDE multi-lenguaje con soporte de SpASM, terminales integradas y control de código."
+msgstr "Multi-language IDE with SpASM support, integrated terminals and source control."
+
+msgid "© 2026 NuToys Audio"
+msgstr "© 2026 NuToys Audio"
+
+msgid "Cerrar"
+msgstr "Close"
+
 msgid "Cerrar el diálogo (Esc)"
 msgstr "Close the dialog (Esc)"
+
+msgid "Cancelar"
+msgstr "Cancel"
 
 msgid "No hacer nada y cerrar (Esc)"
 msgstr "Do nothing and close (Esc)"
 
+msgid "Descartar"
+msgstr "Discard"
+
 msgid "Descartar los cambios sin guardar"
 msgstr "Discard unsaved changes"
+
+msgid "Guardar"
+msgstr "Save"
 
 msgid "Guardar los cambios y continuar"
 msgstr "Save changes and continue"
 
+msgid "Aceptar"
+msgstr "OK"
+
+msgid "Abrir archivo"
+msgstr "Open file"
+
 msgid "Abrir el archivo en el editor (Enter)"
 msgstr "Open the file in the editor (Enter)"
+
+msgid "Descartar cambios"
+msgstr "Discard changes"
 
 msgid "Descartar los cambios locales (git checkout --)"
 msgstr "Discard local changes (git checkout --)"
@@ -29,6 +59,12 @@ msgstr " (unsaved)"
 msgid " [activa]"
 msgstr " [active]"
 
+msgid "Esquema"
+msgstr "Outline"
+
+msgid "Buscar"
+msgstr "Find"
+
 msgid "Anterior coincidencia (Shift+F3)"
 msgstr "Previous match (Shift+F3)"
 
@@ -38,11 +74,17 @@ msgstr "Next match (F3)"
 msgid "Coincidir mayúsculas/minúsculas"
 msgstr "Match case"
 
+msgid "Palabra"
+msgstr "Word"
+
 msgid "Coincidir palabra completa"
 msgstr "Match whole word"
 
 msgid "Expresión regular"
 msgstr "Regular expression"
+
+msgid "Sel."
+msgstr "Sel."
 
 msgid "Buscar sólo en la selección"
 msgstr "Search only in the selection"
@@ -53,8 +95,14 @@ msgstr "Show or hide the replace field"
 msgid "Cerrar la búsqueda (Esc)"
 msgstr "Close the search (Esc)"
 
+msgid "Reemplazar"
+msgstr "Replace"
+
 msgid "Reemplazar esta coincidencia (Enter)"
 msgstr "Replace this match (Enter)"
+
+msgid "Todo"
+msgstr "All"
 
 msgid "Reemplazar todas las coincidencias"
 msgstr "Replace all matches"
@@ -65,8 +113,14 @@ msgstr "Zoom out the image (Ctrl+-)"
 msgid "Acercar la imagen (Ctrl++)"
 msgstr "Zoom in the image (Ctrl++)"
 
+msgid "Ajustar"
+msgstr "Fit"
+
 msgid "Ajustar la imagen al tamaño del panel"
 msgstr "Fit the image to the panel"
+
+msgid "EXPLORADOR"
+msgstr "EXPLORER"
 
 msgid "Mostrar u ocultar archivos generados (build, target, node_modules)"
 msgstr "Show or hide generated files (build, target, node_modules)"
@@ -74,20 +128,56 @@ msgstr "Show or hide generated files (build, target, node_modules)"
 msgid "Refrescar el árbol de archivos (F5)"
 msgstr "Refresh the file tree (F5)"
 
+msgid "CÓDIGO"
+msgstr "CODE"
+
+msgid "No es un repositorio Git"
+msgstr "Not a Git repository"
+
+msgid "Inicializar repositorio"
+msgstr "Initialize repository"
+
 msgid "Crear un repositorio Git nuevo en la raíz del proyecto (git init)"
 msgstr "Create a new Git repository at the project root (git init)"
+
+msgid "CAMBIOS"
+msgstr "CHANGES"
+
+msgid "PREPARADOS"
+msgstr "STAGED"
+
+msgid "Sin cambios"
+msgstr "No changes"
+
+msgid "Mensaje del commit…"
+msgstr "Commit message…"
+
+msgid "Preparar todo"
+msgstr "Stage all"
 
 msgid "Preparar todos los cambios para el commit (git add -A)"
 msgstr "Stage all changes for the commit (git add -A)"
 
+msgid "Quitar todo"
+msgstr "Unstage all"
+
 msgid "Quitar todos los archivos del índice (git reset)"
 msgstr "Unstage all files (git reset)"
+
+msgid "Bajar"
+msgstr "Pull"
 
 msgid "Traer cambios del remoto (git pull)"
 msgstr "Pull changes from the remote (git pull)"
 
+msgid "Ramas"
+msgstr "Branches"
+
 msgid "Ver y cambiar de rama (git branch)"
 msgstr "View and switch branches (git branch)"
+
+msgid "Commit"
+msgstr "Commit"
 
 msgid "Confirmar los cambios preparados (git commit)"
 msgstr "Commit the staged changes (git commit)"
@@ -95,59 +185,194 @@ msgstr "Commit the staged changes (git commit)"
 msgid "{}  ({})"
 msgstr "{}  ({})"
 
+msgid "OPENCODE CLI"
+msgstr "OPENCODE CLI"
+
 msgid "  ({})"
 msgstr "  ({})"
 
 msgid "Filtrar comandos o archivos por nombre"
 msgstr "Filter commands or files by name"
 
+msgid "Sin resultados"
+msgstr "No results"
+
+msgid "↑↓ moverse   ·   Enter abrir   ·   Esc cerrar"
+msgstr "↑↓ move   ·   Enter open   ·   Esc close"
+
+msgid "Preferencias"
+msgstr "Preferences"
+
+msgid "APARIENCIA"
+msgstr "APPEARANCE"
+
+msgid "Fuente del código"
+msgstr "Code font"
+
+msgid "Fuente de la interfaz"
+msgstr "Interface font"
+
+msgid "Opacidad de los paneles"
+msgstr "Panel opacity"
+
+msgid "Tamaño del código"
+msgstr "Code size"
+
+msgid "Acento"
+msgstr "Accent"
+
+msgid "EDITOR"
+msgstr "EDITOR"
+
+msgid "Tamaño de tab"
+msgstr "Tab size"
+
+msgid "Insertar espacios"
+msgstr "Insert spaces"
+
+msgid "EJECUTAR"
+msgstr "RUN"
+
+msgid "Compilar al guardar"
+msgstr "Compile on save"
+
+msgid "DESPLIEGUE (sitio de este proyecto)"
+msgstr "DEPLOY (this project's site)"
+
+msgid "Transporte"
+msgstr "Transport"
+
 msgid "FTP (21), FTPS (FTP + TLS, curl valida el certificado) o SFTP (SSH, 22)"
 msgstr "FTP (21), FTPS (FTP + TLS, curl validates the certificate), or SFTP (SSH, 22)"
+
+msgid "Host"
+msgstr "Host"
 
 msgid "Servidor del sitio, ej. ftp.midominio.com"
 msgstr "Site server, e.g. ftp.example.com"
 
+msgid "Usuario"
+msgstr "User"
+
 msgid "Usuario de FTP/SFTP del hosting"
 msgstr "Hosting FTP/SFTP user"
+
+msgid "Contraseña"
+msgstr "Password"
 
 msgid "Se guarda en el config de NuIde (%APPDATA%), indexada por proyecto: no toca el repositorio"
 msgstr "Stored in NuIde's config (%APPDATA%), indexed per project: it doesn't touch the repository"
 
+msgid "Carpeta remota"
+msgstr "Remote folder"
+
 msgid "Ruta en el servidor donde cae el sitio, ej. public_html o /www/mi-sitio"
 msgstr "Path on the server where the site goes, e.g. public_html or /www/my-site"
+
+msgid "Subcarpeta local"
+msgstr "Local subfolder"
 
 msgid "Qué carpeta del proyecto se sube, ej. build o dist (vacío = todo el proyecto)"
 msgstr "Which project folder is uploaded, e.g. build or dist (empty = whole project)"
 
+msgid "Extensiones"
+msgstr "Extensions"
+
 msgid "Lista separada por coma de extensiones que se suben"
 msgstr "Comma-separated list of extensions to upload"
+
+msgid "Script de despliegue"
+msgstr "Deploy script"
 
 msgid "Script SpASM que decide qué subir. Imprime líneas «UPLOAD <local> [<remota>]», «SKIP <local>», «LOG <texto>». Sin script se sube la subcarpeta filtrando por extensión."
 msgstr "SpASM script that decides what to upload. It prints lines “UPLOAD <local> [<remote>]”, “SKIP <local>”, “LOG <text>”. Without a script, the subfolder is uploaded, filtered by extension."
 
+msgid "Probar conexión"
+msgstr "Test connection"
+
+msgid "Subir cambios"
+msgstr "Upload changes"
+
+msgid "Terminal SSH"
+msgstr "SSH terminal"
+
+msgid "MÓDULOS"
+msgstr "MODULES"
+
+msgid "Servidor web local"
+msgstr "Local web server"
+
 msgid "Sirve la carpeta del proyecto en http://localhost:<puerto>/ con CORS, para ver el sitio antes de subirlo"
 msgstr "Serves the project folder at http://localhost:<port>/ with CORS, to preview the site before uploading"
+
+msgid "Puerto"
+msgstr "Port"
 
 msgid "Puerto local del servidor (1024-65535)"
 msgstr "Local server port (1024-65535)"
 
+msgid "Carpeta servida"
+msgstr "Served folder"
+
 msgid "Subcarpeta que se sirve, ej. build o dist (vacío = todo el proyecto)"
 msgstr "Subfolder served, e.g. build or dist (empty = whole project)"
+
+msgid "CORS: origen permitido"
+msgstr "CORS: allowed origin"
 
 msgid "Access-Control-Allow-Origin. * para cualquier origen; un dominio concreto si la página manda credenciales"
 msgstr "Access-Control-Allow-Origin. * for any origin; a specific domain if the page sends credentials"
 
+msgid "Visor de SQLite"
+msgstr "SQLite viewer"
+
 msgid "Panel para mirar las tablas de una base .db del proyecto. Usa sqlite3.exe o Python, sin librerías extra"
 msgstr "Panel to browse the tables of a .db file in the project. Uses sqlite3.exe or Python, no extra libraries"
+
+msgid "Base abierta"
+msgstr "Open database"
 
 msgid "Elegí un archivo .db / .sqlite; el panel se abre en cuanto hay base"
 msgstr "Pick a .db / .sqlite file; the panel opens as soon as there's a database"
 
+msgid "ATAJOS (clic para reasignar)"
+msgstr "SHORTCUTS (click to reassign)"
+
+msgid "Presioná la combinación nueva (Esc para cancelar)"
+msgstr "Press the new combination (Esc to cancel)"
+
 msgid "Confirmar y cerrar (Enter)"
 msgstr "Confirm and close (Enter)"
 
+msgid "Modelos (JSON)"
+msgstr "Models (JSON)"
+
+msgid "Proveedor de OpenCode"
+msgstr "OpenCode provider"
+
+msgid "Config global · unión de opencode.json y opencode.jsonc"
+msgstr "Global config · union of opencode.json and opencode.jsonc"
+
 msgid "Cerrar (Esc)"
 msgstr "Close (Esc)"
+
+msgid "ID"
+msgstr "ID"
+
+msgid "Nombre"
+msgstr "Name"
+
+msgid "Package"
+msgstr "Package"
+
+msgid "baseURL"
+msgstr "baseURL"
+
+msgid "apiKey"
+msgstr "apiKey"
+
+msgid "Eliminar"
+msgstr "Delete"
 
 msgid "Pide confirmación y saca el proveedor de la config global"
 msgstr "Asks for confirmation and removes the provider from the global config"
@@ -155,20 +380,50 @@ msgstr "Asks for confirmation and removes the provider from the global config"
 msgid "Valida los campos y escribe la unión en opencode.json"
 msgstr "Validates the fields and writes the union into opencode.json"
 
+msgid "Reempl."
+msgstr "Repl."
+
 msgid "Expresión regular (en vez de texto literal)"
 msgstr "Regular expression (instead of literal text)"
+
+msgid "Reemplazar todo"
+msgstr "Replace all"
 
 msgid "Reemplaza todas las coincidencias en el proyecto (cuidado: no se puede deshacer)"
 msgstr "Replaces all matches in the project (careful: cannot be undone)"
 
+msgid "↑↓ moverse   ·   Tab reemplazo   ·   Enter abrir   ·   Esc cerrar"
+msgstr "↑↓ move   ·   Tab replace   ·   Enter open   ·   Esc close"
+
+msgid "Configuración"
+msgstr "Settings"
+
+msgid "Interfaz, editor, terminales y agregados (FTP, SSH, OpenCode, web, SQLite)"
+msgstr "Interface, editor, terminals and add-ons (FTP, SSH, OpenCode, web, SQLite)"
+
 msgid "Cerrar (Esc) — los cambios ya quedaron guardados"
 msgstr "Close (Esc) — changes are already saved"
+
+msgid "SQLite"
+msgstr "SQLite"
+
+msgid "Elegir base"
+msgstr "Choose database"
 
 msgid "Buscar un archivo .db / .sqlite del proyecto"
 msgstr "Find a .db / .sqlite file in the project"
 
+msgid "Refrescar"
+msgstr "Refresh"
+
 msgid "Vuelve a leer tablas y filas de la base"
 msgstr "Re-reads the database tables and rows"
+
+msgid "TABLAS"
+msgstr "TABLES"
+
+msgid "ADMIN"
+msgstr "ADMIN"
 
 msgid "NuIde corre con privilegios de administrador: las terminales del panel son elevadas"
 msgstr "NuIde is running with administrator privileges: the panel terminals are elevated"
@@ -185,8 +440,23 @@ msgstr "Language detected from the active file's extension"
 msgid "Codificación con la que se lee y se guarda el archivo"
 msgstr "Encoding used to read and save the file"
 
+msgid "Ln {}, Col {}"
+msgstr "Ln {}, Col {}"
+
 msgid "Posición del cursor (línea, columna) en el editor"
 msgstr "Cursor position (line, column) in the editor"
+
+msgid "CPU {}%"
+msgstr "CPU {}%"
+
+msgid "RAM {}%"
+msgstr "RAM {}%"
+
+msgid "Sesión {} - clic para pasar a ella"
+msgstr "Session {} - click to switch to it"
+
+msgid "TERMINAL"
+msgstr "TERMINAL"
 
 msgid "Nueva sesión de shell (F5 corre en la raíz del proyecto)"
 msgstr "New shell session (F5 runs at the project root)"
@@ -278,38 +548,68 @@ msgstr "Terminal"
 msgid "Control de código"
 msgstr "Source control"
 
-msgid "Elegir un proyecto existente (Ctrl+O)"
-msgstr "Choose an existing project (Ctrl+O)"
-
-msgid "Abrir un archivo suelto sin proyecto (Ctrl+Shift+O)"
-msgstr "Open a loose file with no project (Ctrl+Shift+O)"
-
-msgid "Crear un archivo nuevo en el proyecto (Ctrl+N)"
-msgstr "Create a new file in the project (Ctrl+N)"
-
-msgid "Nuevo archivo…"
-msgstr "New file…"
-
-msgid "Abrir archivo…"
-msgstr "Open file…"
+msgid "IDE multi-lenguaje · sin archivos abiertos"
+msgstr "Multi-language IDE · no files open"
 
 msgid "Abrir carpeta…"
 msgstr "Open folder…"
 
-msgid "Guardar"
-msgstr "Save"
+msgid "Elegir un proyecto existente (Ctrl+O)"
+msgstr "Choose an existing project (Ctrl+O)"
 
-msgid "Guardar como…"
-msgstr "Save as…"
+msgid "Abrir archivo…"
+msgstr "Open file…"
 
-msgid "Cerrar pestaña"
-msgstr "Close tab"
+msgid "Abrir un archivo suelto sin proyecto (Ctrl+Shift+O)"
+msgstr "Open a loose file with no project (Ctrl+Shift+O)"
 
-msgid "Cerrar todas"
-msgstr "Close all"
+msgid "Nuevo archivo…"
+msgstr "New file…"
 
-msgid "Salir"
-msgstr "Exit"
+msgid "Crear un archivo nuevo en el proyecto (Ctrl+N)"
+msgstr "Create a new file in the project (Ctrl+N)"
+
+msgid "Recientes"
+msgstr "Recent"
+
+msgid "Atajos"
+msgstr "Shortcuts"
+
+msgid "Izquierda"
+msgstr "Left"
+
+msgid "Derecha"
+msgstr "Right"
+
+msgid "Abajo"
+msgstr "Bottom"
+
+msgid "Soltar acá oculta el panel"
+msgstr "Drop here to hide the panel"
+
+msgid "Ejecutar el programa"
+msgstr "Run the program"
+
+msgid "Compilar (spasmc)"
+msgstr "Compile (spasmc)"
+
+msgid "Compilar y ejecutar"
+msgstr "Compile and run"
+
+msgid "Analizar / diagnóstico"
+msgstr "Analyze / diagnostics"
+
+msgid "Siguiente error"
+msgstr "Next error"
+
+msgid "Buscar y reemplazar"
+msgstr "Find and replace"
+
+msgid "Ir a definición"
+msgstr "Go to definition"
+
+msgid "Ir a línea…"
+msgstr "Go to line…"
 
 msgid "Deshacer"
 msgstr "Undo"
@@ -329,20 +629,137 @@ msgstr "Paste"
 msgid "Seleccionar todo"
 msgstr "Select all"
 
-msgid "Buscar"
-msgstr "Find"
+msgid "Vista previa de Markdown"
+msgstr "Markdown preview"
 
-msgid "Reemplazar"
-msgstr "Replace"
+msgid "Guardar como…"
+msgstr "Save as…"
 
-msgid "Ir a línea…"
-msgstr "Go to line…"
+msgid "Cerrar pestaña"
+msgstr "Close tab"
 
-msgid "Lanzar OpenCode"
-msgstr "Launch OpenCode"
+msgid "Cerrar todas las pestañas"
+msgstr "Close all tabs"
+
+msgid "Buscar archivos"
+msgstr "Find files"
+
+msgid "Abrir carpeta del proyecto…"
+msgstr "Open project folder…"
+
+msgid "Nueva terminal"
+msgstr "New terminal"
+
+msgid "Terminal: nueva como administrador"
+msgstr "Terminal: new as administrator"
+
+msgid "Dividir la terminal"
+msgstr "Split the terminal"
+
+msgid "Ver: Explorador"
+msgstr "View: Explorer"
+
+msgid "Ver: OpenCode CLI"
+msgstr "View: OpenCode CLI"
+
+msgid "Ver: Terminal"
+msgstr "View: Terminal"
+
+msgid "Ver: Control de código"
+msgstr "View: Source control"
+
+msgid "Git: refrescar"
+msgstr "Git: refresh"
+
+msgid "Git: preparar todo"
+msgstr "Git: stage all"
+
+msgid "Git: push"
+msgstr "Git: push"
+
+msgid "Editor: tamaño de tab (2/4/8)"
+msgstr "Editor: tab size (2/4/8)"
+
+msgid "Editor: insertar espacios"
+msgstr "Editor: insert spaces"
+
+msgid "Terminal: reiniciar sesión"
+msgstr "Terminal: restart session"
+
+msgid "Terminal: renombrar sesión…"
+msgstr "Terminal: rename session…"
+
+msgid "Buscar en el proyecto"
+msgstr "Search in project"
+
+msgid "Git: bajar (pull)"
+msgstr "Git: pull"
+
+msgid "Git: quitar todo del índice"
+msgstr "Git: unstage all"
+
+msgid "Git: enmendar el último commit"
+msgstr "Git: amend the last commit"
+
+msgid "Git: ver diff del archivo"
+msgstr "Git: view file diff"
+
+msgid "Ejecutar: elegir archivo de entrada…"
+msgstr "Run: choose entry file…"
+
+msgid "Ejecutar: usar el archivo activo"
+msgstr "Run: use the active file"
+
+msgid "Ejecutar: argumentos…"
+msgstr "Run: arguments…"
+
+msgid "Ejecutar: compilar al guardar"
+msgstr "Run: compile on save"
+
+msgid "SpASM: ayuda de sintaxis"
+msgstr "SpASM: syntax help"
+
+msgid "SpASM: nuevo proyecto…"
+msgstr "SpASM: new project…"
+
+msgid "Plantilla: release (compilado)…"
+msgstr "Template: release (compiled)…"
+
+msgid "Plantilla: desarrollo (intérprete)…"
+msgstr "Template: development (interpreter)…"
+
+msgid "Plantilla: archivo vacío…"
+msgstr "Template: empty file…"
+
+msgid "NuIde: reiniciar como administrador"
+msgstr "NuIde: restart as administrator"
 
 msgid "Lanzar Nuide-CLI (agente)"
 msgstr "Launch Nuide-CLI (agent)"
+
+msgid "Elegir carpeta del proyecto"
+msgstr "Choose project folder"
+
+msgid "Archivo de entrada para Ejecutar"
+msgstr "Entry file for Run"
+
+msgid "Nuevo archivo"
+msgstr "New file"
+
+msgid "Carpeta del nuevo proyecto"
+msgstr "New project folder"
+
+msgid "Guardar como"
+msgstr "Save as"
+
+msgid "Cerrar todas"
+msgstr "Close all"
+
+msgid "Salir"
+msgstr "Exit"
+
+msgid "Lanzar OpenCode"
+msgstr "Launch OpenCode"
 
 msgid "Reiniciar la terminal"
 msgstr "Restart the terminal"
@@ -365,8 +782,269 @@ msgstr "Open configuration folder"
 msgid "Ver repositorio"
 msgstr "View repository"
 
+msgid "Base de datos SQLite"
+msgstr "SQLite database"
+
 msgid "Idioma"
 msgstr "Language"
 
 msgid "Se aplica al reiniciar"
 msgstr "Applies after restart"
+
+msgid "Familia monoespaciada del editor y las terminales; clic para ciclar las instaladas"
+msgstr "Monospaced family for the editor and terminals; click to cycle the installed ones"
+
+msgid "Familia de los textos de la IDE (menús, paneles)"
+msgstr "Family of the IDE texts (menus, panels)"
+
+msgid "Puntos de la fuente monoespaciada"
+msgstr "Points of the monospaced font"
+
+msgid "Color de resaltado (pestañas activas, foco, marcadores)"
+msgstr "Highlight color (active tabs, focus, markers)"
+
+msgid "Compone las superficies contra el fondo de la ventana"
+msgstr "Composites surfaces against the window background"
+
+msgid "Región izquierda (explorador y Git)"
+msgstr "Left region (explorer and Git)"
+
+msgid "Se puede mover cada panel arrastrando su cabecera"
+msgstr "Each panel can be moved by dragging its header"
+
+msgid "Región derecha (OpenCode CLI)"
+msgstr "Right region (OpenCode CLI)"
+
+msgid "Prende o apaga la columna del agente"
+msgstr "Turns the agent column on or off"
+
+msgid "Región inferior (terminal)"
+msgstr "Bottom region (terminal)"
+
+msgid "Prende o apaga la terminal local"
+msgstr "Turns the local terminal on or off"
+
+msgid "Espacios por tabulador al expandir"
+msgstr "Spaces per tab when expanding"
+
+msgid "Insertar espacios en lugar de tab"
+msgstr "Insert spaces instead of tab"
+
+msgid "Al tipear Tab se insertan espacios"
+msgstr "Typing Tab inserts spaces"
+
+msgid "Mostrar archivos generados"
+msgstr "Show generated files"
+
+msgid "Objetos, binarios y salidas del toolchain en el explorador"
+msgstr "Objects, binaries and toolchain output in the explorer"
+
+msgid "Cada Ctrl+S corre la cadena de compilación"
+msgstr "Every Ctrl+S runs the build chain"
+
+msgid "Argumentos de ejecución"
+msgstr "Run arguments"
+
+msgid "Se pasan al programa cuando apretás F5"
+msgstr "Passed to the program when you press F5"
+
+msgid "Archivo de entrada (F5)"
+msgstr "Entry file (F5)"
+
+msgid "Ruta del .spasm que se ejecuta"
+msgstr "Path of the .spasm that runs"
+
+msgid "Shell por defecto"
+msgstr "Default shell"
+
+msgid "Se cambia con la variable de entorno NUIDE_SHELL"
+msgstr "Changed with the NUIDE_SHELL environment variable"
+
+msgid "Grilla de la terminal"
+msgstr "Terminal grid"
+
+msgid "Se recalcula sola al estirar el panel"
+msgstr "Recalculates itself when resizing the panel"
+
+msgid "Sesiones abiertas"
+msgstr "Open sessions"
+
+msgid "Cada sesión es un PTY con su shell"
+msgstr "Each session is a PTY with its own shell"
+
+msgid "Nueva sesión de terminal"
+msgstr "New terminal session"
+
+msgid "Abre otra shell en la raíz del proyecto"
+msgstr "Opens another shell at the project root"
+
+msgid "Reiniciar la sesión activa"
+msgstr "Restart the active session"
+
+msgid "Reemplaza la sesión actual por una shell nueva"
+msgstr "Replaces the current session with a new shell"
+
+msgid "Dos vistas lado a lado"
+msgstr "Two side-by-side views"
+
+msgid "CLI de OpenCode"
+msgstr "OpenCode CLI"
+
+msgid "Ruta de la CLI que se lanza bajo demanda con «Lanzar opencode»"
+msgstr "Path of the CLI launched on demand with “Launch opencode”"
+
+msgid "Versión mostrada"
+msgstr "Displayed version"
+
+msgid "Etiqueta que se ve en la ficha del panel"
+msgstr "Label shown in the panel header"
+
+msgid "Lanzar opencode"
+msgstr "Launch opencode"
+
+msgid "Inyecta el comando de opencode en la terminal del panel derecho"
+msgstr "Injects the opencode command into the right panel terminal"
+
+msgid "Lanzar Nuide-CLI"
+msgstr "Launch Nuide-CLI"
+
+msgid "Agente de código con router de modelos (gratis primero) sobre SpASM"
+msgstr "Code agent with a model router (free first) built on SpASM"
+
+msgid "Relanza la shell del panel derecho en la raíz del proyecto"
+msgstr "Relauches the right panel shell at the project root"
+
+msgid "Igual que el botón de layout derecho"
+msgstr "Same as the right layout button"
+
+msgid "Agregar proveedor"
+msgstr "Add provider"
+
+msgid "Da de alta un proveedor nuevo en la config global de OpenCode"
+msgstr "Registers a new provider in the global OpenCode config"
+
+msgid "FTP (21), FTPS (FTP + TLS) o SFTP (SSH, 22)"
+msgstr "FTP (21), FTPS (FTP + TLS) or SFTP (SSH, 22)"
+
+msgid "Se guarda en %APPDATA%\\NuIde, indexada por proyecto: nunca en el repositorio"
+msgstr "Stored in %APPDATA%\\NuIde, indexed per project: never in the repository"
+
+msgid "Ruta en el servidor, ej. public_html"
+msgstr "Path on the server, e.g. public_html"
+
+msgid "Subcarpeta local a subir"
+msgstr "Local subfolder to upload"
+
+msgid "Qué carpeta del proyecto se despliega (vacío = todo)"
+msgstr "Which project folder is deployed (empty = all)"
+
+msgid "Script SpASM que decide qué subir; imprime líneas UPLOAD/SKIP/LOG"
+msgstr "SpASM script that decides what to upload; prints UPLOAD/SKIP/LOG lines"
+
+msgid "Lista el directorio remoto con curl sin subir nada"
+msgstr "Lists the remote directory with curl without uploading"
+
+msgid "Corre el script (o el escaneo) y transfiere con curl/scp"
+msgstr "Runs the script (or the scan) and transfers with curl/scp"
+
+msgid "Sesión ssh user@host en una pestaña de terminal"
+msgstr "ssh user@host session in a terminal tab"
+
+msgid "Sirve la carpeta del proyecto en http://localhost:<puerto>/ con CORS"
+msgstr "Serves the project folder at http://localhost:<port>/ with CORS"
+
+msgid "Puerto del servidor"
+msgstr "Server port"
+
+msgid "Puerto local (1024 o más)"
+msgstr "Local port (1024 or higher)"
+
+msgid "Subcarpeta del proyecto; vacío = la raíz"
+msgstr "Project subfolder; empty = the root"
+
+msgid "Access-Control-Allow-Origin; * para cualquiera"
+msgstr "Access-Control-Allow-Origin; * for anyone"
+
+msgid "Panel para mirar las tablas de una base .db del proyecto"
+msgstr "Panel to browse the tables of a .db file in the project"
+
+msgid "Ruta del archivo .db / .sqlite"
+msgstr "Path of the .db / .sqlite file"
+
+msgid "Abre el diálogo nativo para elegir el archivo"
+msgstr "Opens the native dialog to choose the file"
+
+msgid "Refrescar el visor"
+msgstr "Refresh the viewer"
+
+msgid "Vuelve a leer tablas y filas"
+msgstr "Re-reads tables and rows"
+
+msgid "Clic y presioná la combinación nueva"
+msgstr "Click and press the new combination"
+
+msgid "Salir de NuIde"
+msgstr "Exit NuIde"
+
+msgid "Reiniciar como administrador"
+msgstr "Restart as administrator"
+
+msgid "cerrar"
+msgstr "close"
+
+msgid "cerrar todas"
+msgstr "close all"
+
+msgid "salir"
+msgstr "exit"
+
+msgid "reiniciar como administrador"
+msgstr "restart as administrator"
+
+msgid "Nueva carpeta"
+msgstr "New folder"
+
+msgid "Renombrar"
+msgstr "Rename"
+
+msgid "Renombrar terminal"
+msgstr "Rename terminal"
+
+msgid "Nueva rama"
+msgstr "New branch"
+
+msgid "Argumentos para ejecutar"
+msgstr "Arguments to run"
+
+msgid "Usuario del sitio"
+msgstr "Site user"
+
+msgid "Extensiones a subir"
+msgstr "Extensions to upload"
+
+msgid "Host del sitio"
+msgstr "Site host"
+
+msgid "Puerto del servidor local"
+msgstr "Local server port"
+
+msgid "Origen permitido (CORS)"
+msgstr "Allowed origin (CORS)"
+
+msgid "Reemplazar en el proyecto"
+msgstr "Replace in project"
+
+msgid "Eliminar proveedor"
+msgstr "Delete provider"
+
+msgid "Comandos"
+msgstr "Commands"
+
+msgid "Archivos del proyecto"
+msgstr "Project files"
+
+msgid "Ir a línea"
+msgstr "Go to line"
+
+msgid "Ayuda SpASM"
+msgstr "SpASM help"

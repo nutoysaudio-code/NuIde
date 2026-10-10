@@ -185,7 +185,7 @@ export component IdeGit inherits Rectangle {
         Text {
             x: 14px;
             y: (parent.height - self.height) / 2;
-            text: "CÓDIGO";
+            text: @tr("CÓDIGO");
             color: IdeTheme.text-dim;
             font-family: IdeTheme.sans;
             font-size: 10px;
@@ -263,14 +263,14 @@ export component IdeGit inherits Rectangle {
         spacing: 10px;
 
         Text {
-            text: "No es un repositorio Git";
+            text: @tr("No es un repositorio Git");
             color: IdeTheme.text-soft;
             font-family: IdeTheme.sans;
             font-size: 12px;
             horizontal-alignment: center;
         }
         GitButton {
-            label: "Inicializar repositorio";
+            label: @tr("Inicializar repositorio");
             primary: true;
             tip: @tr("Crear un repositorio Git nuevo en la raíz del proyecto (git init)");
             activated => { root.init-repo(); }
@@ -293,7 +293,7 @@ export component IdeGit inherits Rectangle {
             padding-left: 6px;
             spacing: 1px;
 
-            if root.changes.length > 0: GitSection { label: "CAMBIOS"; }
+            if root.changes.length > 0: GitSection { label: @tr("CAMBIOS"); }
             for c[i] in root.changes: GitFileRow {
                 status: c.status;
                 name: c.name;
@@ -302,7 +302,7 @@ export component IdeGit inherits Rectangle {
                 toggle => { root.toggle(c.path, false); }
             }
 
-            if root.staged.length > 0: GitSection { label: "PREPARADOS"; }
+            if root.staged.length > 0: GitSection { label: @tr("PREPARADOS"); }
             for s[i] in root.staged: GitFileRow {
                 status: s.status;
                 name: s.name;
@@ -312,7 +312,7 @@ export component IdeGit inherits Rectangle {
             }
 
             if root.changes.length == 0 && root.staged.length == 0: Text {
-                text: "Sin cambios";
+                text: @tr("Sin cambios");
                 color: IdeTheme.text-dim;
                 font-family: IdeTheme.sans;
                 font-size: 12px;
@@ -363,7 +363,7 @@ export component IdeGit inherits Rectangle {
             if root.message == "": Text {
                 x: 8px;
                 y: (parent.height - self.height) / 2;
-                text: "Mensaje del commit…";
+                text: @tr("Mensaje del commit…");
                 color: IdeTheme.text-dim;
                 font-family: IdeTheme.mono;
                 font-size: 12px;
@@ -381,13 +381,13 @@ export component IdeGit inherits Rectangle {
             cross-axis-alignment: center;
 
             GitButton {
-                label: "Preparar todo";
+                label: @tr("Preparar todo");
                 enabled: !root.busy;
                 tip: @tr("Preparar todos los cambios para el commit (git add -A)");
                 activated => { root.stage-all(); }
             }
             GitButton {
-                label: "Quitar todo";
+                label: @tr("Quitar todo");
                 enabled: !root.busy;
                 tip: @tr("Quitar todos los archivos del índice (git reset)");
                 activated => { root.unstage-all(); }
@@ -404,20 +404,20 @@ export component IdeGit inherits Rectangle {
             cross-axis-alignment: center;
 
             GitButton {
-                label: "Bajar";
+                label: @tr("Bajar");
                 enabled: !root.busy;
                 tip: @tr("Traer cambios del remoto (git pull)");
                 activated => { root.pull(); }
             }
             GitButton {
-                label: "Ramas";
+                label: @tr("Ramas");
                 enabled: !root.busy;
                 tip: @tr("Ver y cambiar de rama (git branch)");
                 activated => { root.branch-click(); }
             }
             Rectangle { horizontal-stretch: 1; background: transparent; }
             GitButton {
-                label: "Commit";
+                label: @tr("Commit");
                 primary: true;
                 enabled: !root.busy && root.message != "";
                 tip: @tr("Confirmar los cambios preparados (git commit)");

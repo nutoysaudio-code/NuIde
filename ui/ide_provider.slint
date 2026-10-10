@@ -115,7 +115,7 @@ component PModels inherits Rectangle {
         x: 0;
         y: 0;
         width: 150px;
-        text: "Modelos (JSON)";
+        text: @tr("Modelos (JSON)");
         color: IdeTheme.text-soft;
         font-family: IdeTheme.sans;
         font-size: 12px;
@@ -212,7 +212,7 @@ export component IdeProvider inherits FocusScope {
             Text {
                 x: 20px;
                 y: 10px;
-                text: "Proveedor de OpenCode";
+                text: @tr("Proveedor de OpenCode");
                 color: IdeTheme.text;
                 font-family: IdeTheme.sans;
                 font-size: 16px;
@@ -222,7 +222,7 @@ export component IdeProvider inherits FocusScope {
             Text {
                 x: 20px;
                 y: 31px;
-                text: "Config global · unión de opencode.json y opencode.jsonc";
+                text: @tr("Config global · unión de opencode.json y opencode.jsonc");
                 color: IdeTheme.text-dim;
                 font-family: IdeTheme.sans;
                 font-size: 10px;
@@ -268,33 +268,33 @@ export component IdeProvider inherits FocusScope {
 
             PRow {
                 id: "id";
-                label: "ID";
+                label: @tr("ID");
                 text: root.field-id;
                 hint: "Clave del proveedor en la config (renombra si lo cambiás)";
                 changed(i, v) => { root.changed(i, v); }
             }
             PRow {
                 id: "name";
-                label: "Nombre";
+                label: @tr("Nombre");
                 text: root.field-name;
                 changed(i, v) => { root.changed(i, v); }
             }
             PRow {
                 id: "package";
-                label: "Package";
+                label: @tr("Package");
                 text: root.field-package;
                 hint: "Runtime del proveedor, ej. @opencode/ai/providers/openai-compatible";
                 changed(i, v) => { root.changed(i, v); }
             }
             PRow {
                 id: "base-url";
-                label: "baseURL";
+                label: @tr("baseURL");
                 text: root.field-base-url;
                 changed(i, v) => { root.changed(i, v); }
             }
             PRow {
                 id: "api-key";
-                label: "apiKey";
+                label: @tr("apiKey");
                 secret: true;
                 text: root.field-api-key;
                 hint: "Puede quedar vacía si el proveedor usa variables de entorno (env)";
@@ -327,17 +327,17 @@ export component IdeProvider inherits FocusScope {
             alignment: end;
 
             PBtn {
-                label: "Cancelar";
+                label: @tr("Cancelar");
                 activated => { root.cancel(); }
             }
             if !root.is-new: PBtn {
-                label: "Eliminar";
+                label: @tr("Eliminar");
                 danger: true;
                 tip: @tr("Pide confirmación y saca el proveedor de la config global");
                 activated => { root.delete(); }
             }
             PBtn {
-                label: "Guardar";
+                label: @tr("Guardar");
                 primary: true;
                 tip: @tr("Valida los campos y escribe la unión en opencode.json");
                 activated => { root.save(); }

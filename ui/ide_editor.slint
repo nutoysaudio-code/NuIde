@@ -333,7 +333,7 @@ export component IdeEditor inherits FocusScope {
                     outline-text := Text {
                         x: 8px;
                         y: (parent.height - self.height) / 2;
-                        text: "Esquema";
+                        text: @tr("Esquema");
                         color: root.outline-open ? IdeTheme.mint : IdeTheme.text-soft;
                         font-family: IdeTheme.sans;
                         font-size: 11px;
@@ -447,7 +447,7 @@ export component IdeEditor inherits FocusScope {
                     cross-axis-alignment: center;
 
                     Text {
-                        text: "Buscar";
+                        text: @tr("Buscar");
                         color: IdeTheme.text-dim;
                         font-family: IdeTheme.sans;
                         font-size: 11px;
@@ -510,9 +510,9 @@ export component IdeEditor inherits FocusScope {
                     IdeFindButton { label: "‹"; tip: @tr("Anterior coincidencia (Shift+F3)"); activated => { root.find-prev(); } }
                     IdeFindButton { label: "›"; tip: @tr("Siguiente coincidencia (F3)"); activated => { root.find-next(); } }
                     IdeFindButton { label: "Aa"; active: root.find-case; tip: @tr("Coincidir mayúsculas/minúsculas"); activated => { root.find-toggle-case(); } }
-                    IdeFindButton { label: "Palabra"; active: root.find-whole-word; tip: @tr("Coincidir palabra completa"); activated => { root.find-toggle-word(); } }
+                    IdeFindButton { label: @tr("Palabra"); active: root.find-whole-word; tip: @tr("Coincidir palabra completa"); activated => { root.find-toggle-word(); } }
                     IdeFindButton { label: ".*"; active: root.find-regex; tip: @tr("Expresión regular"); activated => { root.find-toggle-regex(); } }
-                    IdeFindButton { label: "Sel."; active: root.find-in-selection; tip: @tr("Buscar sólo en la selección"); activated => { root.find-toggle-selection(); } }
+                    IdeFindButton { label: @tr("Sel."); active: root.find-in-selection; tip: @tr("Buscar sólo en la selección"); activated => { root.find-toggle-selection(); } }
                     IdeFindButton { label: "⇄"; active: root.find-replace-open; tip: @tr("Mostrar u ocultar el campo de reemplazo"); activated => { root.find-toggle-replace(); } }
                     IdeFindButton { label: "×"; danger: true; tip: @tr("Cerrar la búsqueda (Esc)"); activated => { root.find-close(); } }
                 }
@@ -524,7 +524,7 @@ export component IdeEditor inherits FocusScope {
                     cross-axis-alignment: center;
 
                     Text {
-                        text: "Reemplazar";
+                        text: @tr("Reemplazar");
                         color: IdeTheme.text-dim;
                         font-family: IdeTheme.sans;
                         font-size: 11px;
@@ -576,8 +576,8 @@ export component IdeEditor inherits FocusScope {
                         }
                     }
 
-                    IdeFindButton { label: "Reemplazar"; tip: @tr("Reemplazar esta coincidencia (Enter)"); activated => { root.replace-one(); } }
-                    IdeFindButton { label: "Todo"; tip: @tr("Reemplazar todas las coincidencias"); activated => { root.replace-all(); } }
+                    IdeFindButton { label: @tr("Reemplazar"); tip: @tr("Reemplazar esta coincidencia (Enter)"); activated => { root.replace-one(); } }
+                    IdeFindButton { label: @tr("Todo"); tip: @tr("Reemplazar todas las coincidencias"); activated => { root.replace-all(); } }
                 }
             }
 
@@ -696,7 +696,7 @@ export component IdeEditor inherits FocusScope {
 
                 IdeFindButton { label: "−"; tip: @tr("Alejar la imagen (Ctrl+-)"); activated => { root.image-zoom-out(); } }
                 IdeFindButton { label: "+"; tip: @tr("Acercar la imagen (Ctrl++)"); activated => { root.image-zoom-in(); } }
-                IdeFindButton { label: "Ajustar"; tip: @tr("Ajustar la imagen al tamaño del panel"); activated => { root.image-zoom-reset(); } }
+                IdeFindButton { label: @tr("Ajustar"); tip: @tr("Ajustar la imagen al tamaño del panel"); activated => { root.image-zoom-reset(); } }
             }
         }
 

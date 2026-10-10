@@ -67,7 +67,7 @@ component IdeTermSession inherits Rectangle {
     width: sess-text.width + 26px;
 
     Tooltip {
-        TipContent { text: "Sesión " + root.label + " — clic para pasar a ella"; }
+        TipContent { text: @tr("Sesión {} - clic para pasar a ella", root.label); }
     }
 
     Rectangle {
@@ -326,7 +326,7 @@ export component IdeTerminal inherits FocusScope {
                 cross-axis-alignment: center;
 
                 Text {
-                    text: "TERMINAL";
+                    text: @tr("TERMINAL");
                     color: IdeTheme.text-dim;
                     font-family: IdeTheme.sans;
                     font-size: 10px;

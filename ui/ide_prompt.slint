@@ -124,12 +124,12 @@ export component IdePrompt inherits Rectangle {
             cross-axis-alignment: center;
 
             PromptButton {
-                label: "Cancelar";
+                label: @tr("Cancelar");
                 tip: @tr("No hacer nada y cerrar (Esc)");
                 activated => { root.cancel(); }
             }
             PromptButton {
-                label: "Aceptar";
+                label: @tr("Aceptar");
                 primary: true;
                 tip: @tr("Confirmar y cerrar (Enter)");
                 activated => { root.accept(); }

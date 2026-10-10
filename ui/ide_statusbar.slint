@@ -52,7 +52,7 @@ export component IdeStatusBar inherits Rectangle {
 
         Text {
             visible: root.elevated;
-            text: "ADMIN";
+            text: @tr("ADMIN");
             color: IdeTheme.amber;
             font-family: IdeTheme.mono;
             font-size: 10px;
@@ -115,7 +115,7 @@ export component IdeStatusBar inherits Rectangle {
         }
         IdeStatusDivider { }
         Text {
-            text: "Ln " + root.line + ", Col " + root.column;
+            text: @tr("Ln {}, Col {}", root.line, root.column);
             color: IdeTheme.text-soft;
             font-family: IdeTheme.sans;
             font-size: 11px;
@@ -128,14 +128,14 @@ export component IdeStatusBar inherits Rectangle {
 
         IdeStatusDivider { }
         Text {
-            text: "CPU " + root.cpu + "%";
+            text: @tr("CPU {}%", root.cpu);
             color: IdeTheme.text-dim;
             font-family: IdeTheme.mono;
             font-size: 10px;
             vertical-alignment: center;
         }
         Text {
-            text: "RAM " + root.ram + "%";
+            text: @tr("RAM {}%", root.ram);
             color: IdeTheme.text-dim;
             font-family: IdeTheme.mono;
             font-size: 10px;

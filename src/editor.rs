@@ -667,61 +667,61 @@ impl Command {
 
     fn label(self) -> &'static str {
         match self {
-            Command::Run => "Ejecutar el programa",
-            Command::Build => "Compilar (spasmc)",
-            Command::BuildAndRun => "Compilar y ejecutar",
-            Command::Lint => "Analizar / diagnóstico",
-            Command::NextError => "Siguiente error",
-            Command::Find => "Buscar",
-            Command::Replace => "Buscar y reemplazar",
-            Command::GotoDef => "Ir a definición",
-            Command::GoToLine => "Ir a línea…",
-            Command::Undo => "Deshacer",
-            Command::Redo => "Rehacer",
-            Command::Cut => "Cortar",
-            Command::Copy => "Copiar",
-            Command::Paste => "Pegar",
-            Command::SelectAll => "Seleccionar todo",
-            Command::Preview => "Vista previa de Markdown",
-            Command::Save => "Guardar",
-            Command::SaveAs => "Guardar como…",
-            Command::CloseTab => "Cerrar pestaña",
-            Command::CloseAll => "Cerrar todas las pestañas",
-            Command::FindFiles => "Buscar archivos",
-            Command::OpenProject => "Abrir carpeta del proyecto…",
-            Command::OpenFile => "Abrir archivo…",
-            Command::NewFile => "Nuevo archivo…",
-            Command::NewTerminal => "Nueva terminal",
-            Command::NewAdminTerminal => "Terminal: nueva como administrador",
-            Command::SplitTerminal => "Dividir la terminal",
-            Command::ToggleExplorer => "Ver: Explorador",
-            Command::ToggleAgent => "Ver: OpenCode CLI",
-            Command::ToggleTerminal => "Ver: Terminal",
-            Command::ToggleGit => "Ver: Control de código",
-            Command::GitRefresh => "Git: refrescar",
-            Command::GitStageAll => "Git: preparar todo",
-            Command::GitPush => "Git: push",
-            Command::CycleTabSize => "Editor: tamaño de tab (2/4/8)",
-            Command::ToggleInsertSpaces => "Editor: insertar espacios",
-            Command::RestartSession => "Terminal: reiniciar sesión",
-            Command::RenameSession => "Terminal: renombrar sesión…",
-            Command::ProjectSearch => "Buscar en el proyecto",
-            Command::GitPull => "Git: bajar (pull)",
-            Command::GitUnstageAll => "Git: quitar todo del índice",
-            Command::GitAmend => "Git: enmendar el último commit",
-            Command::GitDiff => "Git: ver diff del archivo",
-            Command::RunPickEntry => "Ejecutar: elegir archivo de entrada…",
-            Command::RunUseActive => "Ejecutar: usar el archivo activo",
-            Command::RunEditArgs => "Ejecutar: argumentos…",
-            Command::RunToggleBuildOnSave => "Ejecutar: compilar al guardar",
-            Command::SpasmHelp => "SpASM: ayuda de sintaxis",
-            Command::NewProject => "SpASM: nuevo proyecto…",
-            Command::TemplateCompiled => "Plantilla: release (compilado)…",
-            Command::TemplateInterpreter => "Plantilla: desarrollo (intérprete)…",
-            Command::TemplateEmpty => "Plantilla: archivo vacío…",
-            Command::Preferences => "Preferencias",
-            Command::RelaunchElevated => "NuIde: reiniciar como administrador",
-            Command::LaunchNuideCli => "Lanzar Nuide-CLI (agente)",
+            Command::Run => crate::i18n::t("Ejecutar el programa"),
+            Command::Build => crate::i18n::t("Compilar (spasmc)"),
+            Command::BuildAndRun => crate::i18n::t("Compilar y ejecutar"),
+            Command::Lint => crate::i18n::t("Analizar / diagnóstico"),
+            Command::NextError => crate::i18n::t("Siguiente error"),
+            Command::Find => crate::i18n::t("Buscar"),
+            Command::Replace => crate::i18n::t("Buscar y reemplazar"),
+            Command::GotoDef => crate::i18n::t("Ir a definición"),
+            Command::GoToLine => crate::i18n::t("Ir a línea…"),
+            Command::Undo => crate::i18n::t("Deshacer"),
+            Command::Redo => crate::i18n::t("Rehacer"),
+            Command::Cut => crate::i18n::t("Cortar"),
+            Command::Copy => crate::i18n::t("Copiar"),
+            Command::Paste => crate::i18n::t("Pegar"),
+            Command::SelectAll => crate::i18n::t("Seleccionar todo"),
+            Command::Preview => crate::i18n::t("Vista previa de Markdown"),
+            Command::Save => crate::i18n::t("Guardar"),
+            Command::SaveAs => crate::i18n::t("Guardar como…"),
+            Command::CloseTab => crate::i18n::t("Cerrar pestaña"),
+            Command::CloseAll => crate::i18n::t("Cerrar todas las pestañas"),
+            Command::FindFiles => crate::i18n::t("Buscar archivos"),
+            Command::OpenProject => crate::i18n::t("Abrir carpeta del proyecto…"),
+            Command::OpenFile => crate::i18n::t("Abrir archivo…"),
+            Command::NewFile => crate::i18n::t("Nuevo archivo…"),
+            Command::NewTerminal => crate::i18n::t("Nueva terminal"),
+            Command::NewAdminTerminal => crate::i18n::t("Terminal: nueva como administrador"),
+            Command::SplitTerminal => crate::i18n::t("Dividir la terminal"),
+            Command::ToggleExplorer => crate::i18n::t("Ver: Explorador"),
+            Command::ToggleAgent => crate::i18n::t("Ver: OpenCode CLI"),
+            Command::ToggleTerminal => crate::i18n::t("Ver: Terminal"),
+            Command::ToggleGit => crate::i18n::t("Ver: Control de código"),
+            Command::GitRefresh => crate::i18n::t("Git: refrescar"),
+            Command::GitStageAll => crate::i18n::t("Git: preparar todo"),
+            Command::GitPush => crate::i18n::t("Git: push"),
+            Command::CycleTabSize => crate::i18n::t("Editor: tamaño de tab (2/4/8)"),
+            Command::ToggleInsertSpaces => crate::i18n::t("Editor: insertar espacios"),
+            Command::RestartSession => crate::i18n::t("Terminal: reiniciar sesión"),
+            Command::RenameSession => crate::i18n::t("Terminal: renombrar sesión…"),
+            Command::ProjectSearch => crate::i18n::t("Buscar en el proyecto"),
+            Command::GitPull => crate::i18n::t("Git: bajar (pull)"),
+            Command::GitUnstageAll => crate::i18n::t("Git: quitar todo del índice"),
+            Command::GitAmend => crate::i18n::t("Git: enmendar el último commit"),
+            Command::GitDiff => crate::i18n::t("Git: ver diff del archivo"),
+            Command::RunPickEntry => crate::i18n::t("Ejecutar: elegir archivo de entrada…"),
+            Command::RunUseActive => crate::i18n::t("Ejecutar: usar el archivo activo"),
+            Command::RunEditArgs => crate::i18n::t("Ejecutar: argumentos…"),
+            Command::RunToggleBuildOnSave => crate::i18n::t("Ejecutar: compilar al guardar"),
+            Command::SpasmHelp => crate::i18n::t("SpASM: ayuda de sintaxis"),
+            Command::NewProject => crate::i18n::t("SpASM: nuevo proyecto…"),
+            Command::TemplateCompiled => crate::i18n::t("Plantilla: release (compilado)…"),
+            Command::TemplateInterpreter => crate::i18n::t("Plantilla: desarrollo (intérprete)…"),
+            Command::TemplateEmpty => crate::i18n::t("Plantilla: archivo vacío…"),
+            Command::Preferences => crate::i18n::t("Preferencias"),
+            Command::RelaunchElevated => crate::i18n::t("NuIde: reiniciar como administrador"),
+            Command::LaunchNuideCli => crate::i18n::t("Lanzar Nuide-CLI (agente)"),
         }
     }
 
@@ -1721,7 +1721,7 @@ impl Ide {
     fn pick_project(&mut self) {
         let start = self.explorer.root().to_path_buf();
         if let Some(dir) = rfd::FileDialog::new()
-            .set_title("Elegir carpeta del proyecto")
+            .set_title(crate::i18n::t("Elegir carpeta del proyecto"))
             .set_directory(&start)
             .pick_folder()
         {
@@ -1733,7 +1733,7 @@ impl Ide {
     fn pick_file(&mut self) {
         let start = self.explorer.root().to_path_buf();
         if let Some(path) = rfd::FileDialog::new()
-            .set_title("Abrir archivo")
+            .set_title(crate::i18n::t("Abrir archivo"))
             .set_directory(&start)
             .pick_file()
         {
@@ -2471,7 +2471,7 @@ impl Ide {
     fn run_pick_entry(&mut self) {
         let start = self.explorer.root().to_path_buf();
         if let Some(path) = rfd::FileDialog::new()
-            .set_title("Archivo de entrada para Ejecutar")
+            .set_title(crate::i18n::t("Archivo de entrada para Ejecutar"))
             .set_directory(&start)
             .add_filter("SpASM", &["spasm", "asm"])
             .pick_file()
@@ -2510,7 +2510,7 @@ impl Ide {
     fn new_file_with(&mut self, body: &str) {
         let start = self.explorer.root().to_path_buf();
         let path = match rfd::FileDialog::new()
-            .set_title("Nuevo archivo")
+            .set_title(crate::i18n::t("Nuevo archivo"))
             .set_directory(&start)
             .set_file_name("nuevo.spasm")
             .save_file()
@@ -2531,7 +2531,7 @@ impl Ide {
     fn new_project(&mut self) {
         let start = self.explorer.root().to_path_buf();
         let Some(dir) = rfd::FileDialog::new()
-            .set_title("Carpeta del nuevo proyecto")
+            .set_title(crate::i18n::t("Carpeta del nuevo proyecto"))
             .set_directory(&start)
             .pick_folder()
         else {
@@ -3077,7 +3077,7 @@ impl Ide {
             (start, file_name(&t.path), data)
         };
         let Some(path) = rfd::FileDialog::new()
-            .set_title("Guardar como")
+            .set_title(crate::i18n::t("Guardar como"))
             .set_directory(&start)
             .set_file_name(&name)
             .save_file()
@@ -4210,7 +4210,7 @@ impl Ide {
     fn sqlite_pick_db(&mut self) {
         let start = self.site_root();
         let Some(path) = rfd::FileDialog::new()
-            .set_title("Base de datos SQLite")
+            .set_title(crate::i18n::t("Base de datos SQLite"))
             .set_directory(&start)
             .add_filter("SQLite", &["db", "sqlite", "sqlite3"])
             .add_filter("Todos", &["*"])
@@ -4334,28 +4334,25 @@ impl Ide {
         v.push(s(
             "ui.font.mono",
             0,
-            2,
-            "Fuente del código",
-            self.mono.clone(),
-            "Familia monoespaciada del editor y las terminales; clic para ciclar las instaladas",
-            0,
-        ));
+            2,crate::i18n::t("Fuente del código"),
+            self.mono.clone(),crate::i18n::t("Familia monoespaciada del editor y las terminales; clic para ciclar las instaladas"),
+            0));
         v.push(s(
             "ui.font.sans",
             0,
             2,
-            "Fuente de la interfaz",
+            crate::i18n::t("Fuente de la interfaz"),
             self.sans.clone(),
-            "Familia de los textos de la IDE (menús, paneles)",
+            crate::i18n::t("Familia de los textos de la IDE (menús, paneles)"),
             0,
         ));
         let mut size = s(
             "ui.font.size",
             0,
             3,
-            "Tamaño del código",
+            crate::i18n::t("Tamaño del código"),
             format!("{} px", self.editor_font_size as i32),
-            "Puntos de la fuente monoespaciada",
+            crate::i18n::t("Puntos de la fuente monoespaciada"),
             0,
         );
         size.num = self.editor_font_size;
@@ -4367,18 +4364,18 @@ impl Ide {
             "ui.accent",
             0,
             2,
-            "Acento",
+            crate::i18n::t("Acento"),
             self.accent_name(),
-            "Color de resaltado (pestañas activas, foco, marcadores)",
+            crate::i18n::t("Color de resaltado (pestañas activas, foco, marcadores)"),
             0,
         ));
         let mut alpha = s(
             "ui.alpha",
             0,
             3,
-            "Opacidad de los paneles",
+            crate::i18n::t("Opacidad de los paneles"),
             format!("{:.0} %", self.panel_alpha * 100.0),
-            "Compone las superficies contra el fondo de la ventana",
+            crate::i18n::t("Compone las superficies contra el fondo de la ventana"),
             0,
         );
         alpha.num = self.panel_alpha;
@@ -4389,25 +4386,25 @@ impl Ide {
         v.push(b(
             "ui.show.left",
             0,
-            "Región izquierda (explorador y Git)",
+            crate::i18n::t("Región izquierda (explorador y Git)"),
             self.show_left,
-            "Se puede mover cada panel arrastrando su cabecera",
+            crate::i18n::t("Se puede mover cada panel arrastrando su cabecera"),
             0,
         ));
         v.push(b(
             "ui.show.right",
             0,
-            "Región derecha (OpenCode CLI)",
+            crate::i18n::t("Región derecha (OpenCode CLI)"),
             self.show_right,
-            "Prende o apaga la columna del agente",
+            crate::i18n::t("Prende o apaga la columna del agente"),
             0,
         ));
         v.push(b(
             "ui.show.bottom",
             0,
-            "Región inferior (terminal)",
+            crate::i18n::t("Región inferior (terminal)"),
             self.show_bottom,
-            "Prende o apaga la terminal local",
+            crate::i18n::t("Prende o apaga la terminal local"),
             0,
         ));
 
@@ -4416,51 +4413,51 @@ impl Ide {
             "ed.tab-size",
             1,
             2,
-            "Tamaño de tab",
+            crate::i18n::t("Tamaño de tab"),
             self.tab_size.to_string(),
-            "Espacios por tabulador al expandir",
+            crate::i18n::t("Espacios por tabulador al expandir"),
             0,
         ));
         v.push(b(
             "ed.insert-spaces",
             1,
-            "Insertar espacios en lugar de tab",
+            crate::i18n::t("Insertar espacios en lugar de tab"),
             self.insert_spaces,
-            "Al tipear Tab se insertan espacios",
+            crate::i18n::t("Al tipear Tab se insertan espacios"),
             0,
         ));
         v.push(b(
             "ed.generated",
             1,
-            "Mostrar archivos generados",
+            crate::i18n::t("Mostrar archivos generados"),
             self.explorer.shows_generated(),
-            "Objetos, binarios y salidas del toolchain en el explorador",
+            crate::i18n::t("Objetos, binarios y salidas del toolchain en el explorador"),
             1,
         ));
         v.push(b(
             "ed.build-on-save",
             1,
-            "Compilar al guardar",
+            crate::i18n::t("Compilar al guardar"),
             self.run_build_on_save,
-            "Cada Ctrl+S corre la cadena de compilación",
+            crate::i18n::t("Cada Ctrl+S corre la cadena de compilación"),
             1,
         ));
         v.push(s(
             "ed.run-args",
             1,
             0,
-            "Argumentos de ejecución",
+            crate::i18n::t("Argumentos de ejecución"),
             self.run_args.clone(),
-            "Se pasan al programa cuando apretás F5",
+            crate::i18n::t("Se pasan al programa cuando apretás F5"),
             1,
         ));
         v.push(s(
             "ed.run-entry",
             1,
             0,
-            "Archivo de entrada (F5)",
+            crate::i18n::t("Archivo de entrada (F5)"),
             self.config.get("run.entry").unwrap_or("").to_string(),
-            "Ruta del .spasm que se ejecuta",
+            crate::i18n::t("Ruta del .spasm que se ejecuta"),
             1,
         ));
 
@@ -4470,54 +4467,54 @@ impl Ide {
             "term.shell",
             2,
             6,
-            "Shell por defecto",
+            crate::i18n::t("Shell por defecto"),
             shell,
-            "Se cambia con la variable de entorno NUIDE_SHELL",
+            crate::i18n::t("Se cambia con la variable de entorno NUIDE_SHELL"),
             0,
         ));
         v.push(s(
             "term.grid",
             2,
             6,
-            "Grilla de la terminal",
+            crate::i18n::t("Grilla de la terminal"),
             format!("{} × {} celdas", self.local_cols, self.local_rows),
-            "Se recalcula sola al estirar el panel",
+            crate::i18n::t("Se recalcula sola al estirar el panel"),
             0,
         ));
         v.push(s(
             "term.sessions",
             2,
             6,
-            "Sesiones abiertas",
+            crate::i18n::t("Sesiones abiertas"),
             self.local.len().to_string(),
-            "Cada sesión es un PTY con su shell",
+            crate::i18n::t("Cada sesión es un PTY con su shell"),
             0,
         ));
         v.push(s(
             "term.new",
             2,
             4,
-            "Nueva sesión de terminal",
+            crate::i18n::t("Nueva sesión de terminal"),
             "crear".into(),
-            "Abre otra shell en la raíz del proyecto",
+            crate::i18n::t("Abre otra shell en la raíz del proyecto"),
             0,
         ));
         v.push(s(
             "term.restart",
             2,
             4,
-            "Reiniciar la sesión activa",
+            crate::i18n::t("Reiniciar la sesión activa"),
             "reiniciar".into(),
-            "Reemplaza la sesión actual por una shell nueva",
+            crate::i18n::t("Reemplaza la sesión actual por una shell nueva"),
             0,
         ));
         v.push(s(
             "term.split",
             2,
             4,
-            "Dividir la terminal",
+            crate::i18n::t("Dividir la terminal"),
             "dividir".into(),
-            "Dos vistas lado a lado",
+            crate::i18n::t("Dos vistas lado a lado"),
             0,
         ));
 
@@ -4532,53 +4529,53 @@ impl Ide {
             "agent.bin",
             3,
             6,
-            "CLI de OpenCode",
+            crate::i18n::t("CLI de OpenCode"),
             agent,
-            "Ruta de la CLI que se lanza bajo demanda con «Lanzar opencode»",
+            crate::i18n::t("Ruta de la CLI que se lanza bajo demanda con «Lanzar opencode»"),
             0,
         ));
         v.push(s(
             "agent.version",
             3,
             0,
-            "Versión mostrada",
+            crate::i18n::t("Versión mostrada"),
             String::new(),
-            "Etiqueta que se ve en la ficha del panel",
+            crate::i18n::t("Etiqueta que se ve en la ficha del panel"),
             0,
         ));
         v.push(s(
             "agent.launch",
             3,
             4,
-            "Lanzar opencode",
+            crate::i18n::t("Lanzar opencode"),
             "abrir".into(),
-            "Inyecta el comando de opencode en la terminal del panel derecho",
+            crate::i18n::t("Inyecta el comando de opencode en la terminal del panel derecho"),
             0,
         ));
         v.push(s(
             "agent.nuidecli",
             3,
             4,
-            "Lanzar Nuide-CLI",
+            crate::i18n::t("Lanzar Nuide-CLI"),
             "abrir".into(),
-            "Agente de código con router de modelos (gratis primero) sobre SpASM",
+            crate::i18n::t("Agente de código con router de modelos (gratis primero) sobre SpASM"),
             0,
         ));
         v.push(s(
             "agent.restart",
             3,
             4,
-            "Reiniciar la terminal",
+            crate::i18n::t("Reiniciar la terminal"),
             "reiniciar".into(),
-            "Relanza la shell del panel derecho en la raíz del proyecto",
+            crate::i18n::t("Relanza la shell del panel derecho en la raíz del proyecto"),
             0,
         ));
         v.push(b(
             "agent.show",
             3,
-            "Mostrar el panel del agente",
+            crate::i18n::t("Mostrar el panel del agente"),
             self.show_right && self.docks[1] == Dock::Right,
-            "Igual que el botón de layout derecho",
+            crate::i18n::t("Igual que el botón de layout derecho"),
             0,
         ));
 
@@ -4608,9 +4605,9 @@ impl Ide {
             "ocp.add",
             4,
             4,
-            "Agregar proveedor",
+            crate::i18n::t("Agregar proveedor"),
             "nuevo".into(),
-            "Da de alta un proveedor nuevo en la config global de OpenCode",
+            crate::i18n::t("Da de alta un proveedor nuevo en la config global de OpenCode"),
             0,
         ));
 
@@ -4619,99 +4616,101 @@ impl Ide {
             "site.transport",
             5,
             2,
-            "Transporte",
+            crate::i18n::t("Transporte"),
             self.site.transport.label().to_string(),
-            "FTP (21), FTPS (FTP + TLS) o SFTP (SSH, 22)",
+            crate::i18n::t("FTP (21), FTPS (FTP + TLS) o SFTP (SSH, 22)"),
             1,
         ));
         v.push(s(
             "site.host",
             5,
             0,
-            "Host",
+            crate::i18n::t("Host"),
             self.site.host.clone(),
-            "Servidor del sitio, ej. ftp.midominio.com",
+            crate::i18n::t("Servidor del sitio, ej. ftp.midominio.com"),
             1,
         ));
         v.push(s(
             "site.user",
             5,
             0,
-            "Usuario",
+            crate::i18n::t("Usuario"),
             self.site.user.clone(),
-            "Usuario de FTP/SFTP del hosting",
+            crate::i18n::t("Usuario de FTP/SFTP del hosting"),
             1,
         ));
         v.push(s(
             "site.pass",
             5,
             5,
-            "Contraseña",
+            crate::i18n::t("Contraseña"),
             self.site.pass.clone(),
-            "Se guarda en %APPDATA%\\NuIde, indexada por proyecto: nunca en el repositorio",
+            crate::i18n::t(
+                "Se guarda en %APPDATA%\\NuIde, indexada por proyecto: nunca en el repositorio",
+            ),
             1,
         ));
         v.push(s(
             "site.remote",
             5,
             0,
-            "Carpeta remota",
+            crate::i18n::t("Carpeta remota"),
             self.site.remote_root.clone(),
-            "Ruta en el servidor, ej. public_html",
+            crate::i18n::t("Ruta en el servidor, ej. public_html"),
             1,
         ));
         v.push(s(
             "site.local-sub",
             5,
             0,
-            "Subcarpeta local a subir",
+            crate::i18n::t("Subcarpeta local a subir"),
             self.site.local_sub.clone(),
-            "Qué carpeta del proyecto se despliega (vacío = todo)",
+            crate::i18n::t("Qué carpeta del proyecto se despliega (vacío = todo)"),
             1,
         ));
         v.push(s(
             "site.include",
             5,
             0,
-            "Extensiones",
+            crate::i18n::t("Extensiones"),
             self.site.include.clone(),
-            "Lista separada por coma de extensiones que se suben",
+            crate::i18n::t("Lista separada por coma de extensiones que se suben"),
             1,
         ));
         v.push(s(
             "site.script",
             5,
             0,
-            "Script de despliegue",
+            crate::i18n::t("Script de despliegue"),
             self.site.script.clone(),
-            "Script SpASM que decide qué subir; imprime líneas UPLOAD/SKIP/LOG",
+            crate::i18n::t("Script SpASM que decide qué subir; imprime líneas UPLOAD/SKIP/LOG"),
             1,
         ));
         v.push(s(
             "site.test",
             5,
             4,
-            "Probar conexión",
+            crate::i18n::t("Probar conexión"),
             "probar".into(),
-            "Lista el directorio remoto con curl sin subir nada",
+            crate::i18n::t("Lista el directorio remoto con curl sin subir nada"),
             0,
         ));
         v.push(s(
             "site.upload",
             5,
             4,
-            "Subir cambios",
+            crate::i18n::t("Subir cambios"),
             "subir".into(),
-            "Corre el script (o el escaneo) y transfiere con curl/scp",
+            crate::i18n::t("Corre el script (o el escaneo) y transfiere con curl/scp"),
             0,
         ));
         v.push(s(
             "site.ssh",
             5,
             4,
-            "Terminal SSH",
+            crate::i18n::t("Terminal SSH"),
             "abrir".into(),
-            "Sesión ssh user@host en una pestaña de terminal",
+            crate::i18n::t("Sesión ssh user@host en una pestaña de terminal"),
             0,
         ));
 
@@ -4719,74 +4718,74 @@ impl Ide {
         v.push(b(
             "web.enabled",
             6,
-            "Servidor web local",
+            crate::i18n::t("Servidor web local"),
             self.web.enabled,
-            "Sirve la carpeta del proyecto en http://localhost:<puerto>/ con CORS",
+            crate::i18n::t("Sirve la carpeta del proyecto en http://localhost:<puerto>/ con CORS"),
             1,
         ));
         v.push(s(
             "web.port",
             6,
             0,
-            "Puerto del servidor",
+            crate::i18n::t("Puerto del servidor"),
             self.web.port.to_string(),
-            "Puerto local (1024 o más)",
+            crate::i18n::t("Puerto local (1024 o más)"),
             1,
         ));
         v.push(s(
             "web.root",
             6,
             0,
-            "Carpeta servida",
+            crate::i18n::t("Carpeta servida"),
             self.web.root_sub.clone(),
-            "Subcarpeta del proyecto; vacío = la raíz",
+            crate::i18n::t("Subcarpeta del proyecto; vacío = la raíz"),
             1,
         ));
         v.push(s(
             "web.cors",
             6,
             0,
-            "CORS: origen permitido",
+            crate::i18n::t("CORS: origen permitido"),
             self.web.cors_origin.clone(),
-            "Access-Control-Allow-Origin; * para cualquiera",
+            crate::i18n::t("Access-Control-Allow-Origin; * para cualquiera"),
             1,
         ));
         v.push(b(
             "sqlite.enabled",
             6,
-            "Visor de SQLite",
+            crate::i18n::t("Visor de SQLite"),
             self.sqlite_enabled,
-            "Panel para mirar las tablas de una base .db del proyecto",
+            crate::i18n::t("Panel para mirar las tablas de una base .db del proyecto"),
             0,
         ));
         v.push(s(
             "sqlite.db",
             6,
             0,
-            "Base abierta",
+            crate::i18n::t("Base abierta"),
             self.sqlite_db
                 .as_ref()
                 .map(|p| p.display().to_string())
                 .unwrap_or_default(),
-            "Ruta del archivo .db / .sqlite",
+            crate::i18n::t("Ruta del archivo .db / .sqlite"),
             1,
         ));
         v.push(s(
             "sqlite.pick",
             6,
             4,
-            "Elegir base",
+            crate::i18n::t("Elegir base"),
             "buscar".into(),
-            "Abre el diálogo nativo para elegir el archivo",
+            crate::i18n::t("Abre el diálogo nativo para elegir el archivo"),
             0,
         ));
         v.push(s(
             "sqlite.reload",
             6,
             4,
-            "Refrescar el visor",
+            crate::i18n::t("Refrescar el visor"),
             "recargar".into(),
-            "Vuelve a leer tablas y filas",
+            crate::i18n::t("Vuelve a leer tablas y filas"),
             0,
         ));
 
@@ -4799,7 +4798,7 @@ impl Ide {
                 4,
                 label,
                 chord,
-                "Clic y presioná la combinación nueva",
+                crate::i18n::t("Clic y presioná la combinación nueva"),
                 0,
             ));
         }
@@ -7293,21 +7292,25 @@ impl Ide {
         if let Some(c) = self.confirm {
             w.set_confirm_title(
                 match c {
-                    Confirm::CloseTab => "Cerrar pestaña",
-                    Confirm::CloseAll => "Cerrar todas las pestañas",
-                    Confirm::Quit => "Salir de NuIde",
-                    Confirm::RelaunchElevated => "Reiniciar como administrador",
+                    Confirm::CloseTab => crate::i18n::t("Cerrar pestaña"),
+                    Confirm::CloseAll => crate::i18n::t("Cerrar todas las pestañas"),
+                    Confirm::Quit => crate::i18n::t("Salir de NuIde"),
+                    Confirm::RelaunchElevated => crate::i18n::t("Reiniciar como administrador"),
                 }
                 .into(),
             );
             let verb = match c {
-                Confirm::CloseTab => "cerrar",
-                Confirm::CloseAll => "cerrar todas",
-                Confirm::Quit => "salir",
-                Confirm::RelaunchElevated => "reiniciar como administrador",
+                Confirm::CloseTab => crate::i18n::t("cerrar"),
+                Confirm::CloseAll => crate::i18n::t("cerrar todas"),
+                Confirm::Quit => crate::i18n::t("salir"),
+                Confirm::RelaunchElevated => crate::i18n::t("reiniciar como administrador"),
             };
             w.set_confirm_message(
-                format!("Hay cambios sin guardar. ¿Querés guardarlos antes de {verb}?").into(),
+                crate::i18n::tf(
+                    "Hay cambios sin guardar. ¿Querés guardarlos antes de {}?",
+                    &[verb],
+                )
+                .into(),
             );
         }
 
@@ -7381,28 +7384,28 @@ impl Ide {
         w.set_prompt_open(self.prompt.is_some());
         if let Some(p) = self.prompt.as_ref() {
             let (title, placeholder) = match p.kind {
-                PromptKind::NewFile => ("Nuevo archivo", "nombre.spasm"),
-                PromptKind::NewFolder => ("Nueva carpeta", "nombre"),
-                PromptKind::Rename => ("Renombrar", ""),
-                PromptKind::SessionName => ("Renombrar terminal", "sesión"),
-                PromptKind::NewBranch => ("Nueva rama", "nombre-rama"),
-                PromptKind::RunArgs => ("Argumentos para ejecutar", "--flag valor"),
+                PromptKind::NewFile => (crate::i18n::t("Nuevo archivo"), "nombre.spasm"),
+                PromptKind::NewFolder => (crate::i18n::t("Nueva carpeta"), "nombre"),
+                PromptKind::Rename => (crate::i18n::t("Renombrar"), ""),
+                PromptKind::SessionName => (crate::i18n::t("Renombrar terminal"), "sesión"),
+                PromptKind::NewBranch => (crate::i18n::t("Nueva rama"), "nombre-rama"),
+                PromptKind::RunArgs => (crate::i18n::t("Argumentos para ejecutar"), "--flag valor"),
                 PromptKind::SiteField(field) => match field {
-                    "user" => ("Usuario del sitio", "ftp-usuario"),
+                    "user" => (crate::i18n::t("Usuario del sitio"), "ftp-usuario"),
                     "pass" => (
                         "Contraseña del sitio",
                         "se guarda en %APPDATA%, no en el repo",
                     ),
-                    "remote" => ("Carpeta remota", "public_html"),
-                    "local-sub" => ("Subcarpeta local a subir", "build"),
-                    "include" => ("Extensiones a subir", "html,css,js,png,svg"),
-                    "script" => ("Script de despliegue", "deploy.spasm"),
-                    _ => ("Host del sitio", "ftp.midominio.com"),
+                    "remote" => (crate::i18n::t("Carpeta remota"), "public_html"),
+                    "local-sub" => (crate::i18n::t("Subcarpeta local a subir"), "build"),
+                    "include" => (crate::i18n::t("Extensiones a subir"), "html,css,js,png,svg"),
+                    "script" => (crate::i18n::t("Script de despliegue"), "deploy.spasm"),
+                    _ => (crate::i18n::t("Host del sitio"), "ftp.midominio.com"),
                 },
                 PromptKind::WebField(field) => match field {
-                    "port" => ("Puerto del servidor local", "8080"),
-                    "root" => ("Carpeta servida", "build"),
-                    _ => ("Origen permitido (CORS)", "*"),
+                    "port" => (crate::i18n::t("Puerto del servidor local"), "8080"),
+                    "root" => (crate::i18n::t("Carpeta servida"), "build"),
+                    _ => (crate::i18n::t("Origen permitido (CORS)"), "*"),
                 },
             };
             w.set_prompt_title(title.into());
@@ -7412,15 +7415,15 @@ impl Ide {
         w.set_ask_open(self.ask.is_some());
         match self.ask.as_ref() {
             Some(Ask::Delete(path)) => {
-                w.set_ask_title("Eliminar".into());
+                w.set_ask_title(crate::i18n::t("Eliminar").into());
                 w.set_ask_message(
-                    format!(
+                    crate::i18n::tf(
                         "¿Eliminar «{}»? Esta acción no se puede deshacer.",
-                        file_name(path)
+                        &[file_name(path).as_str()],
                     )
                     .into(),
                 );
-                w.set_ask_accept_label("Eliminar".into());
+                w.set_ask_accept_label(crate::i18n::t("Eliminar").into());
                 w.set_ask_danger(true);
             }
             Some(Ask::ReplaceInProject) => {
@@ -7431,32 +7434,39 @@ impl Ide {
                     v.dedup();
                     v.len()
                 };
-                w.set_ask_title("Reemplazar en el proyecto".into());
+                w.set_ask_title(crate::i18n::t("Reemplazar en el proyecto").into());
                 w.set_ask_message(
-                    format!(
-                        "Se reemplazará «{}» en {files} archivo(s). ¿Continuar?",
-                        self.search.query
+                    crate::i18n::tf(
+                        "Se reemplazará «{}» en {} archivo(s). ¿Continuar?",
+                        &[self.search.query.as_str(), files.to_string().as_str()],
                     )
                     .into(),
                 );
-                w.set_ask_accept_label("Reemplazar".into());
+                w.set_ask_accept_label(crate::i18n::t("Reemplazar").into());
                 w.set_ask_danger(false);
             }
             Some(Ask::Discard { path, .. }) => {
-                w.set_ask_title("Descartar cambios".into());
+                w.set_ask_title(crate::i18n::t("Descartar cambios").into());
                 w.set_ask_message(
-                    format!("¿Descartar los cambios de «{path}»? No se puede deshacer.").into(),
+                    crate::i18n::tf(
+                        "¿Descartar los cambios de «{}»? No se puede deshacer.",
+                        &[path.as_str()],
+                    )
+                    .into(),
                 );
-                w.set_ask_accept_label("Descartar".into());
+                w.set_ask_accept_label(crate::i18n::t("Descartar").into());
                 w.set_ask_danger(true);
             }
             Some(Ask::DeleteProvider(id)) => {
-                w.set_ask_title("Eliminar proveedor".into());
+                w.set_ask_title(crate::i18n::t("Eliminar proveedor").into());
                 w.set_ask_message(
-                    format!("¿Eliminar el proveedor «{id}» de la config global de OpenCode?")
-                        .into(),
+                    crate::i18n::tf(
+                        "¿Eliminar el proveedor «{}» de la config global de OpenCode?",
+                        &[id.as_str()],
+                    )
+                    .into(),
                 );
-                w.set_ask_accept_label("Eliminar".into());
+                w.set_ask_accept_label(crate::i18n::t("Eliminar").into());
                 w.set_ask_danger(true);
             }
             None => {}
@@ -7640,10 +7650,10 @@ impl Ide {
         w.set_palette_open(self.palette.open);
         w.set_palette_title(
             match self.palette.kind {
-                PaletteKind::Commands => "Comandos",
-                PaletteKind::Files => "Archivos del proyecto",
-                PaletteKind::GoToLine => "Ir a línea",
-                PaletteKind::Help => "Ayuda SpASM",
+                PaletteKind::Commands => crate::i18n::t("Comandos"),
+                PaletteKind::Files => crate::i18n::t("Archivos del proyecto"),
+                PaletteKind::GoToLine => crate::i18n::t("Ir a línea"),
+                PaletteKind::Help => crate::i18n::t("Ayuda SpASM"),
             }
             .into(),
         );

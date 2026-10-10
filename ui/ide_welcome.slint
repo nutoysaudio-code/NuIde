@@ -129,7 +129,7 @@ export component IdeWelcome inherits Rectangle {
             horizontal-alignment: center;
         }
         Text {
-            text: "IDE multi-lenguaje · sin archivos abiertos";
+            text: @tr("IDE multi-lenguaje · sin archivos abiertos");
             color: IdeTheme.text-dim;
             font-family: IdeTheme.sans;
             font-size: 13px;
@@ -141,15 +141,15 @@ export component IdeWelcome inherits Rectangle {
         HorizontalLayout {
             alignment: center;
             spacing: 10px;
-            WelcomeButton { label: "Abrir carpeta…"; tip: @tr("Elegir un proyecto existente (Ctrl+O)"); activated => { root.open-project(); } }
-            WelcomeButton { label: "Abrir archivo…"; tip: @tr("Abrir un archivo suelto sin proyecto (Ctrl+Shift+O)"); activated => { root.open-file(); } }
-            WelcomeButton { label: "Nuevo archivo…"; tip: @tr("Crear un archivo nuevo en el proyecto (Ctrl+N)"); activated => { root.new-file(); } }
+            WelcomeButton { label: @tr("Abrir carpeta…"); tip: @tr("Elegir un proyecto existente (Ctrl+O)"); activated => { root.open-project(); } }
+            WelcomeButton { label: @tr("Abrir archivo…"); tip: @tr("Abrir un archivo suelto sin proyecto (Ctrl+Shift+O)"); activated => { root.open-file(); } }
+            WelcomeButton { label: @tr("Nuevo archivo…"); tip: @tr("Crear un archivo nuevo en el proyecto (Ctrl+N)"); activated => { root.new-file(); } }
         }
 
         if root.recent.length > 0: Rectangle { height: 8px; background: transparent; }
 
         if root.recent.length > 0: Text {
-            text: "Recientes";
+            text: @tr("Recientes");
             color: IdeTheme.text-dim;
             font-family: IdeTheme.sans;
             font-size: 11px;
@@ -172,7 +172,7 @@ export component IdeWelcome inherits Rectangle {
         Rectangle { height: 8px; background: transparent; }
 
         Text {
-            text: "Atajos";
+            text: @tr("Atajos");
             color: IdeTheme.text-dim;
             font-family: IdeTheme.sans;
             font-size: 11px;

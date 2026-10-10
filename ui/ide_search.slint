@@ -141,7 +141,7 @@ export component IdeSearch inherits Rectangle {
         Text {
             x: 14px;
             y: (22px + 8px) / 2 - self.height / 2;
-            text: "Buscar";
+            text: @tr("Buscar");
             color: IdeTheme.text-dim;
             font-family: IdeTheme.sans;
             font-size: 11px;
@@ -199,7 +199,7 @@ export component IdeSearch inherits Rectangle {
         if root.replace-open: Text {
             x: 14px;
             y: 40px + (22px / 2) - self.height / 2;
-            text: "Reempl.";
+            text: @tr("Reempl.");
             color: IdeTheme.text-dim;
             font-family: IdeTheme.sans;
             font-size: 11px;
@@ -275,7 +275,7 @@ export component IdeSearch inherits Rectangle {
             SearchButton { label: ".*"; active: root.regex; tip: @tr("Expresión regular (en vez de texto literal)"); activated => { root.toggle-regex(); } }
             SearchButton { label: "⇄"; active: root.replace-open; tip: @tr("Mostrar u ocultar el campo de reemplazo"); activated => { root.toggle-replace(); } }
             SearchButton {
-                label: "Reemplazar todo";
+                label: @tr("Reemplazar todo");
                 enabled: root.replace-open && root.hits.length > 0;
                 tip: @tr("Reemplaza todas las coincidencias en el proyecto (cuidado: no se puede deshacer)");
                 activated => { root.replace-all(); }
@@ -336,7 +336,7 @@ export component IdeSearch inherits Rectangle {
             y: parent.height - root.footer-h;
             width: parent.width - 28px;
             height: root.footer-h;
-            text: "↑↓ moverse   ·   Tab reemplazo   ·   Enter abrir   ·   Esc cerrar";
+            text: @tr("↑↓ moverse   ·   Tab reemplazo   ·   Enter abrir   ·   Esc cerrar");
             color: IdeTheme.text-dim;
             font-family: IdeTheme.sans;
             font-size: 11px;

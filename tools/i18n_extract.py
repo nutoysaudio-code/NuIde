@@ -33,9 +33,26 @@ TIP_PROP = re.compile(r'(\btip:\s*)"([^"]+)"(\s*[;}])')
 ATR = re.compile(r'@tr\(\s*"((?:[^"\\]|\\.)*)"')
 RUST_T = re.compile(r'i18n::t\(\s*"((?:[^"\\]|\\.)*)"')
 
+# Atributos de texto que deberían ir envueltos en `@tr` (para el check estricto).
+ATTR = re.compile(r'(?:^|[\s;{])(?:label|text|title|placeholder):\s*"([^"\n]+)"(?=\s*[;}])')
+SKIP_VALUES = {"NuIde", "ADMIN", "SpASM", "Aa"}
+
 
 def esc(s: str) -> str:
     return s.replace("\\", "\\\\").replace('"', '\\"')
+
+
+def unescape(s: str) -> str:
+    """Revierte los escapes de un literal (`\\`, `\"`, `\n`, `\t`) al string real."""
+    out, i = "", 0
+    while i < len(s):
+        if s[i] == "\\" and i + 1 < len(s):
+            out += {"n": "\n", "t": "\t", '"': '"', "\\": "\\"}.get(s[i + 1], s[i + 1])
+            i += 2
+        else:
+            out += s[i]
+            i += 1
+    return out
 
 
 def wrap_tooltips() -> bool:
@@ -51,12 +68,28 @@ def wrap_tooltips() -> bool:
     return changed
 
 
-def unwrapped_tooltips() -> list[str]:
+def unwrapped_strings() -> list[str]:
+    """Literales visibles de `ui/*.slint` que deberían estar en `@tr`."""
+    def translatable(v: str) -> bool:
+        return (
+            v not in SKIP_VALUES
+            and len(v) >= 2
+            and any(c.isalpha() for c in v)
+            and len(set(v)) > 1
+        )
+
     hits = []
     for f in sorted(UI.glob("*.slint")):
-        text = f.read_text(encoding="utf-8")
-        for m in list(TIP_TXT.finditer(text)) + list(TIP_PROP.finditer(text)):
-            hits.append(f"{f.name}: {m.group(2)}")
+        for ln, line in enumerate(f.read_text(encoding="utf-8").splitlines(), 1):
+            if "property" in line:
+                continue
+            for m in TIP_TXT.finditer(line):
+                hits.append(f"{f.name}:{ln}: tooltip «{m.group(2)}»")
+            for m in TIP_PROP.finditer(line):
+                hits.append(f"{f.name}:{ln}: tooltip «{m.group(2)}»")
+            for m in ATTR.finditer(line):
+                if translatable(m.group(1)):
+                    hits.append(f"{f.name}:{ln}: texto «{m.group(1)}»")
     return hits
 
 
@@ -71,10 +104,10 @@ def collect() -> list[str]:
 
     for f in sorted(UI.glob("*.slint")):
         for m in ATR.finditer(f.read_text(encoding="utf-8")):
-            add(m.group(1))
+            add(unescape(m.group(1)))
     for f in sorted(SRC.rglob("*.rs")):
         for m in RUST_T.finditer(f.read_text(encoding="utf-8")):
-            add(m.group(1))
+            add(unescape(m.group(1)))
     return keys
 
 
@@ -95,15 +128,19 @@ def render_pot(keys: list[str]) -> str:
 
 
 def pot_keys(text: str) -> list[str]:
-    return [m.group(1) for m in re.finditer(r'^msgid "((?:[^"\\]|\\.)*)"$', text, re.M) if m.group(1)]
+    return [
+        unescape(m.group(1))
+        for m in re.finditer(r'^msgid "((?:[^"\\]|\\.)*)"$', text, re.M)
+        if m.group(1)
+    ]
 
 
 def main() -> int:
     check = "--check" in sys.argv
     if check:
-        crudo = unwrapped_tooltips()
+        crudo = unwrapped_strings()
         if crudo:
-            print("Hay tooltips sin envolver en @tr (corré tools/i18n_extract.py):")
+            print("Hay texto visible sin envolver en @tr (corré tools/i18n_extract.py):")
             for h in crudo:
                 print("  -", h)
             return 1

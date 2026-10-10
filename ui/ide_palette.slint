@@ -141,7 +141,7 @@ export component IdePalette inherits Rectangle {
 
                 if root.items.length == 0: Text {
                     x: 6px;
-                    text: "Sin resultados";
+                    text: @tr("Sin resultados");
                     color: IdeTheme.text-dim;
                     font-family: IdeTheme.sans;
                     font-size: 12px;
@@ -170,7 +170,7 @@ export component IdePalette inherits Rectangle {
             y: parent.height - 24px;
             width: parent.width - 28px;
             height: 24px;
-            text: "↑↓ moverse   ·   Enter abrir   ·   Esc cerrar";
+            text: @tr("↑↓ moverse   ·   Enter abrir   ·   Esc cerrar");
             color: IdeTheme.text-dim;
             font-family: IdeTheme.sans;
             font-size: 11px;

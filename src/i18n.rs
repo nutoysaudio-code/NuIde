@@ -47,11 +47,21 @@ pub fn display_name(locale: &str) -> &'static str {
 }
 
 /// Traduce `msgid`; si no hay traducción, devuelve el propio `msgid`.
-pub fn t(msgid: &'static str) -> &'static str {
+pub fn t(msgid: &str) -> &str {
     match catalog().get(msgid) {
         Some(tr) => tr.as_str(),
         None => msgid,
     }
+}
+
+/// Como [`t`] pero reemplaza los `{}` por `args`, en orden (para mensajes con
+/// valores: `tf("¿Eliminar «{}»?", &[name])`).
+pub fn tf(msgid: &str, args: &[&str]) -> String {
+    let mut s = t(msgid).to_string();
+    for a in args {
+        s = s.replacen("{}", a, 1);
+    }
+    s
 }
 
 fn catalog() -> &'static HashMap<String, String> {

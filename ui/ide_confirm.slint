@@ -108,17 +108,17 @@ export component IdeConfirm inherits Rectangle {
             cross-axis-alignment: center;
 
             ConfirmButton {
-                label: "Cancelar";
+                label: @tr("Cancelar");
                 tip: @tr("No hacer nada y cerrar (Esc)");
                 activated => { root.cancel(); }
             }
             ConfirmButton {
-                label: "Descartar";
+                label: @tr("Descartar");
                 tip: @tr("Descartar los cambios sin guardar");
                 activated => { root.discard(); }
             }
             ConfirmButton {
-                label: "Guardar";
+                label: @tr("Guardar");
                 primary: true;
                 tip: @tr("Guardar los cambios y continuar");
                 activated => { root.save(); }
@@ -131,7 +131,7 @@ export component IdeConfirm inherits Rectangle {
 export component IdeAsk inherits Rectangle {
     in property <string> title: "";
     in property <string> message: "";
-    in property <string> accept-label: "Aceptar";
+    in property <string> accept-label: @tr("Aceptar");
     in property <bool> danger: false;
     callback accept();
     callback cancel();
@@ -198,7 +198,7 @@ export component IdeAsk inherits Rectangle {
             cross-axis-alignment: center;
 
             ConfirmButton {
-                label: "Cancelar";
+                label: @tr("Cancelar");
                 tip: @tr("No hacer nada y cerrar (Esc)");
                 activated => { root.cancel(); }
             }

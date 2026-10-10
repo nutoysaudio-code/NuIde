@@ -168,7 +168,7 @@ export component IdePrefs inherits Rectangle {
         Text {
             x: 18px;
             y: (36px - self.height) / 2;
-            text: "Preferencias";
+            text: @tr("Preferencias");
             color: IdeTheme.text;
             font-family: IdeTheme.sans;
             font-size: 14px;
@@ -198,17 +198,17 @@ export component IdePrefs inherits Rectangle {
                 spacing: 2px;
                 alignment: start;
 
-                PrefSection { title: "APARIENCIA"; }
-                PrefRow { label: "Fuente del código"; value: root.mono; activated => { root.cycle-mono(); } }
-                PrefRow { label: "Fuente de la interfaz"; value: root.sans; activated => { root.cycle-sans(); } }
-                PrefRow { label: "Opacidad de los paneles"; value: root.alpha; activated => { root.cycle-alpha(); } }
+                PrefSection { title: @tr("APARIENCIA"); }
+                PrefRow { label: @tr("Fuente del código"); value: root.mono; activated => { root.cycle-mono(); } }
+                PrefRow { label: @tr("Fuente de la interfaz"); value: root.sans; activated => { root.cycle-sans(); } }
+                PrefRow { label: @tr("Opacidad de los paneles"); value: root.alpha; activated => { root.cycle-alpha(); } }
                 HorizontalLayout {
                     height: 28px;
                     spacing: 6px;
                     alignment: start;
                     cross-axis-alignment: center;
                     Text {
-                        text: "Tamaño del código";
+                        text: @tr("Tamaño del código");
                         color: IdeTheme.text-soft;
                         font-family: IdeTheme.sans;
                         font-size: 12px;
@@ -233,7 +233,7 @@ export component IdePrefs inherits Rectangle {
                     alignment: start;
                     cross-axis-alignment: center;
                     Text {
-                        text: "Acento";
+                        text: @tr("Acento");
                         color: IdeTheme.text-soft;
                         font-family: IdeTheme.sans;
                         font-size: 12px;
@@ -255,58 +255,58 @@ export component IdePrefs inherits Rectangle {
                     }
                 }
 
-                PrefSection { title: "EDITOR"; }
-                PrefRow { label: "Tamaño de tab"; value: root.tab-size; activated => { root.cycle-tab(); } }
-                PrefRow { label: "Insertar espacios"; value: root.insert-spaces ? "Sí" : "No"; activated => { root.toggle-spaces(); } }
+                PrefSection { title: @tr("EDITOR"); }
+                PrefRow { label: @tr("Tamaño de tab"); value: root.tab-size; activated => { root.cycle-tab(); } }
+                PrefRow { label: @tr("Insertar espacios"); value: root.insert-spaces ? "Sí" : "No"; activated => { root.toggle-spaces(); } }
 
-                PrefSection { title: "EJECUTAR"; }
-                PrefRow { label: "Compilar al guardar"; value: root.build-on-save ? "Sí" : "No"; activated => { root.toggle-build(); } }
+                PrefSection { title: @tr("EJECUTAR"); }
+                PrefRow { label: @tr("Compilar al guardar"); value: root.build-on-save ? "Sí" : "No"; activated => { root.toggle-build(); } }
 
-                PrefSection { title: "DESPLIEGUE (sitio de este proyecto)"; }
+                PrefSection { title: @tr("DESPLIEGUE (sitio de este proyecto)"); }
                 PrefRow {
-                    label: "Transporte";
+                    label: @tr("Transporte");
                     value: root.site-transport;
                     activated => { root.cycle-transport(); }
                     Tooltip { TipContent { text: @tr("FTP (21), FTPS (FTP + TLS, curl valida el certificado) o SFTP (SSH, 22)"); } }
                 }
                 PrefRow {
-                    label: "Host";
+                    label: @tr("Host");
                     value: root.site-host == "" ? "sin configurar" : root.site-host;
                     activated => { root.edit-site("host"); }
                     Tooltip { TipContent { text: @tr("Servidor del sitio, ej. ftp.midominio.com"); } }
                 }
                 PrefRow {
-                    label: "Usuario";
+                    label: @tr("Usuario");
                     value: root.site-user == "" ? "—" : root.site-user;
                     activated => { root.edit-site("user"); }
                     Tooltip { TipContent { text: @tr("Usuario de FTP/SFTP del hosting"); } }
                 }
                 PrefRow {
-                    label: "Contraseña";
+                    label: @tr("Contraseña");
                     value: root.site-pass == "" ? "—" : "••••••••";
                     activated => { root.edit-site("pass"); }
                     Tooltip { TipContent { text: @tr("Se guarda en el config de NuIde (%APPDATA%), indexada por proyecto: no toca el repositorio"); } }
                 }
                 PrefRow {
-                    label: "Carpeta remota";
+                    label: @tr("Carpeta remota");
                     value: root.site-remote == "" ? "—" : root.site-remote;
                     activated => { root.edit-site("remote"); }
                     Tooltip { TipContent { text: @tr("Ruta en el servidor donde cae el sitio, ej. public_html o /www/mi-sitio"); } }
                 }
                 PrefRow {
-                    label: "Subcarpeta local";
+                    label: @tr("Subcarpeta local");
                     value: root.site-local-sub == "" ? "raíz del proyecto" : root.site-local-sub;
                     activated => { root.edit-site("local-sub"); }
                     Tooltip { TipContent { text: @tr("Qué carpeta del proyecto se sube, ej. build o dist (vacío = todo el proyecto)"); } }
                 }
                 PrefRow {
-                    label: "Extensiones";
+                    label: @tr("Extensiones");
                     value: root.site-include;
                     activated => { root.edit-site("include"); }
                     Tooltip { TipContent { text: @tr("Lista separada por coma de extensiones que se suben"); } }
                 }
                 PrefRow {
-                    label: "Script de despliegue";
+                    label: @tr("Script de despliegue");
                     value: root.site-script == "" ? "deploy.spasm (si existe)" : root.site-script;
                     activated => { root.edit-site("script"); }
                     Tooltip {
@@ -320,23 +320,23 @@ export component IdePrefs inherits Rectangle {
                     cross-axis-alignment: center;
 
                     PrefButton {
-                        label: "Probar conexión";
+                        label: @tr("Probar conexión");
                         activated => { root.test-site(); }
                     }
                     PrefButton {
-                        label: "Subir cambios";
+                        label: @tr("Subir cambios");
                         activated => { root.upload-site(); }
                     }
                     PrefButton {
-                        label: "Terminal SSH";
+                        label: @tr("Terminal SSH");
                         activated => { root.ssh-terminal(); }
                     }
                     Rectangle { horizontal-stretch: 1; background: transparent; }
                 }
 
-                PrefSection { title: "MÓDULOS"; }
+                PrefSection { title: @tr("MÓDULOS"); }
                 PrefRow {
-                    label: "Servidor web local";
+                    label: @tr("Servidor web local");
                     value: root.web-enabled ? "Activo" : "Apagado";
                     activated => { root.toggle-web(); }
                     Tooltip {
@@ -344,19 +344,19 @@ export component IdePrefs inherits Rectangle {
                     }
                 }
                 PrefRow {
-                    label: "Puerto";
+                    label: @tr("Puerto");
                     value: root.web-port;
                     activated => { root.edit-web-port(); }
                     Tooltip { TipContent { text: @tr("Puerto local del servidor (1024-65535)"); } }
                 }
                 PrefRow {
-                    label: "Carpeta servida";
+                    label: @tr("Carpeta servida");
                     value: root.web-root == "" ? "raíz del proyecto" : root.web-root;
                     activated => { root.edit-web-root(); }
                     Tooltip { TipContent { text: @tr("Subcarpeta que se sirve, ej. build o dist (vacío = todo el proyecto)"); } }
                 }
                 PrefRow {
-                    label: "CORS: origen permitido";
+                    label: @tr("CORS: origen permitido");
                     value: root.web-cors;
                     activated => { root.edit-web-cors(); }
                     Tooltip {
@@ -364,7 +364,7 @@ export component IdePrefs inherits Rectangle {
                     }
                 }
                 PrefRow {
-                    label: "Visor de SQLite";
+                    label: @tr("Visor de SQLite");
                     value: root.sqlite-module ? "Activo" : "Apagado";
                     activated => { root.toggle-sqlite(); }
                     Tooltip {
@@ -372,13 +372,13 @@ export component IdePrefs inherits Rectangle {
                     }
                 }
                 PrefRow {
-                    label: "Base abierta";
+                    label: @tr("Base abierta");
                     value: root.sqlite-db-name == "" ? "ninguna (clic para elegir)" : root.sqlite-db-name;
                     activated => { root.toggle-sqlite(); }
                     Tooltip { TipContent { text: @tr("Elegí un archivo .db / .sqlite; el panel se abre en cuanto hay base"); } }
                 }
 
-                PrefSection { title: "ATAJOS (clic para reasignar)"; }
+                PrefSection { title: @tr("ATAJOS (clic para reasignar)"); }
                 for key in root.keys: PrefRow {
                     label: key.label;
                     value: root.capturing == key.id ? "…" : key.value;
@@ -396,7 +396,7 @@ export component IdePrefs inherits Rectangle {
             Text {
                 x: 12px;
                 y: (parent.height - self.height) / 2;
-                text: "Presioná la combinación nueva (Esc para cancelar)";
+                text: @tr("Presioná la combinación nueva (Esc para cancelar)");
                 color: IdeTheme.amber;
                 font-family: IdeTheme.sans;
                 font-size: 11px;
