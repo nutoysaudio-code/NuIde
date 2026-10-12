@@ -4,14 +4,49 @@ Todos los cambios relevantes de NuIde. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/) y el proyecto usa
 versionado semántico.
 
-## [0.3.2] — 2026-10-11
+## [0.3.2] — 2026-10-12
 
-### Corregido
+### Agregado
 
-- **NuCoder**: ya no captura el mouse. Antes activaba el *mouse reporting* pero no
-  procesaba eventos de mouse, así que la terminal exigía `Shift` para seleccionar
-  texto y no se podía copiar. Ahora la selección/copia nativa funciona en el panel
-  del agente (el scroll sigue por teclado).
+- **NuCoder — panel nativo en NuIde (Slint)**: el núcleo pasó a ser una
+  **librería UI-agnóstica**; el chat vive en el panel del agente (tarjetas con
+  bordes y **avatares**, Markdown + resaltado de código, scroll con *stick*).
+  Barra con **modelo / tarea / contexto / imagen**, y switch de **auto-aprobar**.
+- **Pestaña Permisos**: Internet, leer fuera del proyecto, terminales de la IDE,
+  **cliente FTP**, sandbox de escrituras, confirmación y **autopiloto**.
+- **Pestaña Modelos**: listado de **todos** los modelos con **especialidad**
+  (coder/visión/imagen/voz/video/…), **filtro**, **orden** (especialidad, ping,
+  nombre, gratis), **probar/ping** («probar todos») y **sincronizar** el catálogo.
+- **Herramientas del agente**: `run_in_terminal` (comandos en terminales reales
+  de la IDE), **cliente FTP** (`ftp_open`/`ftp_list`/`ftp_upload`/`ftp_download`/
+  `ftp_delete`/`ftp_mkdir`), `image_generate` y `audio_transcribe`.
+- **Plan + autopiloto**: `submit_plan` presenta un plan que se aprueba; con
+  autopiloto el agente sigue hasta terminarlo sin pedir permiso.
+- **Completado semántico de SpASM** en el editor (`Ctrl+Espacio`) con el AST real
+  (símbolos + palabras clave).
+- **CLI**: `nucoder refresh [id] [--reset-free]` y `nucoder config <clave> <valor>`.
+- **Cliente FTP** (modal, módulo opt-in): conectar (o traer el sitio del proyecto),
+  navegar, subir/bajar/borrar, nueva carpeta y filtro del listado.
+
+### Cambiado
+
+- La **TUI (ratatui)** de NuCoder se reemplazó por el panel nativo; el binario
+  `nucoder` queda como **CLI**.
+- **Sin ventanas de consola**: los procesos hijos (`curl`, `git`, `spasmc`, `cc`,
+  `sqlite3`, el script de despliegue) corren ocultos (NuIde y NuCoder).
+- **FTPS explícito** (`ftp://` + `--ssl-reqd`, puerto 21; implícito sólo en 990) y
+  **credenciales por `curl -K`** (no en la línea de comandos).
+- **Ejecutar/Compilar** avisan y revelan la terminal cuando falta archivo o
+  toolchain.
+
+### Seguridad
+
+- Las **API keys** viven fuera del repo (`~/.config/nucoder/config.json`); **test
+  guardián** que falla si una key queda versionada + bloque de `.gitignore`.
+
+### Eliminado
+
+- `nucoder/src/tui.rs` y `nucoder/src/theme.rs` (TUI reemplazada por el panel).
 
 ## [0.3.1] — 2026-10-11
 
