@@ -37,7 +37,5 @@ fn compilar_logica_spasm() {
         wrappers > 0,
         "ffi/ no tiene archivos .c: falta el wrapper FFI de los módulos SpASM"
     );
-    build
-        .flag_if_supported("-std=c99")
-        .compile("nucoder_spasm");
+    build.flag_if_supported("-std=c99").compile("nucoder_spasm");
 }

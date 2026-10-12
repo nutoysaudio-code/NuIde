@@ -81,6 +81,11 @@ NuIde **compila** el código SpASM a binario nativo (AOT); el intérprete
   proyecto). En Windows, *NuIde: reiniciar como administrador* (paleta) relanza
   toda la IDE elevada —entonces las terminales del panel también lo son— y el pie
   muestra **ADMIN**.
+- En el **panel del agente (coder)** ese menú suma los **atajos de los comandos**
+  de NuCoder: las **tareas** (`/complete`, `/refactor`, `/debug`, `/explain`,
+  `/test`, `/architect`) se **insertan** en la entrada para que escribas el pedido
+  y las **acciones** (`/free`, `/clear`, `/help`, `/quit`) se **ejecutan** al
+  toque. La terminal local conserva **Elevar a administrador**.
 
 ## 6. Git
 

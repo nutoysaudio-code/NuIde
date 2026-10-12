@@ -23,7 +23,9 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::Arc;
 use std::time::Duration;
 
 use slint::{ComponentHandle, Model, ModelNotify, ModelRc, Timer, TimerMode, VecModel};
@@ -39,14 +41,15 @@ use crate::lint;
 use crate::pty::{self, Pty, PtyEvent};
 use crate::search;
 use crate::site::{Site, Transport};
+use crate::ftp::{self, FtpMsg, Op as FtpOp};
 use crate::spasm::Toolchain;
 use crate::sqlite::{self, Tool as SqliteTool};
 use crate::sysinfo;
 use crate::templates;
 use crate::ui::{
-    DockDrag, IdeCodeLine, IdeDiffLine, IdeGitFile, IdeMenuEntry, IdeOutlineItem, IdePaletteItem,
-    IdePrefRow, IdeRecent, IdeSearchHit, IdeSetting, IdeTab, IdeToken, IdeTreeNode, NuIdeWindow,
-    TermLine, TermRun,
+    DockDrag, IdeCodeLine, IdeDiffLine, IdeFtpEntry, IdeGitFile, IdeMenuEntry, IdeOutlineItem,
+    IdePaletteItem, IdePrefRow, IdeRecent, IdeSearchHit, IdeSetting, IdeTab, IdeToken, IdeTreeNode,
+    NuIdeWindow, TermLine, TermRun,
 };
 use crate::vt::{Run, Screen, Selection};
 use crate::webserver::{Server as WebServer, WebConfig, WebEvent};
@@ -603,11 +606,12 @@ enum Command {
     Preferences,
     RelaunchElevated,
     LaunchNuideCli,
+    OpenFtp,
 }
 
 impl Command {
     /// Todos, en el orden en que se muestran.
-    const ALL: [Command; 55] = [
+    const ALL: [Command; 56] = [
         Command::Run,
         Command::Build,
         Command::BuildAndRun,
@@ -663,6 +667,7 @@ impl Command {
         Command::Preferences,
         Command::RelaunchElevated,
         Command::LaunchNuideCli,
+        Command::OpenFtp,
     ];
 
     fn label(self) -> &'static str {
@@ -722,6 +727,7 @@ impl Command {
             Command::Preferences => crate::i18n::t("Preferencias"),
             Command::RelaunchElevated => crate::i18n::t("NuIde: reiniciar como administrador"),
             Command::LaunchNuideCli => crate::i18n::t("Lanzar NuCoder (agente)"),
+            Command::OpenFtp => crate::i18n::t("FTP: abrir cliente"),
         }
     }
 
@@ -791,6 +797,25 @@ fn filter_commands(query: &str) -> Vec<Command> {
         })
         .collect()
 }
+
+/// Comandos de **tarea** de la TUI de NuCoder: se insertan sin Enter para que
+/// escribas el pedido a continuación.
+const AGENT_TASK_COMMANDS: [&str; 6] = [
+    "/complete",
+    "/refactor",
+    "/debug",
+    "/explain",
+    "/test",
+    "/architect",
+];
+
+/// Comandos de **acción** de la TUI de NuCoder: se ejecutan al toque.
+const AGENT_ACTION_COMMANDS: [&str; 3] = ["/free", "/clear", "/help"];
+
+/// Prefijos de id del menú contextual del coder: `insert` (sin Enter) y `run`
+/// (con Enter).
+const AGENT_INSERT_PREFIX: &str = "agent.insert:";
+const AGENT_RUN_PREFIX: &str = "agent.run:";
 
 /// Fila con acción para un menú desplegable.
 fn menu_entry(id: &str, label: &str, detail: &str, enabled: bool) -> IdeMenuEntry {
@@ -923,7 +948,7 @@ fn reveal_in_explorer(path: &Path) {
 fn open_url(url: &str) {
     #[cfg(windows)]
     {
-        let _ = std::process::Command::new("cmd")
+        let _ = crate::proc::hidden("cmd")
             .args(["/C", "start", "", url])
             .spawn();
     }
@@ -1027,9 +1052,21 @@ impl Default for ProviderDraft {
     }
 }
 
+/// Estado del completado semántico (Ctrl+Espacio) del editor.
+struct Completion {
+    /// Sugerencias `(etiqueta, detalle)`.
+    items: Vec<(String, String)>,
+    selected: usize,
+    /// Prefijo ya escrito (se reemplaza al aceptar).
+    prefix: String,
+    /// Columna (en caracteres) donde empieza el prefijo.
+    start: usize,
+    /// Línea donde se abrió (si el cursor la deja, se cierra).
+    line: usize,
+}
+
 /// Visor de diff abierto.
-struct DiffState {
-    /// Ruta relativa a la raíz.
+struct DiffState {    /// Ruta relativa a la raíz.
     path: String,
     staged: bool,
     untracked: bool,
@@ -1211,14 +1248,26 @@ pub struct Ide {
     diagnostics: Vec<lint::Diagnostic>,
     /// Esquema del archivo activo (funciones y variables).
     outline: Vec<lint::Symbol>,
+    /// Completado semántico abierto (Ctrl+Espacio) en SpASM.
+    completion: Option<Completion>,
     /// Archivo al que corresponden los diagnósticos actuales.
     diagnostics_path: Option<PathBuf>,
     /// Canal del linter (corre en un hilo).
     lint_tx: Sender<lint::LintResult>,
     lint_rx: Receiver<lint::LintResult>,
+    /// Época del último análisis (descarta resultados viejos).
+    lint_gen: u64,
     /// Build/Run desde la IDE: salida capturada en un hilo.
     build_tx: Sender<build::BuildResult>,
     build_rx: Receiver<build::BuildResult>,
+    /// Época del último build (descarta resultados viejos).
+    build_gen: u64,
+    /// Bandera de cancelación del build en curso.
+    build_cancel: Option<Arc<AtomicBool>>,
+    /// Explorador reconstruido en un hilo: `(época, nodos)`.
+    explorer_tx: Sender<(u64, Vec<crate::explorer::Node>)>,
+    explorer_rx: Receiver<(u64, Vec<crate::explorer::Node>)>,
+    explorer_gen: u64,
     /// Id de la sesión de terminal dedicada a la salida de build.
     build_session: Option<u64>,
     /// Sitio de despliegue del proyecto abierto (FTP/FTPS/SFTP, ver `site.rs`).
@@ -1248,6 +1297,32 @@ pub struct Ide {
     sqlite_busy: bool,
     sqlite_tx: Sender<sqlite::Loaded>,
     sqlite_rx: Receiver<sqlite::Loaded>,
+    /// Época de la última lectura de SQLite (descarta resultados viejos).
+    sqlite_gen: u64,
+    /// --- módulo: cliente FTP ---
+    ftp_enabled: bool,
+    ftp_open: bool,
+    ftp_transport: Transport,
+    ftp_host: String,
+    ftp_port: String,
+    ftp_user: String,
+    ftp_pass: String,
+    /// Ruta remota actual (absoluta del servidor).
+    ftp_path: String,
+    ftp_entries: Vec<ftp::RemoteEntry>,
+    /// Listado completo (sin filtrar); `ftp_entries` es el filtrado que se ve.
+    ftp_all: Vec<ftp::RemoteEntry>,
+    /// Filtro por nombre (subcadena, sin distinguir mayúsculas).
+    ftp_filter: String,
+    ftp_selected: usize,
+    ftp_busy: bool,
+    ftp_note: String,
+    ftp_error: bool,
+    ftp_pending_delete: String,
+    ftp_tx: Sender<ftp::FtpMsg>,
+    ftp_rx: Receiver<ftp::FtpMsg>,
+    /// El listado cambió y hay que rehacer el modelo de la UI.
+    ftp_dirty: bool,
     /// --- pantalla de configuración ---
     settings_open: bool,
     settings_section: usize,
@@ -1267,6 +1342,8 @@ pub struct Ide {
     git_busy: bool,
     git_tx: Sender<git::GitResult>,
     git_rx: Receiver<git::GitResult>,
+    /// Época de la última operación de Git (descarta resultados viejos).
+    git_gen: u64,
     /// Visor de diff abierto.
     diff: Option<DiffState>,
     /// Menú de ramas abierto y sus filas.
@@ -1280,6 +1357,8 @@ pub struct Ide {
     /// Tamaño actual del panel del agente (columnas × filas).
     agent_cols: u16,
     agent_rows: u16,
+    /// Panel nativo de NuCoder (chat del agente en Slint + auto-aprobar).
+    nucoder: crate::nucoder_ui::NuCoderPanel,
     /// `.spasm` sobre el que actúan los menús Ejecutar/Compilar.
     active_file: Option<PathBuf>,
     /// Timer del bucle de drenado.
@@ -1370,6 +1449,8 @@ impl Ide {
         // Módulos: servidor web y visor de SQLite.
         let (web_tx, web_rx) = mpsc::channel();
         let (sqlite_tx, sqlite_rx) = mpsc::channel();
+        let (ftp_tx, ftp_rx) = mpsc::channel();
+        let (explorer_tx, explorer_rx) = mpsc::channel();
         // En las pruebas no se consulta Git (mantiene los tests rápidos y ajenos
         // al estado del repo; el parseo se cubre en `git::tests`).
         let git_status = if cfg!(test) {
@@ -1386,6 +1467,7 @@ impl Ide {
         // módulos se leen antes.
         let web = WebConfig::load(&root, &config);
         let sqlite_enabled = config.bool("module.sqlite", false);
+        let ftp_enabled = config.bool("module.ftp", false);
 
         let mut ide = Self {
             toolchain: Toolchain::discover(),
@@ -1400,7 +1482,10 @@ impl Ide {
             cell_w: TERM_CELL_W,
             local_px: (0.0, 0.0),
             agent_px: (0.0, 0.0),
-            explorer: Explorer::new(root),
+            explorer: Explorer::new(root.clone()),
+            explorer_tx,
+            explorer_rx,
+            explorer_gen: 0,
             explorer_selected: -1,
             explorer_context_open: false,
             explorer_context_items: Vec::new(),
@@ -1453,11 +1538,15 @@ impl Ide {
             search_gen: 0,
             diagnostics: Vec::new(),
             outline: Vec::new(),
+            completion: None,
             diagnostics_path: None,
             lint_tx,
             lint_rx,
+            lint_gen: 0,
             build_tx,
             build_rx,
+            build_gen: 0,
+            build_cancel: None,
             build_session: None,
             site,
             deploy_tx,
@@ -1479,6 +1568,26 @@ impl Ide {
             sqlite_busy: false,
             sqlite_tx,
             sqlite_rx,
+            sqlite_gen: 0,
+            ftp_enabled,
+            ftp_open: false,
+            ftp_transport: Transport::Ftp,
+            ftp_host: String::new(),
+            ftp_port: "21".to_string(),
+            ftp_user: String::new(),
+            ftp_pass: String::new(),
+            ftp_path: "/".to_string(),
+            ftp_entries: Vec::new(),
+            ftp_all: Vec::new(),
+            ftp_filter: String::new(),
+            ftp_selected: 0,
+            ftp_busy: false,
+            ftp_note: String::new(),
+            ftp_error: false,
+            ftp_pending_delete: String::new(),
+            ftp_tx,
+            ftp_rx,
+            ftp_dirty: true,
             settings_open: false,
             settings_section: 0,
             provider_open: false,
@@ -1493,6 +1602,7 @@ impl Ide {
             git_busy: false,
             git_tx,
             git_rx,
+            git_gen: 0,
             diff: None,
             branch_menu: false,
             branch_items: Vec::new(),
@@ -1501,6 +1611,7 @@ impl Ide {
             agent_rx,
             agent_cols: AGENT_COLS,
             agent_rows: AGENT_ROWS,
+            nucoder: crate::nucoder_ui::NuCoderPanel::new(root),
             active_file: None,
             timer: None,
         };
@@ -1674,29 +1785,22 @@ impl Ide {
         });
     }
 
-    /// Lanza NuCoder en el panel del agente, en la raíz del proyecto: agente de
-    /// código con router de modelos (gratis primero), con la decisión en SpASM.
-    /// Si no está instalado, avisa y deja el panel como terminal.
+    /// Abre el **panel nativo de NuCoder** (chat del agente) en la raíz del
+    /// proyecto: corre el núcleo `nucoder` en proceso, con el router en SpASM.
+    /// No depende del binario `nucoder.exe`.
     fn launch_nucoder(&mut self) {
-        if !self.agent.as_ref().is_some_and(|a| a.alive) {
-            self.agent = None;
-            self.start_agent();
-        }
-        let Some(bin) = self.toolchain.nucoder.clone() else {
-            let msg = crate::i18n::t(
-                "No se encontró NuCoder (definí NUCODER o instalalo). El panel queda como terminal.",
-            );
-            self.write_to(Target::Agent, format!("{msg}\r\n").as_bytes());
-            return;
-        };
         let root = self.explorer.root().to_path_buf();
-        let (shell, _) = pty::default_shell();
-        let command = if pty::is_powershell(&shell) {
-            format!("& '{}' --cwd '{}'\r", bin.display(), root.display())
-        } else {
-            format!("\"{}\" --cwd \"{}\"\r", bin.display(), root.display())
-        };
-        self.write_to(Target::Agent, command.as_bytes());
+        self.nucoder.open(root);
+        // Asegurar que el panel del agente esté visible (dock 1).
+        if self.docks[1] == Dock::Hidden {
+            self.docks[1] = Dock::Right;
+        }
+        match self.docks[1] {
+            Dock::Left => self.show_left = true,
+            Dock::Right => self.show_right = true,
+            Dock::Bottom => self.show_bottom = true,
+            Dock::Hidden => {}
+        }
     }
 
     /// Abre el diálogo nativo para elegir la carpeta del proyecto y la fija como
@@ -1764,7 +1868,13 @@ impl Ide {
         self.git_busy = true;
         self.git_error = false;
         self.git_note = "…".to_string();
-        git::spawn(self.explorer.root().to_path_buf(), op, self.git_tx.clone());
+        self.git_gen += 1;
+        git::spawn(
+            self.explorer.root().to_path_buf(),
+            op,
+            self.git_gen,
+            self.git_tx.clone(),
+        );
     }
 
     /// Relee el estado del repositorio.
@@ -1951,7 +2061,8 @@ impl Ide {
             return;
         }
         push_recent(&mut self.recent_projects, dir.clone());
-        self.explorer.set_root(dir.clone());
+        self.explorer.set_root_state(dir.clone());
+        self.explorer_spawn();
         // El estado de Git es por proyecto: se relee al cambiar de carpeta.
         self.git_status = git::status(&dir);
         // El sitio de despliegue también es por proyecto.
@@ -2208,6 +2319,28 @@ impl Ide {
         }
     }
 
+    /// Id de la sesión **local** cuyo nombre contiene `name` (para
+    /// `run_in_terminal`, cuando el agente elige la terminal por nombre).
+    fn local_id_by_name(&self, name: &str) -> Option<u64> {
+        let needle = name.trim().to_ascii_lowercase();
+        if needle.is_empty() {
+            return None;
+        }
+        self.local
+            .iter()
+            .find(|s| s.name.to_ascii_lowercase().contains(&needle))
+            .map(|s| s.id)
+    }
+
+    /// Escribe bytes en la sesión local `id` (si existe y tiene PTY).
+    fn write_to_local_id(&mut self, id: u64, bytes: &[u8]) {
+        if let Some(s) = self.local.iter_mut().find(|s| s.id == id) {
+            if let Some(pty) = s.pty.as_mut() {
+                let _ = pty.write(bytes);
+            }
+        }
+    }
+
     /// Traduce una `(y, x)` en píxeles (relativas a la pantalla de la terminal)
     /// a la celda más cercana. Usa las mismas métricas de celda que el PTY.
     fn term_cell(&self, target: Target, y: f32, x: f32) -> (u16, u16) {
@@ -2374,11 +2507,43 @@ impl Ide {
     /// salida en la sesión "build" de la terminal.
     fn spawn_build(&mut self, steps: Vec<build::Step>) {
         let cwd = self.explorer.root().to_path_buf();
+        self.reveal_terminal();
         let index = self.ensure_build_session();
         // La salida queda a la vista.
         self.local_active = index;
         self.resize_local();
-        build::spawn(steps, cwd, self.build_tx.clone());
+        // Cancela el build anterior (si sigue corriendo) y lanza el nuevo.
+        if let Some(prev) = self.build_cancel.take() {
+            prev.store(true, Ordering::Relaxed);
+        }
+        let cancel = Arc::new(AtomicBool::new(false));
+        self.build_cancel = Some(cancel.clone());
+        self.build_gen += 1;
+        build::spawn(steps, cwd, self.build_gen, cancel, self.build_tx.clone());
+    }
+
+    /// Asegura que el panel de terminal esté visible (para ver la salida del
+    /// build) y lo deja al frente.
+    fn reveal_terminal(&mut self) {
+        if self.docks[2] == Dock::Hidden {
+            self.docks[2] = Dock::Bottom;
+        }
+        match self.docks[2] {
+            Dock::Left => self.show_left = true,
+            Dock::Right => self.show_right = true,
+            Dock::Bottom => self.show_bottom = true,
+            Dock::Hidden => {}
+        }
+    }
+
+    /// Muestra un mensaje en la sesión `build` de la terminal (creándola si hace
+    /// falta) y deja la terminal visible.
+    fn build_msg(&mut self, msg: &str) {
+        self.reveal_terminal();
+        let index = self.ensure_build_session();
+        self.local_active = index;
+        self.resize_local();
+        self.write_build_output(&format!("{msg}\n"));
     }
 
     /// Crea (o reutiliza) la sesión "build" de la terminal. Devuelve su índice.
@@ -2425,22 +2590,22 @@ impl Ide {
     /// salida se captura en la sesión "build".
     fn run(&mut self, _arg: Option<&str>) {
         let Some(file) = self.run_entry.clone().or_else(|| self.active_file.clone()) else {
+            self.build_msg(crate::i18n::t(
+                "No hay archivo activo. Abrí un .spasm o elegí el archivo de entrada \
+                 (Ejecutar: elegir archivo de entrada…).",
+            ));
             return;
         };
         self.open_file(file.clone());
         let (mut steps, exe, note) = self.compile_binary_steps(&file);
         if steps.is_empty() {
             // Sin `spasmc.py`/Python no hay nada que correr.
-            self.write_build_output(&format!("{}\n", note.unwrap_or_default()));
-            self.local_active = self.ensure_build_session();
-            self.resize_local();
+            self.build_msg(note.as_deref().unwrap_or(""));
             return;
         }
         let Some(exe) = exe else {
             // Sin compilador de C el `.c` se generó pero no hay binario.
-            self.write_build_output(&format!("{}\n", note.unwrap_or_default()));
-            self.local_active = self.ensure_build_session();
-            self.resize_local();
+            self.build_msg(note.as_deref().unwrap_or(""));
             return;
         };
         steps.push(build::Step {
@@ -2505,7 +2670,7 @@ impl Ide {
             if std::fs::write(&path, body).is_err() {
                 return;
             }
-            self.explorer.rebuild();
+            self.explorer_spawn();
         }
         self.open_file(path);
     }
@@ -2542,13 +2707,16 @@ impl Ide {
     /// el compilador de C nativo (si hay). Con `run_after`, corre el binario.
     fn build(&mut self, run_after: bool) {
         let Some(file) = self.active_file.clone() else {
+            self.build_msg(crate::i18n::t(
+                "No hay archivo activo: abrí un .spasm para compilar (Ctrl+B).",
+            ));
             return;
         };
         self.open_file(file.clone());
         let (mut steps, exe, note) = self.compile_binary_steps(&file);
         if steps.is_empty() {
             // Sin `spasmc.py`/Python no hay nada que compilar.
-            self.build_note = note;
+            self.build_msg(note.as_deref().unwrap_or(""));
             return;
         }
         let Some(exe) = exe else {
@@ -2999,6 +3167,7 @@ impl Ide {
             Command::Preferences => self.prefs_toggle(),
             Command::RelaunchElevated => self.request_relaunch_elevated(),
             Command::LaunchNuideCli => self.launch_nucoder(),
+            Command::OpenFtp => self.ftp_open_panel(),
         }
     }
 
@@ -3080,7 +3249,7 @@ impl Ide {
         }
         self.active_file = Some(path);
         self.editor_full = true;
-        self.explorer.rebuild();
+        self.explorer_spawn();
         self.lint_active();
         if !cfg!(test) {
             self.git_refresh();
@@ -3459,29 +3628,78 @@ impl Ide {
                 let _ = clipboard_write(&node.path.display().to_string());
             }
             "ctx.reveal" => reveal_in_explorer(&node.path),
-            "ctx.refresh" => self.explorer.rebuild(),
+            "ctx.refresh" => self.explorer_spawn(),
             _ => {}
         }
     }
 
-    /// Abre el menú contextual de una terminal (clic derecho): copiar, pegar y
-    /// elevar a administrador.
+    /// Abre el menú contextual de una terminal (clic derecho). En la terminal
+    /// local: copiar, pegar y elevar. En el **coder** (panel del agente) suma los
+    /// atajos de los comandos de la TUI de NuCoder.
     fn terminal_context(&mut self, target: Target) {
         self.term_context_target = target;
         let has_sel = !self.selected_text(target).is_empty();
         let has_clip = read_clipboard().is_some_and(|t| !t.is_empty());
-        self.term_context_items = vec![
+        let mut items = vec![
             menu_entry("term.copy", "Copiar", "Ctrl+Shift+C", has_sel),
             menu_entry("term.paste", "Pegar", "Ctrl+Shift+V", has_clip),
-            menu_sep(),
-            menu_entry("term.elevate", "Elevar a administrador", "UAC", true),
         ];
+        match target {
+            Target::Agent => {
+                // Tareas: insertan el comando (sin Enter) para que escribas el
+                // pedido. Acciones: se ejecutan al toque.
+                items.push(menu_sep());
+                for cmd in AGENT_TASK_COMMANDS {
+                    items.push(menu_entry(
+                        &format!("{AGENT_INSERT_PREFIX}{cmd}"),
+                        cmd,
+                        "tarea",
+                        true,
+                    ));
+                }
+                items.push(menu_sep());
+                for cmd in AGENT_ACTION_COMMANDS {
+                    items.push(menu_entry(
+                        &format!("{AGENT_RUN_PREFIX}{cmd}"),
+                        cmd,
+                        "acción",
+                        true,
+                    ));
+                }
+                items.push(menu_sep());
+                items.push(menu_entry(
+                    &format!("{AGENT_RUN_PREFIX}/quit"),
+                    "/quit",
+                    "",
+                    true,
+                ));
+            }
+            Target::Local => {
+                items.push(menu_sep());
+                items.push(menu_entry(
+                    "term.elevate",
+                    "Elevar a administrador",
+                    "UAC",
+                    true,
+                ));
+            }
+        }
+        self.term_context_items = items;
         self.term_context_open = true;
     }
 
     /// Ejecuta una acción del menú contextual de las terminales.
     fn terminal_context_command(&mut self, id: &str) {
         self.term_context_open = false;
+        // Comandos del coder: insertar (con espacio) o ejecutar (con Enter).
+        if let Some(cmd) = id.strip_prefix(AGENT_INSERT_PREFIX) {
+            self.write_to(Target::Agent, format!("{cmd} ").as_bytes());
+            return;
+        }
+        if let Some(cmd) = id.strip_prefix(AGENT_RUN_PREFIX) {
+            self.write_to(Target::Agent, format!("{cmd}\r").as_bytes());
+            return;
+        }
         match id {
             "term.copy" => self.copy_selection(self.term_context_target),
             "term.paste" => self.paste_into(self.term_context_target),
@@ -3490,17 +3708,33 @@ impl Ide {
         }
     }
 
+    /// Reconstruye el árbol **en un hilo** (evita jank con repos grandes). El
+    /// resultado se aplica en `drain` sólo si es el más reciente (por época).
+    fn explorer_spawn(&mut self) {
+        self.explorer_gen += 1;
+        let gen = self.explorer_gen;
+        let root = self.explorer.root().to_path_buf();
+        let expanded = self.explorer.expanded();
+        let show = self.explorer.shows_generated();
+        let tx = self.explorer_tx.clone();
+        std::thread::spawn(move || {
+            let nodes = crate::explorer::build_tree(&root, &expanded, show);
+            let _ = tx.send((gen, nodes));
+        });
+    }
+
     /// Reconstruye el árbol (botón ⟳ o `F5` en el explorador).
     fn explorer_refresh(&mut self) {
-        self.explorer.rebuild();
+        self.explorer_spawn();
     }
 
     /// Muestra u oculta los archivos generados.
     fn explorer_toggle_generated(&mut self) {
         let show = !self.explorer.shows_generated();
-        self.explorer.set_show_generated(show);
+        self.explorer.set_show_generated_state(show);
         self.config.set("explorer.generated", u8::from(show));
         self.config.save();
+        self.explorer_spawn();
     }
 
     /// Tecla con el diálogo de entrada abierto. Devuelve si la consumió.
@@ -3551,14 +3785,14 @@ impl Ide {
             PromptKind::NewFile => {
                 let path = p.target.join(&name);
                 if !path.exists() && std::fs::write(&path, "").is_ok() {
-                    self.explorer.rebuild();
+                    self.explorer_spawn();
                     self.open_file(path);
                 }
             }
             PromptKind::NewFolder => {
                 let path = p.target.join(&name);
                 if std::fs::create_dir(&path).is_ok() {
-                    self.explorer.rebuild();
+                    self.explorer_spawn();
                 }
             }
             PromptKind::Rename => {
@@ -3569,7 +3803,7 @@ impl Ide {
                     .unwrap_or_else(|| p.target.clone());
                 if dest != p.target && std::fs::rename(&p.target, &dest).is_ok() {
                     self.retarget_open_tabs(&p.target, &dest);
-                    self.explorer.rebuild();
+                    self.explorer_spawn();
                     if !cfg!(test) {
                         self.git_refresh();
                     }
@@ -3623,7 +3857,7 @@ impl Ide {
             }
             self.active_file = self.tabs.get(self.active_tab).map(|t| t.path.clone());
             self.editor_full = true;
-            self.explorer.rebuild();
+            self.explorer_spawn();
             if !cfg!(test) {
                 self.git_refresh();
             }
@@ -4227,7 +4461,8 @@ impl Ide {
             .cloned()
             .or_else(|| self.sqlite_last_table());
         let tx = self.sqlite_tx.clone();
-        sqlite::spawn_load(tool, path, table, tx);
+        self.sqlite_gen += 1;
+        sqlite::spawn_load(tool, path, table, self.sqlite_gen, tx);
     }
 
     /// Tabla elegida antes de cerrar el panel (para reabrirla en la misma).
@@ -4255,6 +4490,251 @@ impl Ide {
         self.sqlite_header = msg.header;
         self.sqlite_lines = msg.lines;
         self.sqlite_note = msg.note;
+    }
+
+    // --- cliente FTP ---
+
+    /// Prende/apaga el módulo y lo persiste.
+    fn toggle_ftp_module(&mut self) {
+        self.ftp_enabled = !self.ftp_enabled;
+        self.config
+            .set("module.ftp", if self.ftp_enabled { "1" } else { "0" });
+        self.config.save();
+        if !self.ftp_enabled {
+            self.ftp_open = false;
+        } else {
+            self.ftp_open_panel();
+        }
+    }
+
+    /// Abre la ventana del cliente (trae el sitio del proyecto si está vacío).
+    fn ftp_open_panel(&mut self) {
+        if self.ftp_host.trim().is_empty() {
+            self.ftp_use_site();
+        }
+        self.ftp_open = true;
+        if self.ftp_entries.is_empty() {
+            self.ftp_refresh();
+        }
+    }
+
+    fn ftp_close(&mut self) {
+        self.ftp_open = false;
+    }
+
+    /// Cicla el transporte (FTP → FTPS → SFTP) y ajusta el puerto.
+    fn ftp_cycle_transport(&mut self) {
+        self.ftp_transport = match self.ftp_transport {
+            Transport::Ftp => Transport::Ftps,
+            Transport::Ftps => Transport::Sftp,
+            Transport::Sftp => Transport::Ftp,
+        };
+        self.ftp_port = self.ftp_transport.default_port().to_string();
+    }
+
+    /// Trae la conexión del sitio del proyecto (Preferencias → Despliegue).
+    fn ftp_use_site(&mut self) {
+        let s = self.site.clone();
+        self.ftp_transport = s.transport;
+        self.ftp_host = s.host.clone();
+        self.ftp_user = s.user.clone();
+        self.ftp_pass = s.pass.clone();
+        self.ftp_port = s.port_or_default().to_string();
+        if !s.remote_root.trim().is_empty() {
+            self.ftp_path = ftp::normalize_remote(&s.remote_root);
+        }
+    }
+
+    fn ftp_set_field(&mut self, field: &str, value: &str) {
+        match field {
+            "host" => self.ftp_host = value.to_string(),
+            "port" => self.ftp_port = value.to_string(),
+            "user" => self.ftp_user = value.to_string(),
+            "pass" => self.ftp_pass = value.to_string(),
+            _ => {}
+        }
+    }
+
+    /// Arma el `Site` del cliente con los campos editados.
+    fn ftp_site(&self) -> Site {
+        let mut s = Site::load(self.explorer.root(), &self.config);
+        s.transport = self.ftp_transport;
+        s.host = self.ftp_host.clone();
+        s.port = self.ftp_port.trim().parse::<u16>().unwrap_or(0);
+        s.user = self.ftp_user.clone();
+        s.pass = self.ftp_pass.clone();
+        s.remote_root = String::new();
+        s
+    }
+
+    fn ftp_spawn(&mut self, op: FtpOp) {
+        self.ftp_busy = true;
+        self.ftp_note = String::new();
+        self.ftp_error = false;
+        ftp::spawn_op(self.ftp_site(), op, self.ftp_tx.clone());
+    }
+
+    fn ftp_refresh(&mut self) {
+        self.ftp_spawn(FtpOp::List {
+            path: self.ftp_path.clone(),
+        });
+    }
+
+    fn ftp_up(&mut self) {
+        self.ftp_path = ftp::parent_remote(&self.ftp_path);
+        self.ftp_refresh();
+    }
+
+    fn ftp_open_entry(&mut self, i: i32) {
+        let Some(e) = self.ftp_entries.get(i as usize).cloned() else {
+            return;
+        };
+        if e.dir {
+            self.ftp_path = ftp::child_remote(&self.ftp_path, &e.name);
+            self.ftp_refresh();
+        } else {
+            self.ftp_download(&e.name);
+        }
+    }
+
+    fn ftp_download(&mut self, name: &str) {
+        let remote = ftp::child_remote(&self.ftp_path, name);
+        let Some(local) = rfd::FileDialog::new()
+            .set_file_name(name)
+            .set_directory(self.explorer.root())
+            .save_file()
+        else {
+            return;
+        };
+        self.ftp_spawn(FtpOp::Download { remote, local });
+    }
+
+    fn ftp_upload(&mut self) {
+        let Some(local) = rfd::FileDialog::new()
+            .set_directory(self.explorer.root())
+            .pick_file()
+        else {
+            return;
+        };
+        let name = local
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_default();
+        if name.is_empty() {
+            return;
+        }
+        let remote = ftp::child_remote(&self.ftp_path, &name);
+        self.ftp_spawn(FtpOp::Upload { local, remote });
+    }
+
+    fn ftp_delete_entry(&mut self, i: i32) {
+        if let Some(e) = self.ftp_entries.get(i as usize) {
+            self.ftp_pending_delete = ftp::child_remote(&self.ftp_path, &e.name);
+        }
+    }
+
+    fn ftp_confirm_delete(&mut self) {
+        let remote = std::mem::take(&mut self.ftp_pending_delete);
+        if remote.is_empty() {
+            return;
+        }
+        let is_dir = self
+            .ftp_entries
+            .iter()
+            .find(|e| ftp::child_remote(&self.ftp_path, &e.name) == remote)
+            .map(|e| e.dir)
+            .unwrap_or(false);
+        let op = if is_dir {
+            FtpOp::Rmdir { remote }
+        } else {
+            FtpOp::Delete { remote }
+        };
+        self.ftp_spawn(op);
+    }
+
+    fn ftp_cancel_delete(&mut self) {
+        self.ftp_pending_delete.clear();
+    }
+
+    fn ftp_mkdir(&mut self, name: &str) {
+        let name = name.trim();
+        if name.is_empty() {
+            return;
+        }
+        let remote = ftp::child_remote(&self.ftp_path, name);
+        self.ftp_spawn(FtpOp::Mkdir { remote });
+    }
+
+    /// Recalcula el listado visible según el filtro (deja «..» siempre).
+    fn ftp_apply_filter(&mut self) {
+        let f = self.ftp_filter.trim().to_lowercase();
+        self.ftp_entries = self
+            .ftp_all
+            .iter()
+            .filter(|e| f.is_empty() || e.name == ".." || e.name.to_lowercase().contains(&f))
+            .cloned()
+            .collect();
+        self.ftp_dirty = true;
+    }
+
+    /// Cambia el filtro del listado remoto.
+    fn ftp_set_filter(&mut self, value: &str) {
+        self.ftp_filter = value.to_string();
+        self.ftp_apply_filter();
+    }
+
+    /// Procesa un mensaje del hilo de FTP.
+    fn ftp_on_msg(&mut self, msg: FtpMsg) {
+        self.ftp_busy = false;
+        match msg {
+            FtpMsg::Listed { path, entries, .. } => {
+                let mut all = entries;
+                // Carpetas primero, luego nombre (sin distinguir mayúsculas).
+                all.sort_by(|a, b| {
+                    (!a.dir)
+                        .cmp(&!b.dir)
+                        .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+                });
+                // «..» para subir (sólo si no estamos en la raíz).
+                let norm = ftp::normalize_remote(&path);
+                if norm != "/" {
+                    all.insert(
+                        0,
+                        ftp::RemoteEntry {
+                            name: "..".to_string(),
+                            dir: true,
+                            size: None,
+                        },
+                    );
+                }
+                self.ftp_all = all;
+                self.ftp_path = path;
+                self.ftp_apply_filter();
+                self.ftp_selected = 0;
+                self.ftp_note = String::new();
+                self.ftp_error = false;
+            }
+            FtpMsg::Done { ok, detail } => {
+                if ok {
+                    self.ftp_note = crate::i18n::t("listo").to_string();
+                    self.ftp_error = false;
+                    // Refrescar el listado tras una operación que lo cambia.
+                    self.ftp_refresh();
+                } else {
+                    self.ftp_note = if detail.is_empty() {
+                        crate::i18n::t("la operación falló").to_string()
+                    } else {
+                        detail
+                    };
+                    self.ftp_error = true;
+                }
+            }
+            FtpMsg::Failed(m) => {
+                self.ftp_note = m;
+                self.ftp_error = true;
+            }
+        }
+        self.ftp_dirty = true;
     }
 
     // --- pantalla de configuración (maneja por datos) ---
@@ -4755,6 +5235,23 @@ impl Ide {
             crate::i18n::t("Vuelve a leer tablas y filas"),
             0,
         ));
+        v.push(b(
+            "ftp.enabled",
+            6,
+            crate::i18n::t("Cliente FTP"),
+            self.ftp_enabled,
+            crate::i18n::t("Cliente FTP/FTPS/SFTP básico (por curl) para navegar y transferir"),
+            0,
+        ));
+        v.push(s(
+            "ftp.open",
+            6,
+            4,
+            crate::i18n::t("Abrir el cliente FTP"),
+            "abrir".into(),
+            crate::i18n::t("Abre la ventana del cliente FTP"),
+            0,
+        ));
 
         // --- Atajos (7) ---
         for (id, label, _) in KEY_ACTIONS {
@@ -4862,6 +5359,8 @@ impl Ide {
             "site.ssh" => self.deploy_ssh_terminal(),
             "sqlite.pick" => self.sqlite_pick_db(),
             "sqlite.reload" => self.sqlite_reload(),
+            "ftp.enabled" => self.toggle_ftp_module(),
+            "ftp.open" => self.ftp_open_panel(),
             "nuc.add" => self.provider_open_new(),
             id if id.starts_with("nuc.edit:") => {
                 self.provider_open_edit(&id["nuc.edit:".len()..]);
@@ -5204,6 +5703,33 @@ impl Ide {
         }
     }
 
+    /// ¿Hay un modal que captura el teclado? Se usa para deshabilitar el input
+    /// del chat de NuCoder mientras está abierto (así las teclas llegan al modal,
+    /// no al `TextInput`).
+    fn keyboard_modal_open(&self) -> bool {
+        self.provider_open
+            || self.prompt.is_some()
+            || self.palette.open
+            || self.search.open
+            || self.capturing_key.is_some()
+    }
+
+    /// Rutea una tecla que llegó desde el chat de NuCoder (cuyo input no es un
+    /// `FocusScope`): la misma cadena de interceptores que las terminales.
+    fn route_global_key(&mut self, text: &str, control: bool, shift: bool, alt: bool) {
+        if self.provider_intercept(text, control)
+            || self.prompt_intercept(text, control)
+            || self.palette_intercept(text, control, shift)
+            || self.search_intercept(text, control, shift)
+            || self.capture_key(text, control, shift, alt)
+        {
+            return;
+        }
+        if let Some(action) = self.keymap_action(text, control, shift, alt) {
+            self.run_key_action(&action);
+        }
+    }
+
     /// Si se está capturando un atajo, lo asigna. Devuelve si consumió la tecla.
     fn capture_key(&mut self, text: &str, control: bool, shift: bool, alt: bool) -> bool {
         let Some(action) = self.capturing_key.clone() else {
@@ -5415,8 +5941,10 @@ impl Ide {
             return;
         }
         self.explorer_selected = i;
-        if let Some(Action::File(path)) = self.explorer.toggle(i as usize) {
-            self.open_file(path);
+        match self.explorer.toggle_expand(i as usize) {
+            Some(Action::File(path)) => self.open_file(path),
+            Some(Action::Toggled) => self.explorer_spawn(),
+            None => {}
         }
     }
 
@@ -5657,6 +6185,10 @@ impl Ide {
             self.find_key(text, control, shift);
             return;
         }
+        // Completado semántico (Ctrl+Espacio): abre/navega/inserta.
+        if self.completion_intercept(text, control, shift) {
+            return;
+        }
         if control {
             match text.to_ascii_lowercase().as_str() {
                 "z" if shift => self.redo_active(),
@@ -5692,6 +6224,173 @@ impl Ide {
                 '\u{1b}' => {}
                 c if (' '..'\u{E000}').contains(&c) => self.insert_char(c),
                 _ => {}
+            }
+        }
+    }
+
+    /// Abre el **completado semántico** (Ctrl+Espacio): símbolos del AST del
+    /// archivo (funciones/variables) + palabras clave/builtins de SpASM.
+    fn completion_open(&mut self) {
+        if self.tabs.is_empty() {
+            return;
+        }
+        let tab = &self.tabs[self.active_tab];
+        if tab.read_only || tab.kind != DocKind::Text {
+            return;
+        }
+        // Sólo SpASM: los símbolos vienen del parser de SpASM.
+        if tab.language != highlight::Language::Spasm {
+            return;
+        }
+        let line = tab.cursor.line;
+        let col = tab.cursor.col;
+        let text = tab.lines.get(line).cloned().unwrap_or_default();
+        let chars: Vec<char> = text.chars().collect();
+        let col = col.min(chars.len());
+        let mut start = col;
+        while start > 0 && is_word_char(chars[start - 1]) {
+            start -= 1;
+        }
+        let prefix: String = chars[start..col].iter().collect();
+        self.completion_recompute(line, start, prefix, false);
+    }
+
+    /// Recalcula las sugerencias para `prefix` (que empieza en la columna `start`).
+    fn completion_recompute(&mut self, line: usize, start: usize, prefix: String, keep: bool) {
+        let p = prefix.to_lowercase();
+        let mut items: Vec<(String, String)> = Vec::new();
+        for s in &self.outline {
+            if s.name.to_lowercase().starts_with(&p) {
+                let detail = if s.kind == 0 {
+                    if s.detail.trim().is_empty() {
+                        "func".to_string()
+                    } else {
+                        format!("func {}", s.detail)
+                    }
+                } else {
+                    "var".to_string()
+                };
+                items.push((s.name.clone(), detail));
+            }
+        }
+        for w in crate::highlight::spasm_words() {
+            if w.to_lowercase().starts_with(&p) && !items.iter().any(|(n, _)| n == w) {
+                items.push(((*w).to_string(), "keyword".to_string()));
+            }
+        }
+        items.truncate(24);
+        if items.is_empty() {
+            self.completion = None;
+            return;
+        }
+        let selected = if keep {
+            self.completion
+                .as_ref()
+                .map(|c| c.selected.min(items.len() - 1))
+                .unwrap_or(0)
+        } else {
+            0
+        };
+        self.completion = Some(Completion {
+            items,
+            selected,
+            prefix,
+            start,
+            line,
+        });
+    }
+
+    fn completion_move(&mut self, delta: i32) {
+        if let Some(c) = self.completion.as_mut() {
+            let n = c.items.len() as i32;
+            if n > 0 {
+                c.selected = ((c.selected as i32 + delta).rem_euclid(n)) as usize;
+            }
+        }
+    }
+
+    /// Reemplaza el prefijo escrito por la sugerencia elegida.
+    fn completion_accept(&mut self) {
+        let Some(c) = self.completion.take() else {
+            return;
+        };
+        let Some((name, _)) = c.items.get(c.selected).cloned() else {
+            return;
+        };
+        if self.tabs.is_empty() {
+            return;
+        }
+        let (line, end) = {
+            let t = &self.tabs[self.active_tab];
+            (t.cursor.line, t.cursor.col)
+        };
+        if line != c.line {
+            return;
+        }
+        {
+            let t = &mut self.tabs[self.active_tab];
+            t.anchor = Some(Cursor { line, col: c.start });
+            t.cursor = Cursor { line, col: end };
+        }
+        self.insert_str(&name);
+    }
+
+    /// Maneja el completado. Devuelve si consumió la tecla.
+    fn completion_intercept(&mut self, text: &str, control: bool, _shift: bool) -> bool {
+        if control && text == " " {
+            self.completion_open();
+            return true;
+        }
+        let Some(c) = self.completion.as_ref() else {
+            return false;
+        };
+        let cur_line = self.tabs.get(self.active_tab).map(|t| t.cursor.line);
+        if cur_line != Some(c.line) {
+            self.completion = None;
+            return false;
+        }
+        let (line, start, prefix) = (c.line, c.start, c.prefix.clone());
+        match text {
+            "\u{F700}" => {
+                self.completion_move(-1);
+                true
+            }
+            "\u{F701}" => {
+                self.completion_move(1);
+                true
+            }
+            "\n" | "\r" | "\t" => {
+                self.completion_accept();
+                true
+            }
+            "\u{1b}" => {
+                self.completion = None;
+                true
+            }
+            "\u{8}" => {
+                if prefix.is_empty() {
+                    self.completion = None;
+                } else {
+                    let mut p = prefix;
+                    p.pop();
+                    self.backspace();
+                    if p.is_empty() {
+                        self.completion = None;
+                    } else {
+                        self.completion_recompute(line, start, p, false);
+                    }
+                }
+                true
+            }
+            _ if !control && text.chars().count() == 1 && is_word_char(text.chars().next().unwrap()) => {
+                let p = format!("{prefix}{text}");
+                self.insert_str(text);
+                self.completion_recompute(line, start, p, false);
+                true
+            }
+            _ => {
+                self.completion = None;
+                false
             }
         }
     }
@@ -5771,7 +6470,8 @@ impl Ide {
             .zip(self.toolchain.frontend.clone());
         match (is_spasm, tools) {
             (true, Some((python, frontend))) => {
-                lint::spawn(python, frontend, path, self.lint_tx.clone());
+                self.lint_gen += 1;
+                lint::spawn(python, frontend, path, self.lint_gen, self.lint_tx.clone());
             }
             _ => self.clear_diagnostics(),
         }
@@ -7230,6 +7930,41 @@ impl Ide {
         w.set_dock_agent(self.docks[1].code());
         w.set_dock_terminal(self.docks[2].code());
         w.set_dock_git(self.docks[3].code());
+        // --- panel de NuCoder (chat nativo) ---
+        w.set_nucoder_open(self.nucoder.is_open());
+        w.set_nucoder_model(self.nucoder.display_model().into());
+        w.set_nucoder_task(self.nucoder.task().into());
+        w.set_nucoder_free(self.nucoder.free_only());
+        w.set_nucoder_running(self.nucoder.running());
+        w.set_nucoder_auto_approve(self.nucoder.auto_approve());
+        w.set_nucoder_connected(true);
+        w.set_nucoder_images(self.nucoder.image_count() as i32);
+        w.set_nucoder_context(self.nucoder.context_label().into());
+        w.set_nucoder_modal_open(self.keyboard_modal_open());
+        w.set_nucoder_pulse(self.nucoder.pulse());
+        w.set_nucoder_perm_web(self.nucoder.perm_web());
+        w.set_nucoder_perm_read_outside(self.nucoder.perm_read_outside());
+        w.set_nucoder_perm_terminal(self.nucoder.perm_terminal());
+        w.set_nucoder_perm_ftp(self.nucoder.perm_ftp());
+        w.set_nucoder_autopilot(self.nucoder.autopilot());
+        w.set_nucoder_sandbox(self.nucoder.sandbox());
+        w.set_nucoder_confirm(self.nucoder.confirm());
+        w.set_nucoder_model_index(self.nucoder.model_index());
+        w.set_nucoder_task_index(self.nucoder.task_index());
+        w.set_nucoder_model_rows(self.nucoder.models_rows());
+        w.set_nucoder_model_filter(self.nucoder.model_filter().into());
+        w.set_nucoder_model_sort(self.nucoder.model_sort_label().into());
+        let (pending, ptitle, pdetail) = self.nucoder.pending_info();
+        w.set_nucoder_pending(pending);
+        w.set_nucoder_pending_title(ptitle.into());
+        w.set_nucoder_pending_detail(pdetail.into());
+        if self.nucoder.take_lists_dirty() {
+            w.set_nucoder_models(self.nucoder.models_model());
+            w.set_nucoder_tasks(self.nucoder.tasks_model());
+        }
+        if self.nucoder.take_dirty() {
+            w.set_nucoder_messages(self.nucoder.slint_messages());
+        }
         w.set_menu_open(self.menu_open.clone().into());
         let menu_items: Vec<IdeMenuEntry> = match self.menu_open.as_str() {
             "file" => self.file_menu_items(),
@@ -7522,6 +8257,37 @@ impl Ide {
         );
         w.set_sqlite_note(self.sqlite_note.clone().into());
         w.set_sqlite_busy(self.sqlite_busy);
+        // Cliente FTP.
+        w.set_ftp_open(self.ftp_open);
+        w.set_ftp_transport(self.ftp_transport.label().into());
+        w.set_ftp_host(self.ftp_host.clone().into());
+        w.set_ftp_port(self.ftp_port.clone().into());
+        w.set_ftp_user(self.ftp_user.clone().into());
+        w.set_ftp_pass(self.ftp_pass.clone().into());
+        w.set_ftp_path(self.ftp_path.clone().into());
+        w.set_ftp_selected(self.ftp_selected as i32);
+        w.set_ftp_busy(self.ftp_busy);
+        w.set_ftp_note(self.ftp_note.clone().into());
+        w.set_ftp_error(self.ftp_error);
+        w.set_ftp_pending_delete(self.ftp_pending_delete.clone().into());
+        w.set_ftp_filter(self.ftp_filter.clone().into());
+        if self.ftp_dirty {
+            let rows: Vec<IdeFtpEntry> = self
+                .ftp_entries
+                .iter()
+                .map(|e| IdeFtpEntry {
+                    name: e.name.clone().into(),
+                    dir: e.dir,
+                    size: if e.dir {
+                        Default::default()
+                    } else {
+                        e.size.map(human_size).unwrap_or_default().into()
+                    },
+                })
+                .collect();
+            w.set_ftp_entries(ModelRc::from(Rc::new(VecModel::from(rows))));
+            self.ftp_dirty = false;
+        }
         // Pantalla de configuración.
         self.sync_settings(w);
         // Formulario de proveedores de NuCoder.
@@ -7681,6 +8447,22 @@ impl Ide {
                 })
                 .collect();
             w.set_outline(ModelRc::from(Rc::new(VecModel::from(outline))));
+            w.set_editor_complete_open(self.completion.is_some());
+            let (comp_items, comp_sel): (Vec<IdePaletteItem>, i32) = match &self.completion {
+                Some(c) => (
+                    c.items
+                        .iter()
+                        .map(|(l, d)| IdePaletteItem {
+                            label: l.clone().into(),
+                            detail: d.clone().into(),
+                        })
+                        .collect(),
+                    c.selected as i32,
+                ),
+                None => (Vec::new(), 0),
+            };
+            w.set_editor_complete_items(ModelRc::from(Rc::new(VecModel::from(comp_items))));
+            w.set_editor_complete_selected(comp_sel);
             w.set_show_image(is_image);
             w.set_active_image(image);
             w.set_image_zoom(active.map(|t| t.image_zoom).unwrap_or(1.0));
@@ -7738,33 +8520,54 @@ impl Ide {
             w.set_cpu_percent((self.metrics.cpu * 100.0).round() as i32);
             w.set_ram_percent((self.metrics.ram * 100.0).round() as i32);
         }
-        while let Ok(event) = self.local_rx.try_recv() {
-            match &event {
-                PtyEvent::Output { .. } => terms = true,
-                // El proceso se cayó: cambia la lista de sesiones y el estado del
-                // panel, eso sí va por el camino completo.
-                PtyEvent::Exit { .. } => got = true,
+        // Tope por tick para la salida de los PTY (evita clavar un frame con
+        // floods); los mensajes sobrantes quedan para el próximo tick. El resto
+        // de los canales emite pocos mensajes, así que no se acota.
+        let mut budget: usize = 512;
+        while budget > 0 {
+            match self.local_rx.try_recv() {
+                Ok(event) => {
+                    match &event {
+                        PtyEvent::Output { .. } => terms = true,
+                        // El proceso se cayó: cambia la lista de sesiones y el
+                        // estado del panel, eso sí va por el camino completo.
+                        PtyEvent::Exit { .. } => got = true,
+                    }
+                    self.apply_pty_event(Target::Local, event);
+                    budget -= 1;
+                }
+                Err(_) => break,
             }
-            self.apply_pty_event(Target::Local, event);
         }
-        while let Ok(event) = self.agent_rx.try_recv() {
-            match &event {
-                PtyEvent::Output { .. } => terms = true,
-                PtyEvent::Exit { .. } => got = true,
+        while budget > 0 {
+            match self.agent_rx.try_recv() {
+                Ok(event) => {
+                    match &event {
+                        PtyEvent::Output { .. } => terms = true,
+                        PtyEvent::Exit { .. } => got = true,
+                    }
+                    self.apply_pty_event(Target::Agent, event);
+                    budget -= 1;
+                }
+                Err(_) => break,
             }
-            self.apply_pty_event(Target::Agent, event);
         }
         while let Ok(result) = self.lint_rx.try_recv() {
+            // Sólo vale el análisis más reciente, y si el archivo sigue activo.
             let active = self.tabs.get(self.active_tab).map(|t| t.path.clone());
-            if active.as_deref() == Some(result.path.as_path()) {
+            if result.gen == self.lint_gen && active.as_deref() == Some(result.path.as_path()) {
                 self.diagnostics = result.diagnostics;
                 self.outline = result.symbols;
                 self.diagnostics_path = Some(result.path);
                 self.editor_full = true;
+                got = true;
             }
-            got = true;
         }
         while let Ok(result) = self.build_rx.try_recv() {
+            // Sólo el build más reciente (evita que uno viejo pise la salida).
+            if result.gen != self.build_gen {
+                continue;
+            }
             let mut text = result.output;
             text.push_str(&format!("\n[build: código {}]\n", result.code));
             if let Some(note) = self.build_note.take() {
@@ -7779,6 +8582,10 @@ impl Ide {
             got = true;
         }
         while let Ok(result) = self.git_rx.try_recv() {
+            // Sólo la operación más reciente libera el "ocupado".
+            if result.gen != self.git_gen {
+                continue;
+            }
             self.git_busy = false;
             self.git_error = result.error;
             self.git_note = result.note;
@@ -7838,8 +8645,86 @@ impl Ide {
         }
         let mut sqlite_touched = false;
         while let Ok(msg) = self.sqlite_rx.try_recv() {
+            // Sólo la última lectura pedida.
+            if msg.gen != self.sqlite_gen {
+                continue;
+            }
             self.sqlite_loaded(msg);
             sqlite_touched = true;
+        }
+        while let Ok(msg) = self.ftp_rx.try_recv() {
+            self.ftp_on_msg(msg);
+            got = true;
+        }
+        while let Ok((gen, nodes)) = self.explorer_rx.try_recv() {
+            // Sólo el árbol más reciente (evita parpadeo con refrescos viejos).
+            if gen == self.explorer_gen {
+                self.explorer.set_nodes(nodes);
+                got = true;
+            }
+        }
+        // Panel de NuCoder: eventos del agente y pedidos de terminal.
+        if self.nucoder.poll() {
+            got = true;
+        }
+        // Resultados de ping del listado de modelos.
+        if self.nucoder.poll_pings() {
+            got = true;
+        }
+        // Fin de «sincronizar» el catálogo.
+        if self.nucoder.poll_sync() {
+            got = true;
+        }
+        // Pulso del 🧠 mientras el agente trabaja.
+        if self.nucoder.running() {
+            self.nucoder.tick();
+            w.set_nucoder_pulse(self.nucoder.pulse());
+        }
+        for job in self.nucoder.take_terminal_jobs() {
+            let cmd = job.command.trim().to_string();
+            if cmd.is_empty() {
+                let _ = job.reply.send("no hay comando que ejecutar".into());
+                continue;
+            }
+            // Terminal destino: por nombre si el agente lo pide, si no la local.
+            let target = job
+                .name
+                .as_deref()
+                .and_then(|n| self.local_id_by_name(n).map(|id| (id, n.to_string())));
+            terms = true;
+            match target {
+                Some((id, name)) => {
+                    self.write_to_local_id(id, format!("{cmd}\r").as_bytes());
+                    let _ = job.reply.send(format!(
+                        "comando escrito en la terminal «{name}»: {cmd}\n\
+                         (queda corriendo ahí; su salida se ve en el panel Terminal)"
+                    ));
+                }
+                None => {
+                    self.write_to(Target::Local, format!("{cmd}\r").as_bytes());
+                    let _ = job.reply.send(format!(
+                        "comando escrito en la terminal local: {cmd}\n\
+                         (queda corriendo ahí; su salida se ve en el panel Terminal)"
+                    ));
+                }
+            }
+        }
+        // Cliente FTP: pedidos del agente (NuCoder) al cliente FTP de la IDE.
+        for job in self.nucoder.take_ftp_jobs() {
+            let nucoder::tools::FtpJob { op, reply } = job;
+            if let nucoder::tools::FtpOp::Open(path) = &op {
+                self.ftp_open_panel();
+                self.ftp_path = crate::ftp::normalize_remote(path);
+                self.ftp_refresh();
+                let _ = reply.send(format!("cliente FTP abierto en {path}"));
+                got = true;
+                continue;
+            }
+            let site = self.ftp_site();
+            std::thread::spawn(move || {
+                let out = crate::ftp::run_job(&site, op);
+                let _ = reply.send(out);
+            });
         }
         if got || web_touched || sqlite_touched {
             self.sync(w);
@@ -7897,9 +8782,24 @@ impl Ide {
     }
 }
 
+/// Tamaño legible para el listado remoto (1.2 KB, 3.4 MB…).
+fn human_size(bytes: u64) -> String {
+    const U: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
+    let mut n = bytes as f64;
+    let mut i = 0usize;
+    while n >= 1024.0 && i < U.len() - 1 {
+        n /= 1024.0;
+        i += 1;
+    }
+    if i == 0 {
+        format!("{bytes} {}", U[0])
+    } else {
+        format!("{n:.1} {}", U[i])
+    }
+}
+
 /// ¿La extensión corresponde a una imagen que podemos mostrar?
-fn is_image(path: &Path) -> bool {
-    matches!(
+fn is_image(path: &Path) -> bool {    matches!(
         path.extension()
             .and_then(|e| e.to_str())
             .map(str::to_ascii_lowercase)
@@ -7910,7 +8810,7 @@ fn is_image(path: &Path) -> bool {
 
 /// Convierte Markdown a texto con estilo de Slint. Sanea lo que el parser de
 /// Slint no soporta (headings y cercos de código) y cae a texto plano si falla.
-fn markdown_preview(source: &str) -> slint::StyledText {
+pub(crate) fn markdown_preview(source: &str) -> slint::StyledText {
     let mut out = String::new();
     for line in source.lines() {
         let trimmed = line.trim_start();
@@ -9192,6 +10092,152 @@ pub fn attach(window: &NuIdeWindow, ide: Rc<RefCell<Ide>>) {
             }
         });
     }
+    // Cliente FTP.
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_ftp_close(move || {
+            if let Some(w) = weak.upgrade() {
+                ide.borrow_mut().ftp_close();
+                ide.borrow_mut().sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_ftp_cycle_transport(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.ftp_cycle_transport();
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_ftp_edited(move |field, value| {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.ftp_set_field(&field, &value);
+                w.set_ftp_host(e.ftp_host.clone().into());
+                w.set_ftp_port(e.ftp_port.clone().into());
+                w.set_ftp_user(e.ftp_user.clone().into());
+                w.set_ftp_pass(e.ftp_pass.clone().into());
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_ftp_use_site(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.ftp_use_site();
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_ftp_up(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.ftp_up();
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_ftp_refresh(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.ftp_refresh();
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_ftp_open_entry(move |i| {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.ftp_open_entry(i);
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_ftp_delete_entry(move |i| {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.ftp_delete_entry(i);
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_ftp_confirm_delete(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.ftp_confirm_delete();
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_ftp_cancel_delete(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.ftp_cancel_delete();
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_ftp_upload(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.ftp_upload();
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_ftp_mkdir(move |name| {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.ftp_mkdir(&name);
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_ftp_filter_changed(move |value| {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.ftp_set_filter(&value);
+                e.sync(&w);
+            }
+        });
+    }
     // Pantalla de configuración.
     {
         let ide = Rc::clone(&ide);
@@ -9533,6 +10579,23 @@ pub fn attach(window: &NuIdeWindow, ide: Rc<RefCell<Ide>>) {
             if let Some(w) = weak.upgrade() {
                 let mut e = ide.borrow_mut();
                 e.goto_line(line);
+                e.sync(&w);
+            }
+        });
+    }
+    // Completado semántico: clic en una sugerencia.
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_editor_complete_pick(move |i| {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                if let Some(c) = e.completion.as_mut() {
+                    if i >= 0 && (i as usize) < c.items.len() {
+                        c.selected = i as usize;
+                    }
+                }
+                e.completion_accept();
                 e.sync(&w);
             }
         });
@@ -10155,6 +11218,229 @@ pub fn attach(window: &NuIdeWindow, ide: Rc<RefCell<Ide>>) {
         });
     }
 
+    // Panel nativo de NuCoder: acciones del chat.
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_nucoder_send(move |text| {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.nucoder.send(&text);
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_nucoder_cancel(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.nucoder.cancel();
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_nucoder_answer(move |ok| {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.nucoder.answer(ok);
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_nucoder_toggle_auto(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.nucoder.toggle_auto_approve();
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_nucoder_toggle_free(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.nucoder.toggle_free();
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_nucoder_clear(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.nucoder.clear();
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_nucoder_model_picked(move |index| {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.nucoder.set_model(index);
+                e.sync(&w);
+            }
+        });
+    }
+    // Listado de modelos: probar (ping), usar y filtrar.
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_nucoder_model_ping(move |i| {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.nucoder.ping_at(i);
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_nucoder_model_ping_all(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.nucoder.ping_all();
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_nucoder_model_row_use(move |i| {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.nucoder.use_model_at(i);
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_nucoder_model_filter_changed(move |v| {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.nucoder.model_filter_set(&v);
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_nucoder_model_sort_cycle(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.nucoder.model_sort_cycle();
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_nucoder_model_sync(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.nucoder.sync_models();
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_nucoder_task_picked(move |index| {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.nucoder.set_task(index);
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_nucoder_attach_image(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                if let Some(path) = rfd::FileDialog::new()
+                    .add_filter("Imágenes", &["png", "jpg", "jpeg", "webp", "gif"])
+                    .pick_file()
+                {
+                    e.nucoder.add_image(&path);
+                }
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_nucoder_clear_images(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.nucoder.clear_images();
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_nucoder_cycle_context(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.nucoder.cycle_context();
+                e.sync(&w);
+            }
+        });
+    }
+    // Teclas reenviadas desde el chat de NuCoder (su input no es `FocusScope`).
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_global_key(move |text, control, shift, alt| {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.route_global_key(&text, control, shift, alt);
+                e.sync(&w);
+            }
+        });
+    }
+    // Permisos de NuCoder (pestaña Permisos).
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_nucoder_toggle_perm(move |which| {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.nucoder.toggle_permission(&which);
+                e.sync(&w);
+            }
+        });
+    }
+    // Copiar un texto del panel de NuCoder (respuesta o bloque de código).
+    window.on_nucoder_copy(move |text| {
+        let _ = clipboard_write(&text);
+    });
+
     // Bucle de drenado. El closure usa un `Weak`: si guardara el `Rc` habría un
     // ciclo `Ide -> Timer -> Ide`.
     let timer = Timer::default();
@@ -10189,6 +11475,87 @@ mod tests {
         // El atajo global de la paleta cambia otros paneles: vuelve `true`.
         assert!(ide.local_key("p", true, true, false));
         assert!(ide.palette.open);
+    }
+
+    /// `run_in_terminal`: el agente puede elegir la terminal por nombre.
+    #[test]
+    fn run_in_terminal_encuentra_terminal_por_nombre() {
+        let mut ide = Ide::new();
+        let id = ide.local[0].id;
+        ide.local[0].name = "build".to_string();
+        // La búsqueda es por subcadena, sin distinguir mayúsculas.
+        assert_eq!(ide.local_id_by_name("build"), Some(id));
+        assert_eq!(ide.local_id_by_name("BUILD"), Some(id));
+        assert_eq!(ide.local_id_by_name("uil"), Some(id));
+        assert_eq!(ide.local_id_by_name("no-existe"), None);
+        assert_eq!(ide.local_id_by_name("  "), None);
+    }
+
+    /// El chat de NuCoder reenvía los atajos globales (Ctrl+Shift+P abre la
+    /// paleta aunque el foco esté en su input).
+    #[test]
+    fn el_chat_rutea_atajos_globales() {
+        let mut ide = Ide::new();
+        ide.nucoder.open(std::env::temp_dir());
+        assert!(!ide.keyboard_modal_open());
+        ide.route_global_key("P", true, true, false);
+        assert!(ide.palette.open, "Ctrl+Shift+P debería abrir la paleta");
+        // Con el modal abierto, el input del chat debe quedar deshabilitado.
+        assert!(ide.keyboard_modal_open());
+        // Y las teclas siguientes van a la paleta (no rompen).
+        ide.route_global_key("a", false, false, false);
+    }
+
+    #[test]
+    fn el_completado_usa_los_simbolos_del_ast() {
+        let mut ide = Ide::new();
+        ide.tabs.push(OpenTab {
+            path: PathBuf::from("F:/p/demo.spasm"),
+            kind: DocKind::Text,
+            image: None,
+            image_zoom: 1.0,
+            language: highlight::Language::Spasm,
+            preview: false,
+            preview_doc: None,
+            lines: vec!["sum".to_string()],
+            cursor: Cursor { line: 0, col: 3 },
+            anchor: None,
+            dirty: false,
+            trailing_newline: true,
+            read_only: false,
+        });
+        ide.active_tab = 0;
+        ide.outline = vec![
+            lint::Symbol {
+                kind: 0,
+                name: "suma".into(),
+                line: 3,
+                detail: "int".into(),
+            },
+            lint::Symbol {
+                kind: 1,
+                name: "sumando".into(),
+                line: 4,
+                detail: String::new(),
+            },
+        ];
+        ide.completion_open();
+        let c = ide.completion.as_ref().expect("completado abierto");
+        assert_eq!(c.prefix, "sum");
+        assert!(c.items.iter().any(|(n, _)| n == "suma"));
+        assert!(c.items.iter().any(|(n, _)| n == "sumando"));
+        // Aceptar reemplaza el prefijo por la sugerencia elegida.
+        ide.completion.as_mut().unwrap().selected = ide
+            .completion
+            .as_ref()
+            .unwrap()
+            .items
+            .iter()
+            .position(|(n, _)| n == "suma")
+            .unwrap();
+        ide.completion_accept();
+        assert_eq!(ide.tabs[0].lines[0], "suma");
+        assert_eq!(ide.tabs[0].cursor.col, 4);
     }
 
     #[test]
@@ -10589,6 +11956,33 @@ mod tests {
         // Volver a abrir el mismo menú lo cierra.
         ide.menu("agent");
         assert!(ide.menu_open.is_empty());
+    }
+
+    #[test]
+    fn el_menu_del_coder_lista_los_comandos_de_la_tui() {
+        let mut ide = Ide::new();
+        // El coder suma los atajos: tareas (insertar) y acciones (ejecutar).
+        ide.terminal_context(Target::Agent);
+        let ids: Vec<&str> = ide
+            .term_context_items
+            .iter()
+            .map(|e| e.id.as_str())
+            .collect();
+        assert!(ids.contains(&"agent.insert:/refactor"));
+        assert!(ids.contains(&"agent.insert:/architect"));
+        assert!(ids.contains(&"agent.run:/free"));
+        assert!(ids.contains(&"agent.run:/quit"));
+        assert!(!ids.contains(&"term.elevate"));
+
+        // La terminal local conserva copiar/pegar/elevar y no lista comandos.
+        ide.terminal_context(Target::Local);
+        let ids: Vec<&str> = ide
+            .term_context_items
+            .iter()
+            .map(|e| e.id.as_str())
+            .collect();
+        assert!(ids.contains(&"term.elevate"));
+        assert!(!ids.iter().any(|i| i.starts_with("agent.")));
     }
 
     #[test]

@@ -131,6 +131,54 @@ msgstr ""
 msgid "Refrescar el árbol de archivos (F5)"
 msgstr ""
 
+msgid "CLIENTE FTP"
+msgstr ""
+
+msgid "trabajando…"
+msgstr ""
+
+msgid "sin conexión"
+msgstr ""
+
+msgid "Host"
+msgstr ""
+
+msgid "Puerto"
+msgstr ""
+
+msgid "Usuario"
+msgstr ""
+
+msgid "Clave"
+msgstr ""
+
+msgid "usar el proyecto"
+msgstr ""
+
+msgid "Trae host/usuario/clave del sitio configurado en Preferencias → Despliegue"
+msgstr ""
+
+msgid "Conectar"
+msgstr ""
+
+msgid "filtrar…"
+msgstr ""
+
+msgid "nueva carpeta…"
+msgstr ""
+
+msgid "Nueva carpeta"
+msgstr ""
+
+msgid "Subir archivo…"
+msgstr ""
+
+msgid "¿Borrar"
+msgstr ""
+
+msgid "Borrar"
+msgstr ""
+
 msgid "CÓDIGO"
 msgstr ""
 
@@ -186,6 +234,183 @@ msgid "Confirmar los cambios preparados (git commit)"
 msgstr ""
 
 msgid "{}  ({})"
+msgstr ""
+
+msgid "on"
+msgstr ""
+
+msgid "off"
+msgstr ""
+
+msgid "probar"
+msgstr ""
+
+msgid "usar"
+msgstr ""
+
+msgid "Forzar este modelo para el chat"
+msgstr ""
+
+msgid "AGENTE · NUCODER"
+msgstr ""
+
+msgid "Elegir el modelo del agente"
+msgstr ""
+
+msgid "modelos"
+msgstr ""
+
+msgid "Listado de modelos: especialidad, gratis/poder y probar (ping)"
+msgstr ""
+
+msgid "permisos"
+msgstr ""
+
+msgid "Permisos del agente: internet, leer fuera del proyecto, terminales, autopiloto"
+msgstr ""
+
+msgid "Ver u ocultar el proceso (herramientas y avisos del agente)"
+msgstr ""
+
+msgid "listo"
+msgstr ""
+
+msgid "desconectado"
+msgstr ""
+
+msgid "Cambiar la tarea del router (complete/refactor/debug/…)"
+msgstr ""
+
+msgid "imagen"
+msgstr ""
+
+msgid "Adjuntar una imagen al próximo mensaje (modelos con visión)"
+msgstr ""
+
+msgid " img ✕"
+msgstr ""
+
+msgid "Quitar la imagen adjunta"
+msgstr ""
+
+msgid "Tope de contexto para la compactación"
+msgstr ""
+
+msgid "gratis"
+msgstr ""
+
+msgid "Router sólo con modelos gratuitos"
+msgstr ""
+
+msgid "auto-aprobar"
+msgstr ""
+
+msgid "No pedir confirmación para borrar/mover/bash/terminal"
+msgstr ""
+
+msgid "nueva"
+msgstr ""
+
+msgid "Aprobar"
+msgstr ""
+
+msgid "Rechazar"
+msgstr ""
+
+msgid "copiar"
+msgstr ""
+
+msgid "Copiar la respuesta completa"
+msgstr ""
+
+msgid "Copiar sólo este bloque de código"
+msgstr ""
+
+msgid "Escribí y Enter para enviar…"
+msgstr ""
+
+msgid "Confirmá la acción"
+msgstr ""
+
+msgid "🧠 pensando…"
+msgstr ""
+
+msgid "Enter envía · auto-aprobar saltea las confirmaciones"
+msgstr ""
+
+msgid "final"
+msgstr ""
+
+msgid "Ir al final del texto"
+msgstr ""
+
+msgid "Detener"
+msgstr ""
+
+msgid "Enviar"
+msgstr ""
+
+msgid "Internet"
+msgstr ""
+
+msgid "Navegar y consultar la web (web_fetch / web_search, DuckDuckGo)"
+msgstr ""
+
+msgid "Leer fuera del proyecto"
+msgstr ""
+
+msgid "Permitir leer rutas fuera del workspace (las escrituras siguen confinadas)"
+msgstr ""
+
+msgid "Terminales de la IDE"
+msgstr ""
+
+msgid "Escribir comandos en las terminales reales (run_in_terminal)"
+msgstr ""
+
+msgid "Cliente FTP"
+msgstr ""
+
+msgid "Operar el cliente FTP de la IDE: listar, subir, bajar, borrar (ftp_*)"
+msgstr ""
+
+msgid "Sandbox de escrituras"
+msgstr ""
+
+msgid "Confina las escrituras al proyecto; apagado, deja escribir fuera (--no-sandbox)"
+msgstr ""
+
+msgid "Confirmación"
+msgstr ""
+
+msgid "Pedir aprobación antes de borrar/mover/bash/terminal (lo pisa auto-aprobar)"
+msgstr ""
+
+msgid "Autopiloto"
+msgstr ""
+
+msgid "Tras aprobar el plan, ejecutar todos los pasos sin pedir confirmación"
+msgstr ""
+
+msgid "Los permisos se guardan en la config de NuCoder y se aplican al próximo turno del agente."
+msgstr ""
+
+msgid "filtrar por nombre o especialidad…"
+msgstr ""
+
+msgid "Cambiar el orden del listado (especialidad / ping / nombre / gratis)"
+msgstr ""
+
+msgid "probar todos"
+msgstr ""
+
+msgid "sincronizar"
+msgstr ""
+
+msgid "sin modelos (configurá un proveedor y descubrí modelos: nucoder discover)"
+msgstr ""
+
+msgid "auto (router)"
 msgstr ""
 
 msgid "  ({})"
@@ -245,13 +470,7 @@ msgstr ""
 msgid "FTP (21), FTPS (FTP + TLS, curl valida el certificado) o SFTP (SSH, 22)"
 msgstr ""
 
-msgid "Host"
-msgstr ""
-
 msgid "Servidor del sitio, ej. ftp.midominio.com"
-msgstr ""
-
-msgid "Usuario"
 msgstr ""
 
 msgid "Usuario de FTP/SFTP del hosting"
@@ -303,9 +522,6 @@ msgid "Servidor web local"
 msgstr ""
 
 msgid "Sirve la carpeta del proyecto en http://localhost:<puerto>/ con CORS, para ver el sitio antes de subirlo"
-msgstr ""
-
-msgid "Puerto"
 msgstr ""
 
 msgid "Puerto local del servidor (1024-65535)"
@@ -740,7 +956,7 @@ msgstr ""
 msgid "Lanzar NuCoder (agente)"
 msgstr ""
 
-msgid "No se encontró NuCoder (definí NUCODER o instalalo). El panel queda como terminal."
+msgid "FTP: abrir cliente"
 msgstr ""
 
 msgid "Elegir carpeta del proyecto"
@@ -753,6 +969,9 @@ msgid "Nuevo archivo"
 msgstr ""
 
 msgid "Carpeta del nuevo proyecto"
+msgstr ""
+
+msgid "No hay archivo activo: abrí un .spasm para compilar (Ctrl+B)."
 msgstr ""
 
 msgid "Guardar como"
@@ -786,6 +1005,9 @@ msgid "Ver repositorio"
 msgstr ""
 
 msgid "Base de datos SQLite"
+msgstr ""
+
+msgid "la operación falló"
 msgstr ""
 
 msgid "Idioma"
@@ -977,6 +1199,15 @@ msgstr ""
 msgid "Vuelve a leer tablas y filas"
 msgstr ""
 
+msgid "Cliente FTP/FTPS/SFTP básico (por curl) para navegar y transferir"
+msgstr ""
+
+msgid "Abrir el cliente FTP"
+msgstr ""
+
+msgid "Abre la ventana del cliente FTP"
+msgstr ""
+
 msgid "Clic y presioná la combinación nueva"
 msgstr ""
 
@@ -996,9 +1227,6 @@ msgid "salir"
 msgstr ""
 
 msgid "reiniciar como administrador"
-msgstr ""
-
-msgid "Nueva carpeta"
 msgstr ""
 
 msgid "Renombrar"

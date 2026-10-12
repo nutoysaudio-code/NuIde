@@ -7,13 +7,17 @@
 
 use std::path::PathBuf;
 use std::process::Command;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;
+use std::sync::Arc;
 use std::thread;
 
 use crate::lint::Diagnostic;
 
 /// Resultado de una corrida del toolchain.
 pub struct BuildResult {
+    /// Época de la corrida (para descartar resultados viejos).
+    pub gen: u64,
     /// Diagnósticos parseados (línea + mensaje).
     pub diagnostics: Vec<Diagnostic>,
     /// Salida cruda (stdout + stderr) para mostrar en la terminal.
@@ -30,11 +34,23 @@ pub struct Step {
 
 /// Corre los `steps` en orden en `cwd` (en un hilo), captura la salida y manda el
 /// resultado por `tx`. Se detiene en el primer paso que falle.
-pub fn spawn(steps: Vec<Step>, cwd: PathBuf, tx: Sender<BuildResult>) {
+pub fn spawn(
+    steps: Vec<Step>,
+    cwd: PathBuf,
+    gen: u64,
+    cancel: Arc<AtomicBool>,
+    tx: Sender<BuildResult>,
+) {
     thread::spawn(move || {
         let mut text = String::new();
         let mut code = 0;
         for step in &steps {
+            // Cancelación cooperativa: se comprueba entre pasos.
+            if cancel.load(Ordering::Relaxed) {
+                text.push_str("\n[build cancelado]\n");
+                code = -1;
+                break;
+            }
             let mut cmd = Command::new(&step.program);
             cmd.args(&step.args).current_dir(&cwd);
 
@@ -71,6 +87,7 @@ pub fn spawn(steps: Vec<Step>, cwd: PathBuf, tx: Sender<BuildResult>) {
             }
         }
         let _ = tx.send(BuildResult {
+            gen,
             diagnostics: parse_diagnostics(&text),
             output: text,
             code,
@@ -150,6 +167,8 @@ mod tests {
                 args,
             }],
             dir.clone(),
+            0,
+            Arc::new(AtomicBool::new(false)),
             tx,
         );
         let result = rx
@@ -213,6 +232,8 @@ mod tests {
                 },
             ],
             dir.clone(),
+            0,
+            Arc::new(AtomicBool::new(false)),
             tx,
         );
         let result = rx

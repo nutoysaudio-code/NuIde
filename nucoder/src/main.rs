@@ -2,14 +2,11 @@
 //!
 //! Lógica de decisión en SpASM (AOT → C → FFI): `spasm/router.spasm` elige
 //! proveedor/modelo por tarea+costo y rota cuando se agota la cuota.
-//! La interfaz es una TUI (ratatui + crossterm) o un modo one-shot (`--ask`).
-
-mod agent;
-mod client;
-mod config;
-mod ffi;
-mod tools;
-mod tui;
+//!
+//! Este binario es el **CLI**: subcomandos (`ask`, `provider`, `models`,
+//! `discover`, `route`) y `--version/--help`. La interfaz de chat interactiva
+//! vive en **NuIde** como panel nativo (Slint); el núcleo está en la librería
+//! `nucoder` (`src/lib.rs`).
 
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
@@ -19,14 +16,23 @@ use std::sync::Arc;
 use anyhow::{bail, Result};
 use serde_json::json;
 
-use crate::agent::{Agent, AgentEvent};
-use crate::config::Config;
+use nucoder::agent::{self, Agent, AgentEvent};
+use nucoder::caps::{self, Cap};
+use nucoder::client;
+use nucoder::config::{self, Config};
+use nucoder::freefilter::{self, FreeFilter};
+use nucoder::image;
+use nucoder::knowledge::Knowledge;
+use nucoder::{banner, ffi};
 
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
 
     if args.iter().any(|a| a == "--version" || a == "-V") {
-        println!("nucoder 0.2.0 (SpASM AOT + ratatui)");
+        println!(
+            "nucoder {} (SpASM AOT + núcleo compartido)",
+            env!("CARGO_PKG_VERSION")
+        );
         return Ok(());
     }
     if args.iter().any(|a| a == "--help" || a == "-h")
@@ -39,6 +45,8 @@ fn main() -> Result<()> {
     // Flags comunes.
     let flag = |name: &str| -> Option<String> { value_of(&args, name) };
     let free_only = args.iter().any(|a| a == "--free");
+    let cap = flag("--cap").and_then(|s| Cap::parse(&s));
+    let cli_model = flag("--model").filter(|s| !s.is_empty() && !s.eq_ignore_ascii_case("auto"));
     let task = flag("--task").unwrap_or_else(|| "complete".to_string());
     let cwd = flag("--cwd")
         .map(PathBuf::from)
@@ -48,43 +56,108 @@ fn main() -> Result<()> {
     match args.first().map(String::as_str) {
         Some("provider") | Some("providers") => return subcommand_providers(&args),
         Some("discover") => return subcommand_discover(&args),
+        Some("refresh") => return subcommand_refresh(&args),
+        Some("models") => return subcommand_models(&args),
+        Some("config") | Some("cfg") => return subcommand_config(&args),
         Some("route") => {
             let t = args.get(1).cloned().unwrap_or(task);
-            return print_route(&Config::load(), &t, free_only);
+            let cfg = load_config();
+            return print_route(&cfg, &t, free_only, cap);
         }
         Some("ask") => {
-            let prompt = args[1..].join(" ");
+            let prompt = ask_prompt(&args);
             if prompt.trim().is_empty() {
                 bail!("uso: nucoder ask \"<pregunta>\"");
             }
-            return run_ask(Config::load(), cwd, task, free_only, prompt);
+            let cfg = load_config();
+            let sandbox = resolve_sandbox(&cfg, &args);
+            let images = load_images(&args)?;
+            let model_override = cli_model.clone().or_else(|| cfg.default_model.clone());
+            let prompt_cache = resolve_prompt_cache(&cfg, &args);
+            let context_chars = resolve_context(&cfg, &args);
+            return run_ask(
+                cfg,
+                cwd,
+                task,
+                free_only,
+                prompt,
+                sandbox,
+                cap,
+                images,
+                model_override,
+                prompt_cache,
+                context_chars,
+            );
         }
         _ => {}
     }
 
     // Flags de nivel superior.
     if args.iter().any(|a| a == "--providers") || args.iter().any(|a| a == "--list") {
-        return list_providers(&Config::load(), free_only);
+        let cfg = load_config();
+        return list_providers(&cfg, free_only);
     }
     if let Some(t) = flag("--route") {
-        return print_route(&Config::load(), &t, free_only);
+        let cfg = load_config();
+        return print_route(&cfg, &t, free_only, cap);
     }
     if let Some(prompt) = flag("--ask").or_else(|| flag("-p")) {
-        return run_ask(Config::load(), cwd, task, free_only, prompt);
+        let cfg = load_config();
+        let sandbox = resolve_sandbox(&cfg, &args);
+        let images = load_images(&args)?;
+        let model_override = cli_model.clone().or_else(|| cfg.default_model.clone());
+        let prompt_cache = resolve_prompt_cache(&cfg, &args);
+        let context_chars = resolve_context(&cfg, &args);
+        return run_ask(
+            cfg,
+            cwd,
+            task,
+            free_only,
+            prompt,
+            sandbox,
+            cap,
+            images,
+            model_override,
+            prompt_cache,
+            context_chars,
+        );
     }
 
-    // Por defecto: TUI.
-    let cfg = Config::load();
-    if cfg.candidates(free_only || cfg.free_only).is_empty() {
-        eprintln!("No hay proveedores configurados.");
-        eprintln!("Cargá una API key gratuita, por ejemplo:");
-        eprintln!(
-            "  nucoder provider add --id openrouter --name OpenRouter \\\n    --base-url https://openrouter.ai/api/v1 --api-key sk-or-... --free-only"
-        );
-        eprintln!("Config propia: {}", config::own_config_path().display());
+    // Sin subcomando: el chat interactivo vive en NuIde (panel nativo Slint).
+    // El CLI queda para `ask`, `provider`, `models`, `discover` y `route`.
+    print_help();
+    println!("La interfaz de chat de NuCoder ahora vive en NuIde (panel «Agente»).");
+    println!("Para una respuesta suelta usá:  nucoder ask \"<pregunta>\"");
+    Ok(())
+}
+
+/// Sandbox efectivo: `--no-sandbox` / `--sandbox` pisan la config.
+fn resolve_sandbox(cfg: &Config, args: &[String]) -> bool {
+    if args.iter().any(|a| a == "--no-sandbox") {
+        return false;
     }
-    let app = tui::App::new(Arc::new(cfg), cwd, task, free_only);
-    tui::run(app)
+    if args.iter().any(|a| a == "--sandbox") {
+        return true;
+    }
+    cfg.sandbox
+}
+
+/// Prompt caching: `--prompt-cache` fuerza; si no, lo que diga la config.
+fn resolve_prompt_cache(cfg: &Config, args: &[String]) -> bool {
+    args.iter().any(|a| a == "--prompt-cache") || cfg.prompt_cache
+}
+
+/// Tope de contexto efectivo: `--context-chars` > `NUCODER_CONTEXT_CHARS` > config.
+fn resolve_context(cfg: &Config, args: &[String]) -> usize {
+    if let Some(n) = value_of(args, "--context-chars").and_then(|s| s.parse::<usize>().ok()) {
+        return n.max(2_000);
+    }
+    if let Ok(s) = std::env::var("NUCODER_CONTEXT_CHARS") {
+        if let Ok(n) = s.parse::<usize>() {
+            return n.max(2_000);
+        }
+    }
+    cfg.context_chars
 }
 
 // ---------------------------------------------------------------------------
@@ -94,6 +167,7 @@ fn main() -> Result<()> {
 fn subcommand_providers(args: &[String]) -> Result<()> {
     match args.get(1).map(String::as_str) {
         Some("add") => provider_add(args),
+        Some("presets") | Some("preset") => print_presets(),
         Some("remove") | Some("rm") => {
             let Some(id) = args.get(2) else {
                 bail!("uso: nucoder provider remove <id>");
@@ -107,19 +181,61 @@ fn subcommand_providers(args: &[String]) -> Result<()> {
             }
             Ok(())
         }
-        _ => list_providers(&Config::load(), false),
+        _ => {
+            let cfg = load_config();
+            list_providers(&cfg, false)
+        }
     }
 }
 
+/// Lista los presets conocidos de proveedores.
+fn print_presets() -> Result<()> {
+    println!("Presets de proveedor (id → base URL · filtro de gratis):");
+    for p in freefilter::all() {
+        println!(
+            "  {:<12} {:<52} {}",
+            p.id,
+            p.base_url,
+            p.free_filter.as_str()
+        );
+    }
+    println!("\nAlta:  nucoder provider add <id> --api-key <key>");
+    println!("Luego: nucoder discover <id> --save-free");
+    Ok(())
+}
+
 fn provider_add(args: &[String]) -> Result<()> {
-    let id = value_of(args, "--id").or_else(|| value_of(args, "--provider"));
-    let base_url = value_of(args, "--base-url").or_else(|| value_of(args, "--baseURL"));
-    let api_key = value_of(args, "--api-key").or_else(|| value_of(args, "--apiKey"));
-    let (Some(id), Some(base_url)) = (id, base_url) else {
-        bail!("uso: nucoder provider add --id <id> --base-url <url> [--api-key <k>] [--name <n>] [--free-only] [--model <id>]...");
+    let Some(id) = value_of(args, "--id")
+        .or_else(|| value_of(args, "--provider"))
+        .or_else(|| args.get(2).filter(|a| !a.starts_with('-')).cloned())
+    else {
+        bail!(
+            "uso: nucoder provider add <id> [--base-url <url>] [--api-key <k>] \
+             [--name <n>] [--free-only] [--free-filter <modo>] [--model <id>]...\n\
+             ids con preset: {}",
+            preset_ids()
+        );
     };
-    let name = value_of(args, "--name").unwrap_or_else(|| id.clone());
-    let free_only = args.iter().any(|a| a == "--free-only");
+    let preset = freefilter::preset(&id);
+    // La base URL sale del preset si no se pasa a mano.
+    let base_url = value_of(args, "--base-url")
+        .or_else(|| value_of(args, "--baseURL"))
+        .or_else(|| preset.map(|p| p.base_url.to_string()));
+    let Some(base_url) = base_url else {
+        bail!("falta --base-url (y `{id}` no es un preset conocido)");
+    };
+    let api_key = value_of(args, "--api-key").or_else(|| value_of(args, "--apiKey"));
+    let name = value_of(args, "--name")
+        .or_else(|| preset.map(|p| p.name.to_string()))
+        .unwrap_or_else(|| id.clone());
+    // Preset ⇒ free-only salvo `--no-free-only` (son catálogos free-tier).
+    let free_only = args.iter().any(|a| a == "--free-only")
+        || (preset.is_some() && !args.iter().any(|a| a == "--no-free-only"));
+    let free_filter = value_of(args, "--free-filter")
+        .and_then(|s| FreeFilter::parse(&s))
+        .or_else(|| preset.map(|p| p.free_filter))
+        .unwrap_or(FreeFilter::Auto);
+    let free_match = values_of(args, "--free-match");
 
     let mut models = Vec::new();
     for m in values_of(args, "--model") {
@@ -132,6 +248,8 @@ fn provider_add(args: &[String]) -> Result<()> {
         "base_url": base_url,
         "api_key": api_key.unwrap_or_default(),
         "free_only": free_only,
+        "free_filter": free_filter.as_str(),
+        "free_match": free_match,
         "models": models,
     });
     let Some(prov) = config::own_provider_from_value(&value) else {
@@ -144,66 +262,332 @@ fn provider_add(args: &[String]) -> Result<()> {
     cfg.upsert_own(prov);
     let path = cfg.save_own()?;
     println!(
-        "proveedor `{id}` guardado ({n} modelo(s)) en {}",
+        "proveedor `{id}` guardado ({n} modelo(s), filtro {}) en {}",
+        free_filter.as_str(),
         path.display()
     );
     Ok(())
 }
 
+/// Ids de los presets conocidos.
+fn preset_ids() -> String {
+    freefilter::all()
+        .iter()
+        .map(|p| p.id)
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// `nucoder refresh [id] [--reset-free]`: re-baja el catálogo y reclasifica los
+/// modelos **conservando** los `free` fijados a mano (salvo `--reset-free`).
+fn subcommand_refresh(args: &[String]) -> Result<()> {
+    let only = args.get(1).filter(|a| !a.starts_with('-')).cloned();
+    let reset_free = args.iter().any(|a| a == "--reset-free");
+    let mut cfg = Config::load();
+    if cfg.providers.is_empty() {
+        bail!("no hay proveedores configurados (probá `nucoder provider add <id>`)");
+    }
+    let results = config::refresh_catalog(&mut cfg, only.as_deref(), reset_free);
+    for (id, res) in results {
+        match res {
+            Ok(n) => println!(
+                "· `{id}`: {n} modelo(s){}",
+                if reset_free {
+                    " (free recalculado)"
+                } else {
+                    " (free conservado)"
+                }
+            ),
+            Err(e) => eprintln!("· `{id}`: {e}"),
+        }
+    }
+    let path = cfg.save_own()?;
+    println!("guardado en {}", path.display());
+    Ok(())
+}
+
 fn subcommand_discover(args: &[String]) -> Result<()> {
     let Some(id) = args.get(1) else {
-        bail!("uso: nucoder discover <provider-id> [--save-free]");
+        bail!("uso: nucoder discover <provider-id> [--save-free|--save-all]");
     };
     let save_free = args.iter().any(|a| a == "--save-free");
+    let save_all = args.iter().any(|a| a == "--save-all");
     let mut cfg = Config::load();
     let Some(prov) = cfg.provider(id).cloned() else {
         bail!("no existe el proveedor `{id}`");
     };
     let models =
         client::list_models(&prov.base_url, &prov.api_key).map_err(|e| anyhow::anyhow!("{e}"))?;
-    println!("{} modelo(s) en `{id}`:", models.len());
-    let free: Vec<&client::ModelInfo> = models
-        .iter()
-        .filter(|m| m.id.contains(":free") || m.id.to_lowercase().contains("free"))
-        .collect();
-    for m in &models {
-        let tag = if m.id.contains(":free") {
-            " [free]"
-        } else {
-            ""
-        };
-        println!("  - {}{tag}", m.id);
+
+    let flags: Vec<bool> = models.iter().map(|m| model_free(&prov, m)).collect();
+    println!(
+        "{} modelo(s) en `{id}` (filtro de gratis: {}):",
+        models.len(),
+        prov.free_filter.as_str()
+    );
+    for (i, m) in models.iter().enumerate() {
+        let tag = if flags[i] { " [free]" } else { "" };
+        let caps = caps_label(&m.id, &m.name, &m.raw);
+        println!("  - {}{tag}  ({caps})", m.id);
     }
-    if save_free {
-        if free.is_empty() {
-            println!("no se detectaron modelos gratuitos");
-            return Ok(());
-        }
-        let all: Vec<serde_json::Value> = models
-            .iter()
-            .map(|m| json!({ "id": m.id, "name": m.name }))
-            .collect();
-        let mut value = json!({
-            "id": prov.id,
-            "name": prov.name,
-            "base_url": prov.base_url,
-            "api_key": prov.api_key,
-            "free_only": true,
-            "models": all,
-        });
-        value["free_only"] = json!(true);
-        let Some(newp) = config::own_provider_from_value(&value) else {
-            bail!("no se pudo reconstruir el proveedor");
-        };
-        cfg.upsert_own(newp);
-        let path = cfg.save_own()?;
+
+    if !(save_free || save_all) {
+        return Ok(());
+    }
+    let selected: Vec<usize> = (0..models.len())
+        .filter(|&i| save_all || flags[i])
+        .collect();
+    if selected.is_empty() {
         println!(
-            "guardado con {} modelo(s) (filtrando gratis) en {}",
-            free.len(),
-            path.display()
+            "no se detectaron modelos gratuitos con el filtro `{}`; \
+             probá `--save-all` o ajustá `free_filter` del proveedor.",
+            prov.free_filter.as_str()
         );
+        return Ok(());
+    }
+    let list: Vec<serde_json::Value> = selected
+        .iter()
+        .map(|&i| discovered_model(&models[i], flags[i]))
+        .collect();
+    let value = provider_value(&prov, &list);
+    let Some(newp) = config::own_provider_from_value(&value) else {
+        bail!("no se pudo reconstruir el proveedor");
+    };
+    let n = list.len();
+    cfg.upsert_own(newp);
+    let path = cfg.save_own()?;
+    println!("guardado con {n} modelo(s) en {}", path.display());
+    Ok(())
+}
+
+/// ¿El modelo es gratis según el filtro del proveedor?
+fn model_free(prov: &config::Provider, m: &client::ModelInfo) -> bool {
+    freefilter::classify(
+        prov.free_filter,
+        &m.raw,
+        &m.id,
+        &m.name,
+        &prov.free_match,
+        prov.free_only,
+    )
+}
+
+/// Capacidades separadas por `+`, para mostrar.
+fn caps_label(id: &str, name: &str, raw: &serde_json::Value) -> String {
+    caps::infer(id, name, raw)
+        .iter()
+        .map(|c| c.as_str())
+        .collect::<Vec<_>>()
+        .join("+")
+}
+
+/// Un modelo descubierto, listo para persistir (con `free` y `caps` explícitos).
+fn discovered_model(m: &client::ModelInfo, free: bool) -> serde_json::Value {
+    let caps: Vec<&str> = caps::infer(&m.id, &m.name, &m.raw)
+        .iter()
+        .map(|c| c.as_str())
+        .collect();
+    json!({ "id": m.id, "name": m.name, "free": free, "caps": caps })
+}
+
+/// JSON del proveedor para `own_provider_from_value` (conserva el filtro).
+fn provider_value(prov: &config::Provider, models: &[serde_json::Value]) -> serde_json::Value {
+    json!({
+        "id": prov.id,
+        "name": prov.name,
+        "base_url": prov.base_url,
+        "api_key": prov.api_key,
+        "free_only": prov.free_only,
+        "free_filter": prov.free_filter.as_str(),
+        "free_match": prov.free_match,
+        "models": models,
+    })
+}
+
+/// Carga la config y, si un proveedor `free_only` quedó sin modelos, los
+/// descubre en su endpoint y los guarda (`discover --save-all` automático).
+/// Best-effort: si falla, avisa y sigue (no bloquea el arranque).
+fn load_config() -> Config {
+    let mut cfg = Config::load();
+    auto_discover(&mut cfg);
+    cfg
+}
+
+fn auto_discover(cfg: &mut Config) {
+    let missing: Vec<usize> = cfg
+        .providers
+        .iter()
+        .enumerate()
+        .filter(|(_, p)| p.free_only && p.models.is_empty() && !p.base_url.trim().is_empty())
+        .map(|(i, _)| i)
+        .collect();
+    if missing.is_empty() {
+        return;
+    }
+    let mut changed = false;
+    for i in missing {
+        let p = cfg.providers[i].clone();
+        match client::list_models(&p.base_url, &p.api_key) {
+            Ok(models) if !models.is_empty() => {
+                let list: Vec<serde_json::Value> = models
+                    .iter()
+                    .map(|m| discovered_model(m, model_free(&p, m)))
+                    .collect();
+                let value = provider_value(&p, &list);
+                if let Some(np) = config::own_provider_from_value(&value) {
+                    eprintln!(
+                        "· `{}`: {} modelo(s) descubiertos automáticamente.",
+                        p.id,
+                        list.len()
+                    );
+                    cfg.upsert_own(np);
+                    changed = true;
+                }
+            }
+            Ok(_) => eprintln!("· `{}`: el endpoint no devolvió modelos.", p.id),
+            Err(e) => eprintln!("· `{}`: no se pudo descubrir modelos ({e}).", p.id),
+        }
+    }
+    if changed {
+        let _ = cfg.save_own();
+    }
+}
+
+/// Lista/filtra modelos: `nucoder models [--free] [--cap <c>] [--provider <id>]`.
+fn subcommand_models(args: &[String]) -> Result<()> {
+    let free = args.iter().any(|a| a == "--free");
+    let cap = value_of(args, "--cap").and_then(|s| Cap::parse(&s));
+    let only_prov = value_of(args, "--provider");
+    let cfg = load_config();
+    let cands = cfg.candidates(free || cfg.free_only, cap, false);
+    let mut rows: Vec<(String, i64, bool, String)> = Vec::new();
+    for c in &cands {
+        let p = &cfg.providers[c.provider_idx];
+        if let Some(id) = &only_prov {
+            if &p.id != id {
+                continue;
+            }
+        }
+        let m = &p.models[c.model_idx];
+        let caps: Vec<&str> = m.caps.iter().map(|x| x.as_str()).collect();
+        rows.push((
+            caps.join("+"),
+            c.power as i64,
+            c.free,
+            format!("{}/{}", p.id, m.id),
+        ));
+    }
+    rows.sort_by(|a, b| a.0.cmp(&b.0).then(b.1.cmp(&a.1)));
+    if rows.is_empty() {
+        println!("sin modelos (probá `nucoder discover <id>`)");
+        return Ok(());
+    }
+    let filtro = cap
+        .map(|c| format!(" · cap {}", c.as_str()))
+        .unwrap_or_default();
+    println!("{} modelo(s){}:", rows.len(), filtro);
+    for (caps, power, free, label) in &rows {
+        let tag = if *free { "free" } else { "pago" };
+        println!("  [{tag:<4}] p{power}  {caps:<20} {label}");
     }
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Configuración (switch de auto-aprobar, sandbox, gratis…)
+// ---------------------------------------------------------------------------
+
+/// `nucoder config` muestra los ajustes; `nucoder config <clave> <valor>` los
+/// cambia y los persiste en la config propia.
+fn subcommand_config(args: &[String]) -> Result<()> {
+    let mut cfg = Config::load();
+    let Some(key) = args.get(1) else {
+        return print_config(&cfg);
+    };
+    let Some(val) = args.get(2) else {
+        bail!(
+            "uso: nucoder config <clave> <valor>\n\
+             claves: auto-approve, autopilot, internet, leer-fuera, terminales, ftp, \
+             confirm, sandbox, free-only, context-chars, default-model"
+        );
+    };
+    match key.as_str() {
+        "auto-approve" | "auto_approve" | "auto" => cfg.auto_approve = parse_on_off(val)?,
+        "confirm" => cfg.confirm = parse_on_off(val)?,
+        "sandbox" => cfg.sandbox = parse_on_off(val)?,
+        "free-only" | "free_only" | "free" => cfg.free_only = parse_on_off(val)?,
+        "context-chars" | "context" => {
+            let n = val
+                .parse::<usize>()
+                .map_err(|_| anyhow::anyhow!("context-chars necesita un número"))?;
+            cfg.context_chars = n.max(2_000);
+        }
+        "default-model" | "model" => {
+            cfg.default_model = if val.eq_ignore_ascii_case("auto") || val == "none" {
+                None
+            } else {
+                Some(val.clone())
+            }
+        }
+        "web" | "internet" => cfg.perm_web = parse_on_off(val)?,
+        "read-outside" | "leer-fuera" => cfg.perm_read_outside = parse_on_off(val)?,
+        "terminal" | "terminales" => cfg.perm_terminal = parse_on_off(val)?,
+        "ftp" | "cliente-ftp" => cfg.perm_ftp = parse_on_off(val)?,
+        "autopilot" | "autopiloto" => cfg.autopilot = parse_on_off(val)?,
+        other => bail!("clave desconocida: {other}"),
+    }
+    let path = cfg.save_own()?;
+    print_config(&cfg)?;
+    println!("\nguardado en {}", path.display());
+    Ok(())
+}
+
+fn print_config(cfg: &Config) -> Result<()> {
+    println!("Config de NuCoder ({}):", config::own_config_path().display());
+    println!(
+        "  auto-approve    {}   (no pedir confirmación para borrar/mover/bash)",
+        on_off(cfg.auto_approve)
+    );
+    println!("  confirm         {}", on_off(cfg.confirm));
+    println!("  sandbox         {}", on_off(cfg.sandbox));
+    println!("  free-only       {}", on_off(cfg.free_only));
+    println!("  context-chars   {}", cfg.context_chars);
+    println!(
+        "  default-model   {}",
+        cfg.default_model.as_deref().unwrap_or("auto (router)")
+    );
+    println!("  permisos:");
+    println!("    internet      {}", on_off(cfg.perm_web));
+    println!("    leer-fuera    {}", on_off(cfg.perm_read_outside));
+    println!("    terminales    {}", on_off(cfg.perm_terminal));
+    println!("    ftp           {}", on_off(cfg.perm_ftp));
+    println!("    autopiloto    {}", on_off(cfg.autopilot));
+    println!(
+        "  efectivo: {}",
+        if cfg.asks_confirmation() {
+            "pide confirmación"
+        } else {
+            "auto-aprueba (no pregunta)"
+        }
+    );
+    Ok(())
+}
+
+fn on_off(b: bool) -> &'static str {
+    if b {
+        "on "
+    } else {
+        "off"
+    }
+}
+
+/// `on/true/1/yes` → true; `off/false/0/no` → false.
+fn parse_on_off(v: &str) -> Result<bool> {
+    match v.to_lowercase().as_str() {
+        "on" | "true" | "1" | "yes" | "si" | "sí" => Ok(true),
+        "off" | "false" | "0" | "no" => Ok(false),
+        other => bail!("valor inválido `{other}` (usá on/off)"),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -211,7 +595,7 @@ fn subcommand_discover(args: &[String]) -> Result<()> {
 // ---------------------------------------------------------------------------
 
 fn list_providers(cfg: &Config, free_only: bool) -> Result<()> {
-    let cands = cfg.candidates(free_only);
+    let cands = cfg.candidates(free_only, None, false);
     println!(
         "Proveedores: {}  ·  candidatos: {}",
         cfg.providers.len(),
@@ -224,12 +608,25 @@ fn list_providers(cfg: &Config, free_only: bool) -> Result<()> {
             "key✓"
         };
         let fo = if p.free_only { " · free-only" } else { "" };
-        println!("\n• {} [{}] {}{} — {}", p.name, p.id, key, fo, p.base_url);
+        println!(
+            "\n• {} [{}] {}{} · filtro: {} — {}",
+            p.name,
+            p.id,
+            key,
+            fo,
+            p.free_filter.as_str(),
+            p.base_url
+        );
         for m in &p.models {
             let tag = if m.free { "free" } else { "pago" };
+            let caps: Vec<&str> = m.caps.iter().map(|c| c.as_str()).collect();
             println!(
-                "    - {}  [{} p{} c{}]",
-                m.name, tag, m.power, m.cost_scaled
+                "    - {}  [{} p{} c{} · {}]",
+                m.name,
+                tag,
+                m.power,
+                m.cost_scaled,
+                caps.join("+")
             );
         }
     }
@@ -240,16 +637,19 @@ fn list_providers(cfg: &Config, free_only: bool) -> Result<()> {
     Ok(())
 }
 
-fn print_route(cfg: &Config, task: &str, free_only: bool) -> Result<()> {
+fn print_route(cfg: &Config, task: &str, free_only: bool, cap: Option<Cap>) -> Result<()> {
     let clase = if ffi::router_is_power_task(task) {
         "potencia"
     } else {
         "rápida"
     };
-    match cfg.route(task, &[], free_only || cfg.free_only) {
+    match cfg.route(task, &[], free_only || cfg.free_only, cap, false) {
         Some(c) => {
             let tag = if c.free { "FREE" } else { "pago" };
-            println!("tarea: {task} ({clase})");
+            let cap = cap
+                .map(|c| format!(" · cap {}", c.as_str()))
+                .unwrap_or_default();
+            println!("tarea: {task} ({clase}{cap})");
             println!(
                 "→ {}  [{tag}  power {}  costo {}]",
                 c.label, c.power, c.cost_scaled
@@ -260,18 +660,58 @@ fn print_route(cfg: &Config, task: &str, free_only: bool) -> Result<()> {
     Ok(())
 }
 
-fn run_ask(cfg: Config, cwd: PathBuf, task: String, free_only: bool, prompt: String) -> Result<()> {
+#[allow(clippy::too_many_arguments)]
+fn run_ask(
+    cfg: Config,
+    cwd: PathBuf,
+    task: String,
+    free_only: bool,
+    prompt: String,
+    sandbox: bool,
+    cap: Option<Cap>,
+    images: Vec<image::Image>,
+    model_override: Option<String>,
+    prompt_cache: bool,
+    context_chars: usize,
+) -> Result<()> {
     use std::io::Write;
     let (tx, rx) = channel::<AgentEvent>();
     let cancel = Arc::new(AtomicBool::new(false));
+    let knowledge = Arc::new(Knowledge::discover(&cfg.knowledge));
+    let vision = !images.is_empty();
+    let (perm_web, perm_read_outside, perm_terminal, perm_ftp, autopilot) = (
+        cfg.perm_web,
+        cfg.perm_read_outside,
+        cfg.perm_terminal,
+        cfg.perm_ftp,
+        cfg.autopilot,
+    );
     let agent = Agent {
         config: Arc::new(cfg),
         cwd: cwd.clone(),
         task,
         free_only,
         cancel,
+        // One-shot no es interactivo: no puede pedir confirmación.
+        confirm: false,
+        sandbox,
+        knowledge: knowledge.clone(),
+        cap,
+        vision,
+        model_override,
+        context_chars,
+        terminal: None,
+        auto_approve: true,
+        autopilot,
+        web: perm_web,
+        read_outside: perm_read_outside,
+        terminal_allowed: perm_terminal,
+        ftp: None,
+        ftp_allowed: perm_ftp,
     };
-    let conv = agent::new_conversation(&agent::system_prompt(&cwd), &prompt);
+    let user_msg = agent::user_message(&prompt, &images);
+    let system = agent::system_value(&agent::system_prompt(&cwd, &knowledge, false), prompt_cache);
+    let conv = agent::new_conversation_with(system, user_msg);
     let handle = std::thread::spawn(move || agent.run(conv, tx));
 
     while let Ok(ev) = rx.recv() {
@@ -293,6 +733,15 @@ fn run_ask(cfg: Config, cwd: PathBuf, task: String, free_only: bool, prompt: Str
                 eprintln!("\x1b[90m   ↳ {name}: {t}\x1b[0m");
             }
             AgentEvent::Notice(m) => eprintln!("\x1b[33m· {m}\x1b[0m"),
+            // No debería llegar (en one-shot `confirm` está apagado), pero si
+            // llega se rechaza por defecto.
+            AgentEvent::Confirm { reply, .. } => {
+                let _ = reply.send(false);
+            }
+            // One-shot sin interacción: se aprueba el plan para que continúe.
+            AgentEvent::Plan { reply, .. } => {
+                let _ = reply.send(true);
+            }
             AgentEvent::Error(m) => eprintln!("\x1b[31m✗ {m}\x1b[0m"),
             AgentEvent::Done { .. } => break,
         }
@@ -300,6 +749,47 @@ fn run_ask(cfg: Config, cwd: PathBuf, task: String, free_only: bool, prompt: Str
     let _ = handle.join();
     println!();
     Ok(())
+}
+
+/// Carga la imagen de `--img <ruta>` (máx. 1 por turno).
+fn load_images(args: &[String]) -> Result<Vec<image::Image>> {
+    let paths = values_of(args, "--img");
+    if paths.len() > 1 {
+        eprintln!("· sólo se admite 1 imagen por turno; se usa la primera.");
+    }
+    match paths.first() {
+        Some(p) => {
+            let im = image::load(std::path::Path::new(p))
+                .map_err(|e| anyhow::anyhow!("--img {p}: {e}"))?;
+            Ok(vec![im])
+        }
+        None => Ok(Vec::new()),
+    }
+}
+
+/// Prompt del subcomando `ask`, quitando los flags con valor.
+fn ask_prompt(args: &[String]) -> String {
+    const VALUED: [&str; 6] = [
+        "--img",
+        "--model",
+        "--cap",
+        "--task",
+        "--cwd",
+        "--context-chars",
+    ];
+    let mut out = Vec::new();
+    let mut it = args.iter().skip(1);
+    while let Some(a) = it.next() {
+        if VALUED.contains(&a.as_str()) {
+            let _ = it.next();
+            continue;
+        }
+        if VALUED.iter().any(|f| a.starts_with(&format!("{f}="))) {
+            continue;
+        }
+        out.push(a.clone());
+    }
+    out.join(" ")
 }
 
 /// Valor de `--flag valor` o `--flag=valor`.
@@ -333,26 +823,108 @@ fn values_of(args: &[String], flag: &str) -> Vec<String> {
 }
 
 fn print_help() {
-    println!("nucoder 0.2.0 — Router de modelos AI (gratis primero) + coder");
+    println!();
+    for l in banner::ART {
+        println!("  {l}");
+    }
+    println!("  {}", banner::header());
     println!();
     println!("Uso:");
     println!("  nucoder                          Abre la TUI (chat + herramientas)");
     println!("  nucoder ask \"<pregunta>\"         Modo one-shot (imprime la respuesta)");
+    println!("  nucoder --img <ruta> --ask \"…\"   One-shot con imagen (modelo con visión)");
     println!("  nucoder --route <task>           Muestra qué proveedor/modelo elegiría");
     println!("  nucoder --providers              Lista proveedores y modelos");
-    println!("  nucoder provider add ...         Alta de proveedor (con su API key)");
+    println!("  nucoder models [--free] [--cap <c>] [--provider <id>]   Lista modelos");
+    println!("  nucoder config                   Muestra la config (auto-aprobar, sandbox…)");
+    println!("  nucoder config auto-approve on   No pedir confirmación (borrar/mover/bash)");
+    println!("  nucoder config autopilot on      Tras aprobar el plan, ejecutar todo sin parar");
+    println!("  nucoder config internet on|off · leer-fuera · terminales   Permisos del agente");
+    println!("  nucoder provider add <id> [...]  Alta de proveedor (usa un preset)");
+    println!("  nucoder provider presets         Presets conocidos (openrouter, nvidia, …)");
     println!("  nucoder provider remove <id>     Baja de proveedor propio");
-    println!("  nucoder discover <id> [--save-free]  Lista modelos del endpoint");
+    println!("  nucoder discover <id> [--save-free|--save-all]  Lista modelos del endpoint");
+    println!("  nucoder refresh [id] [--reset-free]             Re-baja y reclasifica el catálogo");
     println!("  nucoder --version | --help");
     println!();
     println!("Flags:");
     println!("  --free            Sólo modelos gratuitos");
+    println!("  --cap <c>         Restringe a una capacidad (text|code|vision|image|audio|video|embedding|guard)");
+    println!(
+        "  --img <ruta>      Adjunta una imagen (máx. 1 por turno; requiere modelo con visión)"
+    );
+    println!("  --model <id>      Fuerza un modelo (ignora el router; sin rotación)");
+    println!("  --prompt-cache    Marca el system como cacheable (prompt caching del proveedor)");
+    println!("  --context-chars <n>  Tope de contexto para la compactación (default 48000)");
     println!("  --task <t>        Tarea (complete|refactor|debug|explain|test|architect)");
     println!("  --cwd <path>      Raíz del proyecto (default: directorio actual)");
+    println!("  --sandbox         Confina las tools de archivos al proyecto (default ON)");
+    println!("  --no-sandbox      Permite rutas fuera del proyecto");
+    println!("  --confirm         Pide confirmación antes de borrar/mover/bash (default ON)");
+    println!("  --no-confirm      No pedir confirmación (equivale a auto-approve on)");
+    println!();
+    println!("Conocimiento local (KB) para `read_docs`: config `knowledge` o");
+    println!("`NUCODER_KNOWLEDGE` (rutas separadas por ';'). SpASM se autodetecta.");
     println!();
     println!("Ejemplo (OpenRouter gratis):");
-    println!("  nucoder provider add --id openrouter --name OpenRouter \\");
-    println!("      --base-url https://openrouter.ai/api/v1 --api-key sk-or-... --free-only");
+    println!("  nucoder provider add openrouter --api-key sk-or-...");
+    println!("  nucoder discover openrouter --save-free");
+    println!();
+    println!("Un proveedor `free_only` sin modelos se autodescubre al arrancar.");
     println!();
     println!("Config propia: {}", config::own_config_path().display());
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn info(id: &str, name: &str) -> client::ModelInfo {
+        client::ModelInfo {
+            id: id.into(),
+            name: name.into(),
+            raw: serde_json::json!(null),
+        }
+    }
+
+    #[test]
+    fn discovered_model_incluye_caps_y_free() {
+        let v = discovered_model(&info("openai/whisper-large", "Whisper"), true);
+        assert_eq!(v["free"], true);
+        let caps = v["caps"].as_array().unwrap();
+        assert!(caps.iter().any(|c| c == "audio"));
+    }
+
+    #[test]
+    fn parsea_on_off() {
+        assert!(parse_on_off("on").unwrap());
+        assert!(parse_on_off("TRUE").unwrap());
+        assert!(!parse_on_off("off").unwrap());
+        assert!(!parse_on_off("no").unwrap());
+        assert!(parse_on_off("quizá").is_err());
+    }
+
+    #[test]
+    fn clasifica_gratis_por_filtro_del_proveedor() {
+        let prov = config::Provider {
+            id: "openrouter".into(),
+            name: "OpenRouter".into(),
+            base_url: "https://x/v1".into(),
+            api_key: String::new(),
+            free_only: true,
+            free_filter: FreeFilter::Auto,
+            free_match: Vec::new(),
+            models: Vec::new(),
+        };
+        let free = client::ModelInfo {
+            id: "a/b:free".into(),
+            name: "B".into(),
+            raw: serde_json::json!(null),
+        };
+        assert!(model_free(&prov, &free));
+        assert_eq!(
+            caps_label("x/y", "modelo", &serde_json::json!(null)),
+            "text"
+        );
+    }
 }

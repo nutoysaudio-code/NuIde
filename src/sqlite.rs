@@ -15,7 +15,6 @@
 //! nunca en el de la UI.
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::sync::mpsc::Sender;
 
 use crate::pty;
@@ -116,6 +115,8 @@ for row in cur:
 /// Resultado de una lectura pedida desde la UI (llega por canal, desde el hilo).
 #[derive(Debug, Clone)]
 pub struct Loaded {
+    /// Época de la lectura (para descartar resultados viejos).
+    pub gen: u64,
     /// Tablas de la base (vacío si falló).
     pub tables: Vec<String>,
     /// Tabla consultada.
@@ -128,7 +129,7 @@ pub struct Loaded {
 }
 
 /// Pide en un hilo la lista de tablas y las filas de una tabla.
-pub fn spawn_load(tool: Tool, db: PathBuf, table: Option<String>, tx: Sender<Loaded>) {
+pub fn spawn_load(tool: Tool, db: PathBuf, table: Option<String>, gen: u64, tx: Sender<Loaded>) {
     std::thread::spawn(move || {
         let tables = tables(&tool, &db);
         let pick = table
@@ -162,6 +163,7 @@ pub fn spawn_load(tool: Tool, db: PathBuf, table: Option<String>, tx: Sender<Loa
             }
         };
         let _ = tx.send(Loaded {
+            gen,
             tables,
             table: pick,
             header,
@@ -175,14 +177,14 @@ pub fn spawn_load(tool: Tool, db: PathBuf, table: Option<String>, tx: Sender<Loa
 pub fn query(tool: &Tool, db: &Path, sql: &str, limit: usize) -> Table {
     let mut table = Table::default();
     let out = match tool {
-        Tool::Sqlite3(exe) => Command::new(exe)
+        Tool::Sqlite3(exe) => crate::proc::hidden(exe)
             .arg("-separator")
             .arg("\t")
             .arg("-header")
             .arg(db)
             .arg(sql)
             .output(),
-        Tool::Python(exe) => Command::new(exe)
+        Tool::Python(exe) => crate::proc::hidden(exe)
             .arg("-c")
             .arg(PY_TSV)
             .arg(db)

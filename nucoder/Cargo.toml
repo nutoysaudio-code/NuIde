@@ -1,29 +1,27 @@
 [package]
 name = "nucoder"
-version = "0.1.0"
+version = "0.3.2"
 edition = "2021"
 description = "NuCoder - agente de codigo con router de modelos (SpASM)"
 
 # Proyecto independiente: no forma parte del workspace de NuIde
 [workspace]
 
-[dependencies]
-# TUI (Ratatui + Crossterm)
-ratatui = "0.25"
-crossterm = "0.27"
+# El núcleo (router, config, agente, herramientas) es una **librería** que
+# consume tanto el CLI `nucoder` como el panel nativo de NuIde. Sin dependencias
+# de UI: la interfaz de chat vive en NuIde (Slint).
+[lib]
+name = "nucoder"
+path = "src/lib.rs"
 
+[dependencies]
 # Config + JSON
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
-# Portable PTY + VT100 emulation
-portable-pty = "0.9"
-vt100 = "0.16"
-
-# Anyhow + dirs + libc
+# Anyhow + dirs
 anyhow = "1.0"
 dirs = "5.0"
-libc = "0.2"
 
 [build-dependencies]
 cc = "1"

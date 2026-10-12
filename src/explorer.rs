@@ -110,7 +110,17 @@ impl Explorer {
     }
 
     /// Abre o cierra una carpeta; en un archivo, avisa que hay que abrirlo.
+    /// Reconstruye el árbol (sincrónico; para la ruta de UI usar `toggle_expand`).
     pub fn toggle(&mut self, index: usize) -> Option<Action> {
+        let action = self.toggle_expand(index)?;
+        if matches!(action, Action::Toggled) {
+            self.rebuild();
+        }
+        Some(action)
+    }
+
+    /// Igual que `toggle` pero **sin** reconstruir (para el camino asíncrono).
+    pub fn toggle_expand(&mut self, index: usize) -> Option<Action> {
         let node = self.nodes.get(index)?.clone();
         if !node.is_dir {
             return Some(Action::File(node.path));
@@ -118,87 +128,122 @@ impl Explorer {
         if !self.expanded.insert(node.path.clone()) {
             self.expanded.remove(&node.path);
         }
-        self.rebuild();
         Some(Action::Toggled)
     }
 
-    /// Reconstruye la lista plana desde disco.
-    pub fn rebuild(&mut self) {
-        self.nodes.clear();
-        let root = self.root.clone();
-        self.nodes.push(Node {
-            label: dir_label(&root),
-            path: root.clone(),
-            depth: 0,
-            kind: 2,
-            is_dir: true,
-        });
-        self.walk(&root, 1);
+    /// Cambia el filtro de generados **sin** reconstruir (camino asíncrono).
+    pub fn set_show_generated_state(&mut self, show: bool) {
+        self.show_generated = show;
     }
 
-    fn walk(&mut self, dir: &Path, depth: i32) {
-        if self.nodes.len() >= MAX_NODES {
+    /// Cambia la raíz **sin** reconstruir (camino asíncrono).
+    pub fn set_root_state(&mut self, root: PathBuf) {
+        if root == self.root {
             return;
         }
-        let Ok(rd) = std::fs::read_dir(dir) else {
-            return;
-        };
+        self.root = root;
+        self.expanded.clear();
+        self.expanded.insert(self.root.clone());
+    }
 
-        let show_generated = self.show_generated;
-        let mut entries: Vec<(PathBuf, String, bool)> = rd
-            .flatten()
-            .filter_map(|e| {
-                let path = e.path();
-                let name = e.file_name().to_string_lossy().into_owned();
-                if !show_generated && is_generated(&name) {
-                    return None;
-                }
-                let is_dir = e.file_type().map(|t| t.is_dir()).unwrap_or(false);
-                Some((path, name, is_dir))
-            })
-            .collect();
+    /// Copia de las carpetas expandidas (para reconstruir en otro hilo).
+    pub fn expanded(&self) -> HashSet<PathBuf> {
+        self.expanded.clone()
+    }
 
-        // Carpetas primero, después alfabético sin distinguir mayúsculas.
-        entries.sort_by(|a, b| {
-            b.2.cmp(&a.2)
-                .then_with(|| a.1.to_lowercase().cmp(&b.1.to_lowercase()))
-        });
+    /// Aplica un árbol ya construido (llega del hilo con su época).
+    pub fn set_nodes(&mut self, nodes: Vec<Node>) {
+        self.nodes = nodes;
+    }
 
-        for (i, (path, label, is_dir)) in entries.into_iter().enumerate() {
-            if self.nodes.len() >= MAX_NODES {
-                break;
+    /// Reconstruye la lista plana desde disco (sincrónico).
+    pub fn rebuild(&mut self) {
+        self.nodes = build_tree(&self.root, &self.expanded, self.show_generated);
+    }
+}
+
+/// Construye el árbol aplanado desde disco (función libre: corre en un hilo).
+pub fn build_tree(root: &Path, expanded: &HashSet<PathBuf>, show_generated: bool) -> Vec<Node> {
+    let mut nodes = Vec::new();
+    nodes.push(Node {
+        label: dir_label(root),
+        path: root.to_path_buf(),
+        depth: 0,
+        kind: 2,
+        is_dir: true,
+    });
+    walk_tree(root, expanded, show_generated, 1, &mut nodes);
+    nodes
+}
+
+fn walk_tree(
+    dir: &Path,
+    expanded: &HashSet<PathBuf>,
+    show_generated: bool,
+    depth: i32,
+    nodes: &mut Vec<Node>,
+) {
+    if nodes.len() >= MAX_NODES {
+        return;
+    }
+    let Ok(rd) = std::fs::read_dir(dir) else {
+        return;
+    };
+
+    let mut entries: Vec<(PathBuf, String, bool)> = rd
+        .flatten()
+        .filter_map(|e| {
+            let path = e.path();
+            let name = e.file_name().to_string_lossy().into_owned();
+            if !show_generated && is_generated(&name) {
+                return None;
             }
-            if i >= MAX_PER_DIR {
-                self.nodes.push(Node {
-                    path: dir.to_path_buf(),
-                    label: format!("… ({} entradas más)", entries_len(dir)),
-                    depth,
-                    kind: 0,
-                    is_dir: false,
-                });
-                break;
-            }
+            let is_dir = e.file_type().map(|t| t.is_dir()).unwrap_or(false);
+            Some((path, name, is_dir))
+        })
+        .collect();
 
-            let open = is_dir && self.expanded.contains(&path);
-            let kind = if is_dir {
-                if open {
-                    2
-                } else {
-                    1
-                }
-            } else {
-                file_kind(&path)
-            };
-            self.nodes.push(Node {
-                path: path.clone(),
-                label,
+    // Carpetas primero, después alfabético sin distinguir mayúsculas.
+    entries.sort_by(|a, b| {
+        b.2.cmp(&a.2)
+            .then_with(|| a.1.to_lowercase().cmp(&b.1.to_lowercase()))
+    });
+    let total = entries.len();
+
+    for (i, (path, label, is_dir)) in entries.into_iter().enumerate() {
+        if nodes.len() >= MAX_NODES {
+            break;
+        }
+        if i >= MAX_PER_DIR {
+            nodes.push(Node {
+                path: dir.to_path_buf(),
+                label: format!("… ({} entradas más)", total.saturating_sub(MAX_PER_DIR)),
                 depth,
-                kind,
-                is_dir,
+                kind: 0,
+                is_dir: false,
             });
+            break;
+        }
+
+        let open = is_dir && expanded.contains(&path);
+        let kind = if is_dir {
             if open {
-                self.walk(&path, depth + 1);
+                2
+            } else {
+                1
             }
+        } else {
+            file_kind(&path)
+        };
+        nodes.push(Node {
+            path: path.clone(),
+            label,
+            depth,
+            kind,
+            is_dir,
+        });
+        if open {
+            walk_tree(&path, expanded, show_generated, depth + 1, nodes);
         }
     }
 }
@@ -221,13 +266,6 @@ fn file_kind(path: &Path) -> i32 {
         Some("toml" | "json" | "ini" | "cfg" | "yaml" | "yml" | "lock") => 3,
         _ => 0,
     }
-}
-
-/// Cuenta las entradas de una carpeta para la fila resumen, sin listarlas.
-fn entries_len(dir: &Path) -> usize {
-    std::fs::read_dir(dir)
-        .map(|rd| rd.flatten().count())
-        .unwrap_or(0)
 }
 
 #[cfg(test)]

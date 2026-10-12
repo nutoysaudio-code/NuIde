@@ -1,12 +1,13 @@
 import { IdeTheme } from "ide_theme.slint";
 export { IdeTheme, DockDrag }
-import { IdeTreeNode, IdeTab, IdeCodeLine, TermLine, IdeOutlineItem, IdeRecent, IdeGitFile, IdePaletteItem, IdeMenuEntry, IdeSearchHit, IdeDiffLine, IdePrefRow, IdeSetting } from "ide_types.slint";
+import { IdeTreeNode, IdeTab, IdeCodeLine, TermLine, IdeOutlineItem, IdeRecent, IdeGitFile, IdePaletteItem, IdeMenuEntry, IdeSearchHit, IdeDiffLine, IdePrefRow, IdeSetting, IdeChatMsg, IdeChatModel, IdeFtpEntry, IdeModelRow } from "ide_types.slint";
 import { IdeTopBar } from "ide_topbar.slint";
 import { IdeStatusBar } from "ide_statusbar.slint";
 import { IdeExplorer } from "ide_explorer.slint";
 import { IdeEditor } from "ide_editor.slint";
 import { IdeTerminal } from "ide_terminal.slint";
 import { IdeAgent } from "ide_agent.slint";
+import { IdeNucoder } from "ide_nucoder.slint";
 import { IdeGit } from "ide_git.slint";
 import { DockDrag } from "ide_dock.slint";
 import { IdeViewMenu } from "ide_viewmenu.slint";
@@ -20,6 +21,7 @@ import { IdePrefs } from "ide_prefs.slint";
 import { IdeSettings } from "ide_settings.slint";
 import { IdeProvider } from "ide_provider.slint";
 import { IdeSqlite } from "ide_sqlite.slint";
+import { IdeFtp } from "ide_ftp.slint";
 import { IdeAbout } from "ide_about.slint";
 
 // ---------------------------------------------------------------------------
@@ -120,6 +122,10 @@ export component NuIdeWindow inherits Window {
     in-out property <bool> is-markdown: false;
     // Esquema de símbolos del archivo activo.
     in-out property <[IdeOutlineItem]> outline: [];
+    // Completado semántico (Ctrl+Espacio).
+    in-out property <bool> editor-complete-open: false;
+    in-out property <[IdePaletteItem]> editor-complete-items: [];
+    in-out property <int> editor-complete-selected: 0;
     // Pantalla de bienvenida del editor.
     in-out property <bool> welcome: false;
     // Recientes de la bienvenida (proyectos y archivos).
@@ -212,6 +218,38 @@ export component NuIdeWindow inherits Window {
     in-out property <bool> term-mouse-2: false;
     in-out property <bool> agent-mouse-tracking: false;
 
+    // Panel nativo de NuCoder (chat del agente en Slint).
+    in-out property <bool> nucoder-open: false;
+    in-out property <[IdeChatMsg]> nucoder-messages: [];
+    in-out property <string> nucoder-model: "auto (router)";
+    in-out property <string> nucoder-task: "complete";
+    in-out property <bool> nucoder-free: false;
+    in-out property <bool> nucoder-running: false;
+    in-out property <bool> nucoder-auto-approve: false;
+    in-out property <bool> nucoder-connected: true;
+    in-out property <int> nucoder-images: 0;
+    in-out property <bool> nucoder-pending: false;
+    in-out property <string> nucoder-pending-title: "";
+    in-out property <string> nucoder-pending-detail: "";
+    in-out property <string> nucoder-draft: "";
+    in-out property <[IdeChatModel]> nucoder-models: [];
+    in-out property <int> nucoder-model-index: -1;
+    in-out property <[IdeModelRow]> nucoder-model-rows: [];
+    in-out property <string> nucoder-model-filter: "";
+    in-out property <string> nucoder-model-sort: "especialidad";
+    in-out property <[string]> nucoder-tasks: [];
+    in-out property <int> nucoder-task-index: 0;
+    in-out property <string> nucoder-context: "48k";
+    in-out property <bool> nucoder-modal-open: false;
+    in-out property <bool> nucoder-pulse: false;
+    in-out property <bool> nucoder-perm-web: true;
+    in-out property <bool> nucoder-perm-read-outside: false;
+    in-out property <bool> nucoder-perm-terminal: true;
+    in-out property <bool> nucoder-perm-ftp: true;
+    in-out property <bool> nucoder-autopilot: false;
+    in-out property <bool> nucoder-sandbox: true;
+    in-out property <bool> nucoder-confirm: true;
+
     callback menu-activated(string);
     callback close-requested();
     callback open-project();
@@ -277,6 +315,22 @@ export component NuIdeWindow inherits Window {
     in-out property <string> sqlite-note: "";
     in-out property <bool> sqlite-busy: false;
 
+    // Cliente FTP (módulo modal).
+    in-out property <bool> ftp-open: false;
+    in-out property <string> ftp-transport: "FTP";
+    in-out property <string> ftp-host: "";
+    in-out property <string> ftp-port: "21";
+    in-out property <string> ftp-user: "";
+    in-out property <string> ftp-pass: "";
+    in-out property <string> ftp-path: "/";
+    in-out property <[IdeFtpEntry]> ftp-entries: [];
+    in-out property <int> ftp-selected: 0;
+    in-out property <bool> ftp-busy: false;
+    in-out property <string> ftp-note: "";
+    in-out property <bool> ftp-error: false;
+    in-out property <string> ftp-pending-delete: "";
+    in-out property <string> ftp-filter: "";
+
     callback toggle-web();
     callback edit-web-port();
     callback edit-web-root();
@@ -306,6 +360,19 @@ export component NuIdeWindow inherits Window {
     callback provider-delete();
     callback provider-cancel();
     callback sqlite-open-panel();
+    callback ftp-close();
+    callback ftp-cycle-transport();
+    callback ftp-edited(string, string);
+    callback ftp-use-site();
+    callback ftp-up();
+    callback ftp-refresh();
+    callback ftp-open-entry(int);
+    callback ftp-delete-entry(int);
+    callback ftp-confirm-delete();
+    callback ftp-cancel-delete();
+    callback ftp-upload();
+    callback ftp-mkdir(string);
+    callback ftp-filter-changed(string);
     callback sqlite-dismiss();
     callback sqlite-pick-db();
     callback sqlite-refresh();
@@ -395,6 +462,7 @@ export component NuIdeWindow inherits Window {
     callback image-zoom-reset();
     // Esquema: saltar a una línea.
     callback goto-line(int);
+    callback editor-complete-pick(int);
     // Panel del agente.
     callback agent-key(string, bool, bool, bool);
     callback agent-resize(length, length);
@@ -405,6 +473,29 @@ export component NuIdeWindow inherits Window {
     callback agent-mouse(int, int, length, length);
     // Botón del medio en el panel del agente: pegar el portapapeles.
     callback agent-paste();
+    // Panel de NuCoder (chat del agente).
+    callback nucoder-send(string);
+    callback nucoder-cancel();
+    callback nucoder-answer(bool);
+    callback nucoder-toggle-auto();
+    callback nucoder-toggle-free();
+    callback nucoder-clear();
+    callback nucoder-model-picked(int);
+    callback nucoder-model-ping(int);
+    callback nucoder-model-ping-all();
+    callback nucoder-model-row-use(int);
+    callback nucoder-model-filter-changed(string);
+    callback nucoder-model-sort-cycle();
+    callback nucoder-model-sync();
+    callback nucoder-task-picked(int);
+    callback nucoder-attach-image();
+    callback nucoder-clear-images();
+    callback nucoder-cycle-context();
+    callback nucoder-toggle-perm(string);
+    callback nucoder-copy(string);
+    // Atajo global capturado a nivel ventana (para que funcione con el foco en
+    // el input del chat, que no es un `FocusScope`).
+    callback global-key(string, bool, bool, bool);
 
     // La terminal recibe el teclado apenas se abre la ventana: sólo hay un
     // elemento focusable y éste es el dueño natural del foco.
@@ -702,6 +793,9 @@ export component NuIdeWindow inherits Window {
             preview-styled: root.preview-styled;
             is-markdown: root.is-markdown;
             outline: root.outline;
+            complete-open: root.editor-complete-open;
+            complete-items: root.editor-complete-items;
+            complete-selected: root.editor-complete-selected;
             welcome: root.welcome;
             welcome-recent: root.welcome-recent;
             tab-selected(i) => { root.tab-activated(i); }
@@ -725,6 +819,7 @@ export component NuIdeWindow inherits Window {
             image-zoom-out => { root.image-zoom-out(); }
             image-zoom-reset => { root.image-zoom-reset(); }
             goto-line(line) => { root.goto-line(line); }
+            complete-pick(i) => { root.editor-complete-pick(i); }
             open-project => { root.open-project(); }
             open-file => { root.open-file(); }
             new-file => { root.new-file(); }
@@ -769,8 +864,65 @@ export component NuIdeWindow inherits Window {
             split => { root.split-terminal(); }
         }
 
-        // --- panel: agente (dock configurable) ---
-        IdeAgent {
+        // --- panel: agente (chat nativo de NuCoder o terminal) ---
+        if root.nucoder-open: IdeNucoder {
+            x: root.panel-x(1);
+            y: root.slot-y(root.dock-of(1), 1);
+            width: root.panel-w(1);
+            height: root.slot-h(root.dock-of(1));
+            visible: root.panel-visible(1);
+            messages: root.nucoder-messages;
+            model: root.nucoder-model;
+            task: root.nucoder-task;
+            free-only: root.nucoder-free;
+            running: root.nucoder-running;
+            auto-approve: root.nucoder-auto-approve;
+            connected: root.nucoder-connected;
+            image-count: root.nucoder-images;
+            models: root.nucoder-models;
+            model-index: root.nucoder-model-index;
+            model-rows: root.nucoder-model-rows;
+            model-filter <=> root.nucoder-model-filter;
+            model-sort: root.nucoder-model-sort;
+            tasks: root.nucoder-tasks;
+            task-index: root.nucoder-task-index;
+            context: root.nucoder-context;
+            modal-open: root.nucoder-modal-open;
+            pulse: root.nucoder-pulse;
+            perm-web: root.nucoder-perm-web;
+            perm-read-outside: root.nucoder-perm-read-outside;
+            perm-terminal: root.nucoder-perm-terminal;
+            perm-ftp: root.nucoder-perm-ftp;
+            autopilot: root.nucoder-autopilot;
+            sandbox: root.nucoder-sandbox;
+            confirm: root.nucoder-confirm;
+            pending: root.nucoder-pending;
+            pending-title: root.nucoder-pending-title;
+            pending-detail: root.nucoder-pending-detail;
+            draft <=> root.nucoder-draft;
+            send(text) => { root.nucoder-draft = ""; root.nucoder-send(text); }
+            cancel => { root.nucoder-cancel(); }
+            answer(ok) => { root.nucoder-answer(ok); }
+            toggle-auto-approve => { root.nucoder-toggle-auto(); }
+            toggle-free => { root.nucoder-toggle-free(); }
+            clear => { root.nucoder-clear(); }
+            model-picked(index) => { root.nucoder-model-picked(index); }
+            model-ping(i) => { root.nucoder-model-ping(i); }
+            model-ping-all => { root.nucoder-model-ping-all(); }
+            model-row-use(i) => { root.nucoder-model-row-use(i); }
+            model-filter-changed(v) => { root.nucoder-model-filter-changed(v); }
+            model-sort-cycle => { root.nucoder-model-sort-cycle(); }
+            model-sync => { root.nucoder-model-sync(); }
+            task-picked(index) => { root.nucoder-task-picked(index); }
+            attach-image => { root.nucoder-attach-image(); }
+            clear-images => { root.nucoder-clear-images(); }
+            cycle-context => { root.nucoder-cycle-context(); }
+            toggle-perm(which) => { root.nucoder-toggle-perm(which); }
+            copy-text(t) => { root.nucoder-copy(t); }
+            global-key(text, ctrl, shift, alt) => { root.global-key(text, ctrl, shift, alt); }
+        }
+
+        if !root.nucoder-open: IdeAgent {
             x: root.panel-x(1);
             y: root.slot-y(root.dock-of(1), 1);
             width: root.panel-w(1);
@@ -1120,9 +1272,42 @@ export component NuIdeWindow inherits Window {
         dismiss => { root.sqlite-dismiss(); }
     }
 
-    // --- acerca de ---
-    if root.about-open: IdeAbout {
+    // --- módulo: cliente FTP ---
+    if root.ftp-open: IdeFtp {
         x: 0;
+        y: 0;
+        width: parent.width;
+        height: parent.height;
+        transport: root.ftp-transport;
+        host <=> root.ftp-host;
+        port <=> root.ftp-port;
+        user <=> root.ftp-user;
+        pass <=> root.ftp-pass;
+        path: root.ftp-path;
+        entries: root.ftp-entries;
+        selected: root.ftp-selected;
+        busy: root.ftp-busy;
+        note: root.ftp-note;
+        error: root.ftp-error;
+        pending-delete: root.ftp-pending-delete;
+        filter <=> root.ftp-filter;
+        close => { root.ftp-close(); }
+        cycle-transport => { root.ftp-cycle-transport(); }
+        edited(field, value) => { root.ftp-edited(field, value); }
+        use-project-site => { root.ftp-use-site(); }
+        up => { root.ftp-up(); }
+        refresh => { root.ftp-refresh(); }
+        open-entry(i) => { root.ftp-open-entry(i); }
+        delete-entry(i) => { root.ftp-delete-entry(i); }
+        confirm-delete => { root.ftp-confirm-delete(); }
+        cancel-delete => { root.ftp-cancel-delete(); }
+        upload => { root.ftp-upload(); }
+        mkdir(name) => { root.ftp-mkdir(name); }
+        filter-changed(v) => { root.ftp-filter-changed(v); }
+    }
+
+    // --- acerca de ---
+    if root.about-open: IdeAbout {        x: 0;
         y: 0;
         width: parent.width;
         height: parent.height;

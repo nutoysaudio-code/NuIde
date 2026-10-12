@@ -148,6 +148,7 @@ entero al abrir, cambiar de pestaña o cambiar el número de líneas.
 | `Ctrl+Z` / `Ctrl+Y` | Deshace / rehace (pila de 500 por archivo; `Ctrl+Shift+Z` también rehace). |
 | `Ctrl+F` | Abre la barra de búsqueda. |
 | `Ctrl+H` | Abre la búsqueda con el campo de reemplazo. |
+| `Ctrl+Espacio` | Completado semántico (SpASM): símbolos del AST + palabras clave (`↑`/`↓`, `Enter`/`Tab` para insertar, `Esc` cierra). |
 | `F5` | Compila el archivo activo a binario nativo (AOT) y lo ejecuta. |
 | `Ctrl+B` | Compila el archivo activo. |
 | `F6` | Analiza el archivo activo con el parser de SpASM (diagnóstico). |
@@ -325,30 +326,49 @@ Skill: implementa su propio PTY nativo (ConPTY) en Rust.
 La consola *lineal* de `src/terminal.rs` queda como utilidad heredada (la usan
 pruebas de integración del toolchain). El panel del agente ya no la usa.
 
-### El panel derecho (terminal + NuCoder)
+### El panel derecho (terminal + NuCoder nativo)
 
 El panel derecho es una **terminal real** (shell pwsh/cmd en la raíz del
 proyecto), igual que la inferior. **NuCoder no se abre solo**: se lanza cuando
-el usuario elige *Lanzar NuCoder* (menú **Agente** o paleta). Si no está
-instalado, el panel **queda como terminal** y avisa. Su TUI interactiva se
-renderiza con el mismo emulador (`vt`), con scrollback, selección/copia y las
-mismas teclas. El canal es propio (`agent_tx`/`agent_rx`) para no mezclar la
-salida con la terminal inferior.
+el usuario elige *Lanzar NuCoder* (menú **Agente** o paleta), y entonces el panel
+muestra el **chat nativo de NuCoder** (Slint, `ui/ide_nucoder.slint`) en vez de
+la terminal.
 
-- Al arrancar se lanza una shell (pwsh/cmd) en la raíz del proyecto, sin
-  inyectar nada.
-- **Lanzar NuCoder** inyecta el comando de la CLI —entre comillas, para que
-  funcione aunque la ruta tenga espacios— en la shell abierta, con `--cwd`.
-- Si salís de NuCoder, queda en la shell y podés relanzarlo de nuevo desde el
-  menú o tipeando el comando directamente.
-- Si la shell se cae (NuCoder al salir con `Ctrl+C` puede arrastrar la consola),
-  el panel **relanza la terminal solo** y vuelve a quedar operativo.
-- Al cambiar de proyecto, se reinicia la terminal: la shell nueva arranca en el
-  cwd del proyecto (NuCoder no se relanza).
-- El agente se descubre con `NUCODER`, en el `PATH` como `nucoder.exe`, o junto
-  al ejecutable de NuIde.
-- El **mouse reporting** funciona igual que en la terminal local: si la TUI lo
-  pide, los clics/rueda se reenvían; si no, el mouse selecciona/copia.
+- **Chat nativo.** El panel dibuja la conversación con widgets reales:
+  burbujas por rol (usuario, asistente, herramienta, aviso, error),
+  **Markdown** para el asistente y **bloques de código con resaltado** por
+  lenguaje. El agente corre **en proceso** (el núcleo `nucoder` es una
+  librería): no se lanza `nucoder.exe` ni se inyecta nada en la shell.
+- **Switch auto-aprobar.** En la cabecera del panel: al prenderlo, el agente
+  **no pide confirmación** para acciones sensibles (borrar/mover/bash/terminal)
+  y lo persiste en la config (`nucoder config auto-approve on` desde el CLI).
+- **Barra de confirmación.** Con auto-aprobar apagado, cuando el agente quiere
+  una acción sensible el panel muestra *Aprobar* / *Rechazar*.
+- **Host de terminales.** Con la herramienta `run_in_terminal`, el agente
+  **escribe un comando en una terminal real de la IDE** (la local inferior, o la
+  sesión que indique por nombre), que queda visible y sigue corriendo — pensado
+  para servidores de desarrollo y watchers (`npm run dev`,
+  `python -m http.server`, `cargo run`).
+- **Selector de modelo y tarea.** En la cabecera del panel, el **modelo** abre un
+  selector (auto + modelos curados, gratis primero); la **tarea** cicla
+  (`complete → refactor → …`).
+- **Imagen y contexto.** El chip **imagen** adjunta una imagen al próximo turno
+  (modelos con visión; `✕` la quita) y **ctx** cicla el tope de contexto. Los
+  **atajos globales** (paleta, buscador, etc.) funcionan con el foco en el chat.
+- **Permisos y autopiloto.** El chip **permisos** abre una pestaña con
+  **Internet**, **leer fuera del proyecto**, **terminales de la IDE**, **sandbox
+  de escrituras**, **confirmación** y **autopiloto** (persistidos). Con el agente
+  planificando (`submit_plan`), el panel muestra el plan para *Aprobar*/*Rechazar*;
+  con autopiloto prendido, tras aprobarlo el agente ejecuta todos los pasos sin
+  pedir confirmación.
+- El panel del **agente shell** sigue disponible (cuando NuCoder está cerrado) y
+  se recupera solo si la shell se cae. Al cambiar de proyecto, la terminal se
+  reinicia en el cwd nuevo.
+- El **mouse reporting** del shell funciona igual que en la terminal local.
+
+> El binario **`nucoder`** queda como **CLI** (`ask`, `provider`, `models`,
+> `discover`, `route`, `config`); su antigua TUI (`ratatui`) se reemplazó por el
+> panel nativo.
 
 ### El control de código (Git)
 

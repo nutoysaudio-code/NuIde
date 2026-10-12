@@ -159,8 +159,6 @@ impl Toolchain {
     /// `Err` con la salida del paso que falló. Lo usa el módulo de despliegue
     /// para correr el script sin intérprete.
     pub fn compile_binary(&self, source: &Path, out_dir: &Path) -> Result<PathBuf, String> {
-        use std::process::Command;
-
         let stem = source
             .file_stem()
             .map(|s| s.to_string_lossy().into_owned())
@@ -171,7 +169,7 @@ impl Toolchain {
 
         // 1) spasmc.py --target c
         let (python, args) = self.transpile_command(source, &out_c)?;
-        let out = Command::new(&python)
+        let out = crate::proc::hidden(&python)
             .args(&args)
             .current_dir(out_dir)
             .output()
@@ -192,7 +190,7 @@ impl Toolchain {
                     .to_string(),
             );
         };
-        let out = Command::new(&cc)
+        let out = crate::proc::hidden(&cc)
             .args(&cc_args)
             .current_dir(out_dir)
             .output()
@@ -237,7 +235,7 @@ fn find_vcvars() -> Option<PathBuf> {
         // `vswhere` es lo canónico.
         let vswhere = r"C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe";
         if std::path::Path::new(vswhere).is_file() {
-            let out = std::process::Command::new(vswhere)
+            let out = crate::proc::hidden(vswhere)
                 .args(["-latest", "-products", "*", "-property", "installationPath"])
                 .output();
             if let Ok(o) = out {

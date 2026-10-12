@@ -733,8 +733,223 @@ compresión; el visor muestra hasta 200 filas por tabla y no edita.
   ConPTY: por eso la terminal embebida sólo es admin si lo es toda la IDE.
 - El pie muestra **ADMIN** cuando la app corre elevada.
 
-## 4. Limitaciones conocidas
+### 3.36 Menú contextual del coder con los comandos de NuCoder
 
+- **Clic derecho** en el **panel del agente (coder)** suma a Copiar/Pegar los
+  **atajos de los comandos** de la TUI de NuCoder, agrupados:
+  - **tareas** (`/complete`, `/refactor`, `/debug`, `/explain`, `/test`,
+    `/architect`): se **insertan** en la entrada (comando + espacio, sin Enter)
+    para escribir el pedido;
+  - **acciones** (`/free`, `/clear`, `/help`, `/quit`): se **ejecutan** al toque
+    (comando + Enter).
+- La terminal local conserva **Copiar/Pegar/Elevar a administrador**; el coder no
+  ofrece elevar. Los ids internos usan los prefijos `agent.insert:`/`agent.run:`.
+
+### 3.37 Hilos y estados: épocas por tarea y tope de drenado
+
+- **Épocas (`gen`)** en los resultados de **build**, **git**, **sqlite** y **lint**
+  (mismo patrón que `search_gen`): cada resultado lleva la época con que se lanzó y
+  en `drain` se **descarta si no es el actual**. Evita que un resultado viejo pise
+  el estado nuevo: `git_busy` sólo lo libera la operación más reciente, la salida y
+  los diagnósticos de build son los del último build, el lint vale sólo si es el
+  más reciente y el archivo sigue activo, y SQLite sólo aplica la última lectura.
+- **Tope de drenado por tick** (`drain`): la salida de los **PTY** (local y agente)
+  se procesa con un presupuesto de 512 mensajes por tick; el resto queda para el
+  próximo, para que un flood de salida no clave un frame. Los demás canales emiten
+  pocos mensajes y no se acotan.
+- **Cancelación cooperativa del build**: cada corrida lleva un `Arc<AtomicBool>`;
+  al relanzar un build se cancela el anterior (se comprueba entre pasos y aborta
+  con `[build cancelado]`). El despliegue ya estaba serializado por `deploy_busy`
+  (sin solapamiento), así que no necesita lo mismo.
+- **Explorador fuera del hilo de UI**: `explorer::build_tree` es una función libre
+  que corre en un hilo; el resultado `(época, nodos)` se aplica en `drain` sólo si
+  es el más reciente. Los toggles/filtro/cambio de raíz usan métodos de estado sin
+  reconstrucción (`toggle_expand`, `set_show_generated_state`, `set_root_state`) y
+  luego `explorer_spawn`, así el recorrido del FS no clava la UI (repos grandes).
+
+### 3.38 NuCoder nativo en NuIde (Slint) + `run_in_terminal` + auto-aprobar
+
+- **Núcleo compartido.** `nucoder` pasó a ser **lib + bin** (`src/lib.rs`,
+  UI-agnóstico). El CLI conserva `ask`/`provider`/`models`/`discover`/`route` y
+  suma `config`; la antigua TUI (`ratatui`/`crossterm`, `tui.rs`/`theme.rs`) se
+  eliminó. `markdown.rs` se reescribió como **segmentador UI-agnóstico** (prosa +
+  bloques de código tokenizados).
+- **Panel nativo.** `ui/ide_nucoder.slint` dibuja el chat en el dock del agente
+  (rol, Markdown del asistente, bloques de código con resaltado, barra de
+  confirmación, switches). `src/nucoder_ui.rs` corre el agente en un hilo y
+  traduce `AgentEvent` a `IdeChatMsg`; `Ide::drain` lo drena junto al resto.
+  `Lanzar NuCoder` ya **no** inyecta el binario en el PTY: abre el panel.
+- **Auto-aprobar.** Nuevo `auto_approve` en la config (pisa a `confirm`):
+  switch en la cabecera del panel (persistido) y `nucoder config auto-approve
+  on|off` por CLI.
+- **`run_in_terminal`.** El agente puede pedir que un comando se **escriba en una
+  terminal real de la IDE** (proceso largo/interactivo: un web server). Viaja por
+  un canal de `TerminalJob`; NuIde lo escribe en la terminal local y le contesta
+  al modelo. Es sensible: respeta confirmación/auto-aprobar.
+- **Enlace.** NuIde depende de `nucoder` por *path* (`exclude = ["nucoder"]` en su
+  workspace); el `.exe` enlaza las dos libs SpASM (`nuide_*` y `nucoder_*`, sin
+  colisión porque el C generado es `static`).
+
+### 3.39 Panel de NuCoder: paridad con la TUI
+
+- **Modelo y tarea**: `Config::curated_models()` (núcleo) alimenta un selector en
+  la cabecera del panel; la tarea cicla desde la barra. Se persiste `default_model`.
+- **Imágenes (visión)**: chip `imagen` (diálogo nativo de archivos) + chip `N img ✕`
+  para quitar; el turno se rutea a modelos con visión.
+- **Contexto**: chip `ctx` que cicla 16k/32k/48k/96k/128k y lo persiste.
+- **Atajos globales con el foco en el chat**: `IdeNucoder` es un `FocusScope` que
+  reenvía a Rust las teclas no consumidas (`global-key` → `Ide::route_global_key`,
+  la misma cadena de interceptores que las terminales). Mientras hay un modal
+  (paleta/búsqueda/prompt), el `TextInput` se deshabilita (`keyboard_modal_open`)
+  para que el teclado vaya al modal.
+- **`run_in_terminal`** elige la terminal por nombre (`local_id_by_name`).
+- **Pulido**: chrome de panel, cabecera 10px/1.6, controles `NChip`/`NToggle`/
+  `NButton` (misma métrica que `GitButton`), verificado con renders de
+  `slint-viewer --screenshot`.
+
+### 3.40 NuCoder: permisos + plan/autopiloto
+
+- **Permisos** (`nucoder::config`): `permissions { web, read_outside, terminal }`
+  + `autopilot`. Se aplican en `tools::Ctx` (`web`, `read_outside`,
+  `terminal_allowed`): internet se bloquea, leer fuera del proyecto se habilita
+  (las escrituras siguen confinadas) y `run_in_terminal` respeta su permiso.
+- **Pestaña Permisos** en el panel (`PermRow` + `NToggle`): cuatro interruptores
+  persistidos; se abre con el chip **permisos** de la cabecera.
+- **Plan/autopiloto**: nueva tool `submit_plan` (objetivo + pasos). El bucle del
+  agente la intercepta y emite `AgentEvent::Plan`; el panel muestra el plan y
+  pide *Aprobar*/*Rechazar* (siempre explícito, incluso con auto-aprobar). Tras
+  aprobar, con `autopilot` el resto del turno corre sin confirmar
+  (`auto = true`). El prompt de sistema guía a planificar y a no frenar en
+  autopiloto.
+
+### 3.41 Cliente FTP (Opción B: motor curl)
+
+- **Motor** `src/ftp.rs`: `Op`, parser de `LIST` (Unix `ls -l` + MS-DOS, tolerante),
+  `normalize_remote`, argv por operación, **credenciales por `curl -K`** (no en
+  `argv`), `spawn_op`/`run_job` en hilo + tests.
+- **FTPS corregido**: explícito por defecto (`ftp://` + `--ssl-reqd`, puerto 21);
+  implícito sólo en el puerto 990 (`Site::url_for`/`is_explicit_ftps`).
+- **Modal** `ui/ide_ftp.slint` + módulo `module.ftp` (Preferencias → Módulos) +
+  comando de paleta *«FTP: abrir cliente»*: conectar (o traer el sitio del
+  proyecto), listar, navegar (↑/⟳), subir/bajar, borrar (confirmación inline) y
+  nueva carpeta. Estado en `Ide` (`ftp_*`) con canal `ftp_tx`/`ftp_rx`.
+- **NuCoder lo controla**: permiso **FTP** (`permissions.ftp`, `Config::perm_ftp`)
+  en la pestaña Permisos + tools `ftp_open`/`ftp_list`/`ftp_upload`/`ftp_download`/
+  `ftp_delete`/`ftp_mkdir` vía `FtpJob` (patrón `TerminalJob`); el IDE las ejecuta
+  con `curl` y responde al modelo. `ftp_delete`/`ftp_upload` son sensibles
+  (respetan confirmación / auto-aprobar).
+- `docs/FTP_CLIENT.md` documenta el plan, la **evaluación de crates** y la de la
+  doc de curl y de PowerShell.
+
+### 3.42 Panel de NuCoder: proceso oculto, copiar y final + procesos sin consola
+
+- **🧠 «pensando»**: los mensajes de **proceso** (herramientas/avisos) se ocultan
+  por defecto; un icono 🧠 en la cabecera **titila** mientras el agente trabaja
+  (pulso que alterna el timer de la IDE) y, al hacer clic, muestra/oculta el
+  proceso.
+- **Copiar**: botón **«copiar»** por respuesta (texto crudo del mensaje) y por
+  **bloque de código** (sólo ese código); van al portapapeles del sistema
+  (`clipboard_write`). `IdeChatMsg` ganó `text` y `IdeChatSeg` ganó `raw`.
+- **«final»**: botón en el pie que baja el chat al final del texto.
+- **Sin ventanas de consola**: nuevo `src/proc.rs` (`hidden()` con
+  `CREATE_NO_WINDOW`) usado por `curl`/`scp`/`git`/`python`/`cc`/`sqlite3`/el
+  `cmd /C start` y el script de despliegue, para que no parpadee una consola al
+  correr herramientas externas desde el binario GUI.
+
+### 3.43 Ajustes de UX: Ejecutar/Compilar con feedback, stick y FTP
+
+- **Ejecutar/Compilar** (barra superior): estaban bien cableados pero **sin
+  feedback** cuando no había archivo activo o faltaba el toolchain (y la salida
+  iba a una terminal que podía estar oculta). Nuevos `reveal_terminal()` y
+  `build_msg()`: siempre se muestra el mensaje en la sesión `build` y se revela
+  la terminal antes de compilar.
+- **Stick del scroll** (panel de NuCoder): sólo sigue el final si el usuario ya
+  estaba al final (`stick`); si sube a leer, las respuestas nuevas no lo bajan
+  solas. El botón **«final»** vuelve al final.
+- **Listado FTP**: entrada **`..`** para subir (sin botón de borrar), orden
+  **carpetas primero** y por nombre, y **filtro** por nombre en la barra.
+
+### 3.44 `nucoder refresh` (re-bajar y reclasificar sin perder overrides)
+
+- `nucoder refresh [id] [--reset-free]`: vuelve a bajar el catálogo del/los
+  proveedor(es) y **fusiona** con los modelos guardados (`config::merge_discovered`):
+  conserva el `free` fijado a mano y el costo; recalcula nombre/potencia/caps.
+  Con `--reset-free` el `free` se recalcula desde el filtro del proveedor.
+- Con test (`merge_conserva_free_manual_salvo_reset`).
+
+### 3.45 Completado semántico de SpASM en el editor
+
+- **Ctrl+Espacio** abre el completado sobre la palabra bajo el cursor: primero los
+  **símbolos del AST** (`self.outline`, del parser real de SpASM) y después las
+  **palabras clave/builtins** (`highlight::spasm_words`). `↑`/`↓` navegan,
+  `Enter`/`Tab` insertan (reemplazan el prefijo), `Esc` cierra; tipear/Backspace
+  actualizan el prefijo.
+- Sólo para archivos **SpASM**. Popup anclado a la línea activa
+  (`ui/ide_editor.slint`). Con test (`el_completado_usa_los_simbolos_del_ast`).
+
+### 3.46 NuCoder: endpoints no-chat (imagen/audio)
+
+- `client::image_generate` (`POST /images/generations`, `b64_json` o `url`) y
+  `client::transcribe` (`POST /audio/transcriptions`, multipart). Base64 de
+  decodificación propio en `image.rs` (`base64_decode`).
+- Tools `image_generate` (guarda el PNG en `<proyecto>/generated/`) y
+  `audio_transcribe`; eligen el modelo por **capacidad** (`pick_with_cap` sobre
+  `Config::candidates`) y respetan el **permiso de internet**.
+- `Ctx` ganó `config` para poder elegir proveedor/modelo por capacidad.
+
+### 3.47 Sin ventanas de consola también en NuCoder
+
+- El arreglo de §3.42 cubría los procesos de **NuIde**; faltaban los de
+  **NuCoder** (que corre dentro de NuIde y lanzaba `curl` con `Command::new`).
+- Nuevo `nucoder/src/proc.rs` (`hidden()` + `curl()`, `CREATE_NO_WINDOW`) y
+  reemplazo en `client.rs` (chat/stream, `models`, imagen, audio, descarga) y en
+  `tools.rs` (`bash`, `web_fetch`/`web_search`). Se eliminó `client::curl_bin`.
+
+### 3.48 Chat de NuCoder: tarjetas con avatares
+
+- Cada mensaje va en una **tarjeta** con borde redondeado (`radius-sm`,
+  `border-faint`), fondo distinto para el usuario (`control`) y la IA (`panel`).
+- **Avatares** por rol (usuario 🧑, IA 🤖, herramienta 🔧, aviso •, error ⚠) con
+  fondo por rol, para diferenciar quién habla.
+- Se **redujo el espacio** entre mensajes (spacing 12 → 6) y se quitó el punto de
+  rol (lo reemplaza el avatar). Ajuste del bloque de código para no entrar en
+  bucle de binding dentro del layout.
+
+### 3.49 NuCoder: pestaña «modelos» (filtro, especialidad y ping)
+
+- Nueva pestaña **modelos** en el panel de NuCoder: **filtro** por nombre o
+  especialidad, y cada fila muestra la **especialidad** (`coder`, `visión`,
+  `imagen`, `voz/audio`, `video`, `embedding`, `guard` — de las capacidades),
+  gratis/poder, el **estado de ping** y botones **probar**/**usar**.
+- **Ping** por modelo (`client::ping`: `POST /chat/completions` con
+  `max_tokens: 1`, mide ms) y **probar todos**; verde/rojo según responda.
+- `caps::specialty` (etiquetas legibles) y `Cap::label`. «usar» sólo en modelos
+  de chat (`text`), para forzar el modelo.
+- **Agrupado por especialidad** en secciones (orden `coder → visión → imagen →
+  voz/audio → video → embedding → guard → texto`), gratis primero dentro de cada
+  grupo; el filtro se sigue aplicando y los índices de «probar»/«usar» cuentan
+  las cabeceras de sección.
+
+### 3.50 NuCoder: ordenar y sincronizar el listado de modelos
+
+- **Orden** en la pestaña modelos (chip «orden: …» que cicla): `especialidad`
+  (agrupado), `ping` (más rápidos primero), `nombre` y `gratis`.
+- **Sincronizar**: botón que re-baja el catálogo de todos los proveedores en un
+  hilo y **actualiza la lista** (conserva los `free` a mano). La lógica de
+  refresh se movió al núcleo: `config::refresh_catalog(cfg, only, reset_free)` la
+  comparten el CLI (`nucoder refresh`) y el panel.
+
+### 3.51 Guardián: las API keys no van al repo
+
+- Las keys (y las contraseñas de sitio) viven **fuera del repo**:
+  `~/.config/nucoder/config.json` y `%APPDATA%\NuIde`. (Decisión ya documentada.)
+- **Test guardián** `providers::el_repo_no_tiene_keys_versionadas`: recorre los
+  archivos versionados (`git ls-files`) y falla si alguno tiene algo con forma de
+  key (`sk-`, `gsk_`, `nvapi-`, `AIza`, `xai-` + ≥16 alfanuméricos). Se saltea si
+  no hay `git`. Con test del detector (`el_detector_reconoce_keys_y_ignora_ejemplos`).
+- `.gitignore`: bloque de seguridad (`.env*`, `*.pem`, `*.key`, `secrets*.json`).
+
+## 4. Limitaciones conocidas
 - **Persistencia parcial.** Se recuerda el proyecto, el dock/visibilidad de los
   paneles, la geometría de la ventana, las pestañas abiertas, el filtro de
   generados y el cursor de cada archivo. Las **sesiones de terminal, el

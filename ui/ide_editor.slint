@@ -1,5 +1,5 @@
 import { IdeTheme } from "ide_theme.slint";
-import { IdeTab, IdeCodeLine, IdeOutlineItem, IdeRecent } from "ide_types.slint";
+import { IdeTab, IdeCodeLine, IdeOutlineItem, IdeRecent, IdePaletteItem } from "ide_types.slint";
 import { IdeWelcome } from "ide_welcome.slint";
 import { TipContent } from "ide_tooltip.slint";
 
@@ -222,6 +222,10 @@ export component IdeEditor inherits FocusScope {
     // Esquema de símbolos del archivo.
     in property <[IdeOutlineItem]> outline: [];
     in-out property <bool> outline-open: false;
+    // Completado semántico (Ctrl+Espacio).
+    in property <bool> complete-open: false;
+    in property <[IdePaletteItem]> complete-items: [];
+    in property <int> complete-selected: 0;
     // Pantalla de bienvenida (sin archivos abiertos).
     in property <bool> welcome: false;
     // Recientes de la bienvenida (proyectos y archivos).
@@ -254,6 +258,8 @@ export component IdeEditor inherits FocusScope {
     callback image-zoom-reset();
     // Salta a la línea de un símbolo del esquema.
     callback goto-line(int);
+    // Elige una sugerencia del completado (clic).
+    callback complete-pick(int);
     // Acciones de la bienvenida.
     callback open-project();
     callback open-file();
@@ -776,6 +782,64 @@ export component IdeEditor inherits FocusScope {
                         outline-row := TouchArea {
                             mouse-cursor: MouseCursor.pointer;
                             clicked => { root.goto-line(item.line); root.outline-open = false; }
+                        }
+                    }
+                }
+            }
+        }
+
+        // --- completado semántico (SpASM) ---
+        if root.complete-open: Rectangle {
+            x: 74px;
+            y: min(parent.height - self.height, max(0px, root.cursor-y + code-scroll.content-y + root.row-h));
+            width: 280px;
+            height: min(190px, root.complete-items.length * 22px + 10px);
+            background: IdeTheme.panel;
+            border-width: 1px;
+            border-color: IdeTheme.border-soft;
+            border-radius: IdeTheme.radius-sm;
+            clip: true;
+
+            Flickable {
+                x: 0;
+                y: 5px;
+                width: parent.width;
+                height: parent.height - 10px;
+                content-width: self.width;
+                content-height: comp-menu.preferred-height;
+
+                comp-menu := VerticalLayout {
+                    width: parent.width;
+                    spacing: 0;
+
+                    for item[i] in root.complete-items: Rectangle {
+                        height: 22px;
+                        background: root.complete-selected == i ? IdeTheme.selection
+                            : (comp-row.has-hover ? IdeTheme.control : transparent);
+
+                        Text {
+                            x: 10px;
+                            y: (parent.height - self.height) / 2;
+                            width: parent.width - 96px;
+                            text: item.label;
+                            color: root.complete-selected == i ? IdeTheme.text : IdeTheme.text-soft;
+                            font-family: IdeTheme.mono;
+                            font-size: 12px;
+                            vertical-alignment: center;
+                            overflow: elide;
+                        }
+                        Text {
+                            x: parent.width - self.width - 10px;
+                            y: (parent.height - self.height) / 2;
+                            text: item.detail;
+                            color: IdeTheme.text-dim;
+                            font-family: IdeTheme.sans;
+                            font-size: 10px;
+                            vertical-alignment: center;
+                        }
+                        comp-row := TouchArea {
+                            mouse-cursor: MouseCursor.pointer;
+                            clicked => { root.complete-pick(i); }
                         }
                     }
                 }

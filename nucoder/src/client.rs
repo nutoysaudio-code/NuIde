@@ -8,11 +8,16 @@
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::PathBuf;
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::{json, Value};
+
+/// Tiempo máximo de un turno de chat (puede ser largo si el modelo "piensa").
+const CHAT_TIMEOUT_SECS: u64 = 600;
+/// Tiempo máximo del `GET /models` (una lista pequeña; no debe colgar el arranque).
+const LIST_TIMEOUT_SECS: u64 = 30;
 
 /// Error del cliente. `Quota` y `Auth` disparan la rotación a otro proveedor.
 #[derive(Debug)]
@@ -73,6 +78,8 @@ pub enum StreamEvent {
 pub struct ModelInfo {
     pub id: String,
     pub name: String,
+    /// Objeto crudo del endpoint (precios, modalidades, …).
+    pub raw: Value,
 }
 
 /// Pide un turno al modelo con streaming. `on_event` se llama a medida que llega.
@@ -105,7 +112,7 @@ pub fn chat_stream(
         headers.push(("Authorization".into(), format!("Bearer {api_key}")));
     }
 
-    let cfg = curl_config(&url, &headers, Some(&body_file));
+    let cfg = curl_config("POST", &url, &headers, Some(&body_file), CHAT_TIMEOUT_SECS);
     let cfg_file = write_temp("curlcfg", cfg.as_bytes());
 
     let result = run_stream(&cfg_file, cancel, on_event);
@@ -122,10 +129,10 @@ pub fn list_models(base_url: &str, api_key: &str) -> Result<Vec<ModelInfo>, Clie
     if !api_key.is_empty() {
         headers.push(("Authorization".into(), format!("Bearer {api_key}")));
     }
-    let cfg = curl_config(&url, &headers, None);
+    let cfg = curl_config("GET", &url, &headers, None, LIST_TIMEOUT_SECS);
     let cfg_file = write_temp("curlcfg", cfg.as_bytes());
 
-    let out = Command::new(curl_bin())
+    let out = crate::proc::curl()
         .arg("-K")
         .arg(&cfg_file)
         .stdin(Stdio::null())
@@ -158,10 +165,181 @@ pub fn list_models(base_url: &str, api_key: &str) -> Result<Vec<ModelInfo>, Clie
                 .and_then(Value::as_str)
                 .unwrap_or(&id)
                 .to_string();
-            models.push(ModelInfo { id, name });
+            models.push(ModelInfo {
+                id,
+                name,
+                raw: m.clone(),
+            });
         }
     }
     Ok(models)
+}
+
+// ---------------------------------------------------------------------------
+// Endpoints **no-chat** (imagen / audio)
+// ---------------------------------------------------------------------------
+
+/// Genera una imagen (`POST {base}/images/generations`, compatible-OpenAI).
+/// Devuelve los bytes de la imagen (desde `b64_json`, o bajando `url`).
+pub fn image_generate(
+    base_url: &str,
+    api_key: &str,
+    model: &str,
+    prompt: &str,
+    size: &str,
+) -> Result<Vec<u8>, ClientError> {
+    let url = endpoint(base_url, "images/generations");
+    let body = json!({
+        "model": model,
+        "prompt": prompt,
+        "n": 1,
+        "size": size,
+        "response_format": "b64_json",
+    });
+    let body_file = write_temp("body", body.to_string().as_bytes());
+    let mut headers = vec![
+        ("Content-Type".into(), "application/json".into()),
+        ("Accept".into(), "application/json".into()),
+    ];
+    if !api_key.is_empty() {
+        headers.push(("Authorization".into(), format!("Bearer {api_key}")));
+    }
+    let cfg = curl_config("POST", &url, &headers, Some(&body_file), 300);
+    let cfg_file = write_temp("curlcfg", cfg.as_bytes());
+    let out = crate::proc::curl()
+        .arg("-K")
+        .arg(&cfg_file)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output();
+    let _ = std::fs::remove_file(&body_file);
+    let _ = std::fs::remove_file(&cfg_file);
+    let out = out.map_err(|e| ClientError::Network(e.to_string()))?;
+    let text = String::from_utf8_lossy(&out.stdout);
+    let (status, body) = split_status(&text);
+    if status >= 400 {
+        return Err(classify(status, &body));
+    }
+    let v: Value =
+        serde_json::from_str(&body).map_err(|e| ClientError::Parse(format!("imagen: {e}")))?;
+    if let Some(b64) = v.pointer("/data/0/b64_json").and_then(Value::as_str) {
+        return crate::image::base64_decode(b64)
+            .ok_or_else(|| ClientError::Parse("imagen: base64 inválido".into()));
+    }
+    if let Some(u) = v.pointer("/data/0/url").and_then(Value::as_str) {
+        return download(u);
+    }
+    Err(ClientError::Parse("la respuesta no trae imagen".into()))
+}
+
+/// Baja una URL y devuelve los bytes (el cuerpo ES el archivo, sin marcador).
+fn download(url: &str) -> Result<Vec<u8>, ClientError> {
+    let mut cfg = String::new();
+    cfg.push_str("silent\nshow-error\nlocation\nno-buffer\n");
+    cfg.push_str(&format!("url = {}\n", quote(url)));
+    cfg.push_str("max-time = 120\n");
+    let cfg_file = write_temp("curlcfg", cfg.as_bytes());
+    let out = crate::proc::curl()
+        .arg("-K")
+        .arg(&cfg_file)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output();
+    let _ = std::fs::remove_file(&cfg_file);
+    let out = out.map_err(|e| ClientError::Network(e.to_string()))?;
+    if out.stdout.is_empty() {
+        return Err(ClientError::Network("la descarga vino vacía".into()));
+    }
+    Ok(out.stdout)
+}
+
+/// Transcribe un audio (`POST {base}/audio/transcriptions`, multipart).
+pub fn transcribe(
+    base_url: &str,
+    api_key: &str,
+    model: &str,
+    path: &std::path::Path,
+) -> Result<String, ClientError> {
+    let url = endpoint(base_url, "audio/transcriptions");
+    let mut cfg = String::new();
+    cfg.push_str("silent\nshow-error\nlocation\nno-buffer\n");
+    cfg.push_str("request = \"POST\"\n");
+    cfg.push_str(&format!("url = {}\n", quote(&url)));
+    if !api_key.is_empty() {
+        cfg.push_str(&format!(
+            "header = {}\n",
+            quote(&format!("Authorization: Bearer {api_key}"))
+        ));
+    }
+    let file = path.to_string_lossy().replace('\\', "/");
+    cfg.push_str(&format!("form = {}\n", quote(&format!("file=@{file}"))));
+    cfg.push_str(&format!("form = {}\n", quote(&format!("model={model}"))));
+    cfg.push_str("max-time = 300\n");
+    cfg.push_str("write-out = \"\\n@@HTTP%{http_code}@@\"\n");
+    let cfg_file = write_temp("curlcfg", cfg.as_bytes());
+    let out = crate::proc::curl()
+        .arg("-K")
+        .arg(&cfg_file)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output();
+    let _ = std::fs::remove_file(&cfg_file);
+    let out = out.map_err(|e| ClientError::Network(e.to_string()))?;
+    let text = String::from_utf8_lossy(&out.stdout);
+    let (status, body) = split_status(&text);
+    if status >= 400 {
+        return Err(classify(status, &body));
+    }
+    let v: Value =
+        serde_json::from_str(&body).map_err(|e| ClientError::Parse(format!("transcripción: {e}")))?;
+    v.get("text")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .ok_or_else(|| ClientError::Parse("la respuesta no trae texto".into()))
+}
+
+/// Hace una petición **mínima** al modelo (`max_tokens: 1`) y devuelve la
+/// **latencia** en milisegundos. Sirve para ver si el modelo está activo y si
+/// responde rápido (ping).
+pub fn ping(base_url: &str, api_key: &str, model: &str) -> Result<u64, ClientError> {
+    let url = endpoint(base_url, "chat/completions");
+    let body = json!({
+        "model": model,
+        "messages": [{ "role": "user", "content": "ping" }],
+        "max_tokens": 1,
+        "stream": false,
+    });
+    let body_file = write_temp("body", body.to_string().as_bytes());
+    let mut headers = vec![
+        ("Content-Type".into(), "application/json".into()),
+        ("Accept".into(), "application/json".into()),
+    ];
+    if !api_key.is_empty() {
+        headers.push(("Authorization".into(), format!("Bearer {api_key}")));
+    }
+    let cfg = curl_config("POST", &url, &headers, Some(&body_file), 30);
+    let cfg_file = write_temp("curlcfg", cfg.as_bytes());
+    let start = std::time::Instant::now();
+    let out = crate::proc::curl()
+        .arg("-K")
+        .arg(&cfg_file)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output();
+    let elapsed = start.elapsed().as_millis() as u64;
+    let _ = std::fs::remove_file(&body_file);
+    let _ = std::fs::remove_file(&cfg_file);
+    let out = out.map_err(|e| ClientError::Network(e.to_string()))?;
+    let text = String::from_utf8_lossy(&out.stdout);
+    let (status, body) = split_status(&text);
+    if status >= 400 {
+        return Err(classify(status, &body));
+    }
+    Ok(elapsed)
 }
 
 // ---------------------------------------------------------------------------
@@ -173,7 +351,7 @@ fn run_stream(
     cancel: &AtomicBool,
     on_event: &mut dyn FnMut(StreamEvent),
 ) -> Result<StreamResult, ClientError> {
-    let mut child = Command::new(curl_bin())
+    let mut child = crate::proc::curl()
         .arg("-K")
         .arg(cfg_file)
         .stdin(Stdio::null())
@@ -348,14 +526,16 @@ fn classify(status: u16, body: &str) -> ClientError {
 }
 
 /// Configuración de curl (`-K`). Sin `-i`; el código HTTP llega por `-w`.
-fn curl_config(url: &str, headers: &[(String, String)], body_file: Option<&PathBuf>) -> String {
+fn curl_config(
+    method: &str,
+    url: &str,
+    headers: &[(String, String)],
+    body_file: Option<&PathBuf>,
+    max_time_secs: u64,
+) -> String {
     let mut s = String::new();
     s.push_str("silent\nshow-error\nlocation\nno-buffer\n");
-    s.push_str("request = \"POST\"\n");
-    if body_file.is_none() {
-        // `list_models` es un GET.
-        s = s.replace("request = \"POST\"\n", "request = \"GET\"\n");
-    }
+    s.push_str(&format!("request = \"{method}\"\n"));
     s.push_str(&format!("url = {}\n", quote(url)));
     for (k, v) in headers {
         s.push_str(&format!("header = {}\n", quote(&format!("{k}: {v}"))));
@@ -364,7 +544,7 @@ fn curl_config(url: &str, headers: &[(String, String)], body_file: Option<&PathB
         let fwd = path.to_string_lossy().replace('\\', "/");
         s.push_str(&format!("data-binary = {}\n", quote(&format!("@{fwd}"))));
     }
-    s.push_str("max-time = 600\n");
+    s.push_str(&format!("max-time = {max_time_secs}\n"));
     // El código HTTP sale al final, en su propia línea.
     s.push_str("write-out = \"\\n@@HTTP%{http_code}@@\"\n");
     s
@@ -385,10 +565,6 @@ fn quote(v: &str) -> String {
 
 fn endpoint(base_url: &str, path: &str) -> String {
     format!("{}/{}", base_url.trim_end_matches('/'), path)
-}
-
-fn curl_bin() -> String {
-    std::env::var("NUCODER_CURL").unwrap_or_else(|_| "curl".to_string())
 }
 
 fn write_temp(tag: &str, bytes: &[u8]) -> PathBuf {

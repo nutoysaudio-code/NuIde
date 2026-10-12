@@ -1,0 +1,1202 @@
+// Panel nativo de NuCoder: el chat del agente con widgets reales de Slint.
+//
+// Reemplaza a la TUI (ratatui): el mismo núcleo (`nucoder`, UI-agnóstico) corre
+// el agente en un hilo y emite `AgentEvent`; Rust los traduce a `IdeChatMsg` y
+// este panel los dibuja. Aquí viven el selector de modelo, el de tarea y el
+// **switch de auto-aprobar**, más la barra de confirmación de acciones sensibles.
+//
+// Sigue las convenciones de los demás paneles: chrome con `radius`/`hairline`,
+// cabecera 10px con `letter-spacing`, controles de 24px (`radius-sm`).
+
+import { IdeTheme } from "ide_theme.slint";
+import { IdeChatMsg, IdeChatModel, IdeModelRow } from "ide_types.slint";
+import { DockHandle } from "ide_dock.slint";
+import { TipContent } from "ide_tooltip.slint";
+
+// Interruptor compacto (on/off) del panel.
+component NToggle inherits Rectangle {
+    in property <string> label: "";
+    in property <bool> active: false;
+    in property <string> tip: "";
+    callback toggled();
+
+    height: 24px;
+    width: tlabel.width + 30px;
+    border-radius: IdeTheme.radius-sm;
+    background: turn-hit.has-hover ? IdeTheme.control-hi
+        : (root.active ? IdeTheme.control : transparent);
+    border-width: 1px;
+    border-color: root.active ? IdeTheme.mint : IdeTheme.border-faint;
+
+    if root.tip != "": Tooltip {
+        TipContent { text: root.tip; }
+    }
+
+    Rectangle {
+        x: 10px;
+        y: (parent.height - 6px) / 2;
+        width: 6px;
+        height: 6px;
+        border-radius: 3px;
+        background: root.active ? IdeTheme.mint : IdeTheme.text-dim;
+    }
+    tlabel := Text {
+        x: 21px;
+        y: (parent.height - self.height) / 2;
+        text: root.label;
+        color: root.active ? IdeTheme.mint : IdeTheme.text-soft;
+        font-family: IdeTheme.sans;
+        font-size: 11px;
+        vertical-alignment: center;
+    }
+    turn-hit := TouchArea {
+        mouse-cursor: MouseCursor.pointer;
+        clicked => { root.toggled(); }
+    }
+}
+
+// Botón compacto del panel (misma métrica que `GitButton`).
+component NButton inherits Rectangle {    in property <string> label: "";
+    in property <bool> primary: false;
+    in property <bool> enabled: true;
+    callback activated();
+
+    height: 24px;
+    width: blabel.width + 22px;
+    border-radius: IdeTheme.radius-sm;
+    background: !root.enabled ? IdeTheme.control
+        : bhit.has-hover ? (root.primary ? #9fe6d8 : IdeTheme.control-hi)
+        : (root.primary ? IdeTheme.mint : IdeTheme.control);
+    border-width: 1px;
+    border-color: root.primary ? transparent : IdeTheme.border-soft;
+
+    blabel := Text {
+        x: 11px;
+        y: (parent.height - self.height) / 2;
+        text: root.label;
+        color: root.primary ? IdeTheme.bg : (root.enabled ? IdeTheme.text-soft : IdeTheme.text-dim);
+        font-family: IdeTheme.sans;
+        font-size: 11px;
+        vertical-alignment: center;
+    }
+    bhit := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: MouseCursor.pointer;
+        clicked => { root.activated(); }
+    }
+}
+
+// Chip de texto clickeable (modelo / tarea) con el ancho natural del texto.
+component NChip inherits Rectangle {
+    in property <string> label: "";
+    in property <color> tint: IdeTheme.text-soft;
+    in property <bool> active: false;
+    in property <string> tip: "";
+    callback activated();
+
+    height: 24px;
+    width: ctext.width + 18px;
+    border-radius: IdeTheme.radius-sm;
+    background: root.active ? IdeTheme.control : (chit.has-hover ? IdeTheme.control : transparent);
+
+    if root.tip != "": Tooltip {
+        TipContent { text: root.tip; }
+    }
+
+    ctext := Text {
+        x: 8px;
+        y: (parent.height - self.height) / 2;
+        text: root.label;
+        color: root.tint;
+        font-family: IdeTheme.mono;
+        font-size: 11px;
+        vertical-alignment: center;
+    }
+    chit := TouchArea {
+        mouse-cursor: MouseCursor.pointer;
+        clicked => { root.activated(); }
+    }
+}
+
+// Fila de permiso: etiqueta + ayuda + interruptor.
+component PermRow inherits Rectangle {
+    in property <string> label: "";
+    in property <string> hint: "";
+    in property <bool> active: false;
+    callback toggled();
+
+    height: 52px;
+    border-radius: IdeTheme.radius-sm;
+    background: row-hit.has-hover ? IdeTheme.control : transparent;
+
+    Text {
+        x: 14px;
+        y: 9px;
+        text: root.label;
+        color: IdeTheme.text;
+        font-family: IdeTheme.sans;
+        font-size: 12px;
+        vertical-alignment: center;
+    }
+    Text {
+        x: 14px;
+        y: 28px;
+        width: parent.width - 128px;
+        text: root.hint;
+        color: IdeTheme.text-dim;
+        font-family: IdeTheme.sans;
+        font-size: 10px;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    row-hit := TouchArea {
+        mouse-cursor: MouseCursor.pointer;
+        clicked => { root.toggled(); }
+    }
+    NToggle {
+        x: parent.width - self.width - 12px;
+        y: (parent.height - self.height) / 2;
+        label: root.active ? @tr("on") : @tr("off");
+        active: root.active;
+        toggled => { root.toggled(); }
+    }
+}
+
+// Fila del listado de modelos (especialidad, gratis/poder, ping).
+component ModelRowView inherits Rectangle {
+    in property <string> label: "";
+    in property <string> specialty: "";
+    in property <bool> free: false;
+    in property <int> power: 0;
+    in property <string> status: "";
+    in property <int> state: 0;
+    in property <bool> chat: true;
+    callback probed();
+    callback used();
+
+    height: 30px;
+    border-radius: IdeTheme.radius-sm;
+    background: row-hit.has-hover ? IdeTheme.control : transparent;
+
+    Text {
+        x: 10px;
+        y: (parent.height - self.height) / 2;
+        width: parent.width - 370px;
+        text: root.label;
+        color: IdeTheme.text;
+        font-family: IdeTheme.mono;
+        font-size: 11px;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    Text {
+        x: parent.width - 360px;
+        y: (parent.height - self.height) / 2;
+        width: 120px;
+        text: root.specialty;
+        color: IdeTheme.mint;
+        font-family: IdeTheme.sans;
+        font-size: 10px;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    Text {
+        x: parent.width - 236px;
+        y: (parent.height - self.height) / 2;
+        width: 70px;
+        text: (root.free ? "free" : "pago") + " p" + root.power;
+        color: root.free ? IdeTheme.add : IdeTheme.text-dim;
+        font-family: IdeTheme.mono;
+        font-size: 10px;
+        vertical-alignment: center;
+    }
+    Text {
+        x: parent.width - 162px;
+        y: (parent.height - self.height) / 2;
+        width: 54px;
+        text: root.status;
+        color: root.state == 2 ? IdeTheme.online : root.state == 3 ? IdeTheme.del : IdeTheme.text-dim;
+        font-family: IdeTheme.mono;
+        font-size: 10px;
+        horizontal-alignment: right;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    // Capa que abre/usar (debajo de los botones de la derecha).
+    row-hit := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.used(); } }
+    probe-btn := Rectangle {
+        x: parent.width - 104px;
+        y: 3px;
+        width: 44px;
+        height: 24px;
+        border-radius: IdeTheme.radius-sm;
+        background: probe-hit.has-hover ? IdeTheme.control-hi : IdeTheme.control;
+        Text { width: parent.width; height: parent.height; text: @tr("probar"); color: IdeTheme.text-soft;
+            font-family: IdeTheme.sans; font-size: 9px; horizontal-alignment: center; vertical-alignment: center; }
+        probe-hit := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.probed(); } }
+    }
+    if root.chat: use-btn := Rectangle {
+        x: parent.width - 44px;
+        y: 3px;
+        width: 40px;
+        height: 24px;
+        border-radius: IdeTheme.radius-sm;
+        background: use-hit.has-hover ? IdeTheme.mint : IdeTheme.control;
+        Text { width: parent.width; height: parent.height; text: @tr("usar"); color: IdeTheme.text-soft;
+            font-family: IdeTheme.sans; font-size: 9px; horizontal-alignment: center; vertical-alignment: center; }
+        use-hit := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.used(); } }
+        Tooltip { TipContent { text: @tr("Forzar este modelo para el chat"); } }
+    }
+}
+
+export component IdeNucoder inherits FocusScope {
+    in property <[IdeChatMsg]> messages: [];
+    in property <string> model: "auto (router)";
+    in property <string> task: "complete";
+    in property <bool> free-only: false;
+    in property <bool> running: false;
+    in property <bool> auto-approve: false;
+    in property <bool> connected: true;
+    // Pestaña: 0 chat · 1 permisos.
+    in-out property <int> view: 0;
+    // Permisos.
+    in property <bool> perm-web: true;
+    in property <bool> perm-read-outside: false;
+    in property <bool> perm-terminal: true;
+    in property <bool> perm-ftp: true;
+    in property <bool> autopilot: false;
+    in property <bool> sandbox: true;
+    in property <bool> confirm: true;
+    in property <int> image-count: 0;
+    // Tope de contexto (etiqueta corta, p. ej. `48k`).
+    in property <string> context: "48k";
+    // Selector de modelo.
+    in property <[IdeChatModel]> models: [];
+    in property <int> model-index: -1;
+    // Listado de modelos (pestaña «modelos»).
+    in property <[IdeModelRow]> model-rows: [];
+    in-out property <string> model-filter: "";
+    in property <string> model-sort: "especialidad";
+    in property <[string]> tasks: [];
+    in property <int> task-index: 0;
+    in-out property <bool> model-menu-open: false;
+    // Mostrar los mensajes de *proceso* (herramientas y avisos). Por defecto se
+    // ocultan: se ve un 🧠 que titila mientras el agente trabaja.
+    in-out property <bool> show-process: false;
+    // Pulso del 🧠 (lo alterna la IDE).
+    in property <bool> pulse: false;
+    // Hay un modal abierto (paleta/búsqueda/prompt): el input no debe consumir
+    // las teclas, que se reenvían a Rust vía `global-key`.
+    in property <bool> modal-open: false;
+    // Confirmación pendiente (acción sensible del agente).
+    in property <bool> pending: false;
+    in property <string> pending-title: "";
+    in property <string> pending-detail: "";
+    in-out property <string> draft: "";
+
+    // El padre (ventana) eleva cada acción a Rust.
+    callback send(string);
+    callback cancel();
+    callback answer(bool);
+    callback toggle-auto-approve();
+    callback toggle-free();
+    callback clear();
+    callback model-picked(int);
+    callback task-picked(int);
+    // Listado de modelos: probar/probar todos/usar/filtrar.
+    callback model-ping(int);
+    callback model-ping-all();
+    callback model-row-use(int);
+    callback model-filter-changed(string);
+    callback model-sort-cycle();
+    callback model-sync();
+    callback attach-image();
+    callback clear-images();
+    callback cycle-context();
+    // Copiar texto al portapapeles (respuesta completa o bloque de código).
+    callback copy-text(string);
+    // Permisos (id: "web" | "read-outside" | "terminal" | "autopilot").
+    callback toggle-perm(string);
+    // Atajos globales reenviados (p. ej. Ctrl+Shift+P) cuando el foco está en el
+    // input del chat, que no es un `FocusScope`.
+    callback global-key(string, bool, bool, bool);
+
+    // Reenvía las teclas que el input no consume (no acepta → no interfiere con
+    // el tipeo normal).
+    key-pressed(event) => {
+        root.global-key(event.text, event.modifiers.control, event.modifiers.shift, event.modifiers.alt);
+        reject
+    }
+
+    // --- chrome del panel (igual que los otros paneles) ---
+    // (la superficie va en el `Rectangle` interno; la raíz es un `FocusScope`)
+
+    // --- métricas ---
+    private property <length> header-h: 34px;
+    private property <length> toolbar-h: 34px;
+    private property <length> confirm-h: root.pending ? 40px : 0px;
+    private property <length> input-h: 46px;
+    private property <length> footer-h: 30px;
+    private property <length> top-h: root.header-h + root.toolbar-h + root.confirm-h;
+    private property <length> bottom-h: root.input-h + root.footer-h;
+
+    // Color del rol del mensaje.
+    function role-color(role: int) -> color {
+        role == 0 ? IdeTheme.mint
+            : role == 1 ? IdeTheme.online
+            : role == 2 ? IdeTheme.amber
+            : role == 4 ? IdeTheme.del
+            : IdeTheme.text-dim
+    }
+
+    // Avatar por rol: usuario vs IA (y herramienta/aviso/error).
+    function role-avatar(role: int) -> string {
+        role == 0 ? "🧑" : role == 1 ? "🤖" : role == 2 ? "🔧" : role == 4 ? "⚠" : "•"
+    }
+    function role-avatar-bg(role: int) -> color {
+        role == 0 ? IdeTheme.control-hi
+            : role == 1 ? IdeTheme.selection
+            : IdeTheme.panel-hi
+    }
+
+    // Seguir el final sólo si el usuario ya estaba al final (stick). Así, si
+    // sube a leer, las respuestas nuevas no lo bajan solas.
+    in-out property <bool> stick: true;
+
+    // --- superficie visual ---
+    Rectangle {
+        width: parent.width;
+        height: parent.height;
+        background: IdeTheme.panel;
+        opacity: IdeTheme.panel-alpha;
+        border-width: IdeTheme.hairline;
+        border-color: transparent;
+        border-radius: IdeTheme.radius;
+        clip: true;
+
+    // ------------------------------------------------------------------ header
+    Rectangle {
+        x: 0;
+        y: 0;
+        width: parent.width;
+        height: root.header-h;
+        background: IdeTheme.bg;
+
+        DockHandle { x: 0; y: 0; height: parent.height; panel: 1; }
+
+        HorizontalLayout {
+            x: 0;
+            y: 0;
+            width: parent.width;
+            height: parent.height;
+            padding-left: 14px;
+            padding-right: 12px;
+            spacing: 8px;
+            alignment: start;
+            cross-axis-alignment: center;
+
+            Text {
+                text: @tr("AGENTE · NUCODER");
+                color: IdeTheme.text-dim;
+                font-family: IdeTheme.sans;
+                font-size: 10px;
+                font-weight: 600;
+                letter-spacing: 1.6px;
+                vertical-alignment: center;
+            }
+
+            // Modelo (abre el selector).
+            NChip {
+                label: root.model + " ▾";
+                tint: IdeTheme.mint;
+                active: root.model-menu-open;
+                tip: @tr("Elegir el modelo del agente");
+                activated => { root.model-menu-open = !root.model-menu-open; }
+            }
+
+            Rectangle { horizontal-stretch: 1; background: transparent; }
+
+            NChip {
+                label: @tr("modelos");
+                tint: root.view == 2 ? IdeTheme.mint : IdeTheme.text-soft;
+                active: root.view == 2;
+                tip: @tr("Listado de modelos: especialidad, gratis/poder y probar (ping)");
+                activated => { root.view = root.view == 2 ? 0 : 2; }
+            }
+            NChip {
+                label: @tr("permisos");
+                tint: root.view == 1 ? IdeTheme.mint : IdeTheme.text-soft;
+                active: root.view == 1;
+                tip: @tr("Permisos del agente: internet, leer fuera del proyecto, terminales, autopiloto");
+                activated => { root.view = root.view == 1 ? 0 : 1; }
+            }
+
+            // 🧠: el agente está pensando/trabajando (titila). Clic: muestra u
+            // oculta el *proceso* (herramientas y avisos).
+            brain := Rectangle {
+                width: 26px;
+                height: 22px;
+                border-radius: IdeTheme.radius-sm;
+                background: root.show-process ? IdeTheme.control : (brain-hit.has-hover ? IdeTheme.control : transparent);
+                Text {
+                    width: parent.width;
+                    height: parent.height;
+                    text: "🧠";
+                    font-size: 13px;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                    opacity: root.running ? (root.pulse ? 1.0 : 0.3) : (root.show-process ? 1.0 : 0.5);
+                    animate opacity { duration: 220ms; }
+                }
+                brain-hit := TouchArea {
+                    mouse-cursor: MouseCursor.pointer;
+                    clicked => { root.show-process = !root.show-process; }
+                }
+                Tooltip { TipContent { text: @tr("Ver u ocultar el proceso (herramientas y avisos del agente)"); } }
+            }
+
+            Rectangle {
+                width: 7px;
+                height: 7px;
+                border-radius: 4px;
+                background: root.connected ? IdeTheme.online : IdeTheme.del;
+            }
+            Text {
+                text: root.running ? @tr("trabajando…") : (root.connected ? @tr("listo") : @tr("desconectado"));
+                color: root.running ? IdeTheme.amber : IdeTheme.text-dim;
+                font-family: IdeTheme.sans;
+                font-size: 11px;
+                vertical-alignment: center;
+            }
+        }
+
+        Rectangle {
+            y: parent.height - IdeTheme.hairline;
+            width: parent.width;
+            height: IdeTheme.hairline;
+            background: IdeTheme.border-faint;
+        }
+    }
+
+    // ----------------------------------------------------------------- toolbar
+    Rectangle {
+        visible: root.view == 0;
+        x: 0;
+        y: root.header-h;
+        width: parent.width;
+        height: root.toolbar-h;
+        background: IdeTheme.panel-hi;
+
+        HorizontalLayout {
+            x: 0;
+            y: 0;
+            width: parent.width;
+            height: parent.height;
+            padding-left: 10px;
+            padding-right: 10px;
+            spacing: 8px;
+            alignment: start;
+            cross-axis-alignment: center;
+
+            // Tarea (clic: cicla).
+            NChip {
+                label: "tarea: " + root.task;
+                tip: @tr("Cambiar la tarea del router (complete/refactor/debug/…)");
+                activated => { root.task-picked(mod(root.task-index + 1, max(1, root.tasks.length))); }
+            }
+
+            // Imagen (visión).
+            NChip {
+                label: @tr("imagen");
+                tip: @tr("Adjuntar una imagen al próximo mensaje (modelos con visión)");
+                activated => { root.attach-image(); }
+            }
+            if root.image-count > 0: NChip {
+                label: root.image-count + @tr(" img ✕");
+                tint: IdeTheme.amber;
+                tip: @tr("Quitar la imagen adjunta");
+                activated => { root.clear-images(); }
+            }
+
+            // Contexto (clic: cicla).
+            NChip {
+                label: "ctx " + root.context;
+                tip: @tr("Tope de contexto para la compactación");
+                activated => { root.cycle-context(); }
+            }
+
+            Rectangle { horizontal-stretch: 1; background: transparent; }
+
+            NToggle {
+                label: @tr("gratis");
+                active: root.free-only;
+                tip: @tr("Router sólo con modelos gratuitos");
+                toggled => { root.toggle-free(); }
+            }
+            NToggle {
+                label: @tr("auto-aprobar");
+                active: root.auto-approve;
+                tip: @tr("No pedir confirmación para borrar/mover/bash/terminal");
+                toggled => { root.toggle-auto-approve(); }
+            }
+            NButton {
+                label: @tr("nueva");
+                activated => { root.clear(); }
+            }
+        }
+
+        Rectangle {
+            y: parent.height - IdeTheme.hairline;
+            width: parent.width;
+            height: IdeTheme.hairline;
+            background: IdeTheme.border-faint;
+        }
+    }
+
+    // --------------------------------------------------------------- confirmación
+    if root.view == 0 && root.pending: Rectangle {
+        x: 0;
+        y: root.header-h + root.toolbar-h;
+        width: parent.width;
+        height: root.confirm-h;
+        background: IdeTheme.find-current;
+
+        Text {
+            x: 14px;
+            y: (parent.height - self.height) / 2;
+            width: parent.width - 200px;
+            text: "⚠ " + root.pending-title + "  " + root.pending-detail;
+            color: IdeTheme.amber;
+            font-family: IdeTheme.sans;
+            font-size: 11px;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+
+        HorizontalLayout {
+            x: 0;
+            y: 0;
+            width: parent.width - 10px;
+            height: parent.height;
+            padding-right: 10px;
+            spacing: 8px;
+            alignment: end;
+            cross-axis-alignment: center;
+
+            NButton {
+                label: @tr("Aprobar");
+                primary: true;
+                activated => { root.answer(true); }
+            }
+            NButton {
+                label: @tr("Rechazar");
+                activated => { root.answer(false); }
+            }
+        }
+    }
+
+    // --------------------------------------------------------------- mensajes
+    Rectangle {
+        visible: root.view == 0;
+        x: 0;
+        y: root.top-h;
+        width: parent.width;
+        height: max(0px, parent.height - root.top-h - root.bottom-h);
+        background: IdeTheme.bg;
+    }
+    chat := Flickable {
+        visible: root.view == 0;
+        x: 0;
+        y: root.top-h;
+        width: parent.width;
+        height: max(0px, parent.height - root.top-h - root.bottom-h);
+        content-width: self.width;
+        content-height: thread.preferred-height + 16px;
+
+        // Seguir el final cuando crece el contenido, salvo que el usuario haya
+        // subido a leer (stick = false).
+        changed content-height => {
+            if root.stick {
+                chat.content-y = max(0px, chat.content-height - chat.height);
+            }
+        }
+        // Actualizar "stick" según dónde quedó la vista tras un scroll.
+        changed content-y => {
+            root.stick = chat.content-y >= max(0px, chat.content-height - chat.height) - 2px;
+        }
+
+        thread := VerticalLayout {
+            x: 12px;
+            width: parent.width - 24px;
+            padding-top: 8px;
+            padding-bottom: 8px;
+            spacing: 6px;
+
+            for m[i] in root.messages: Rectangle {
+                // Ocultar el *proceso* (herramientas/avisos) salvo que se pida.
+                visible: root.show-process || (m.role != 2 && m.role != 3);
+                height: self.preferred-height;
+                border-radius: IdeTheme.radius-sm;
+                background: m.role == 0 ? IdeTheme.control : IdeTheme.panel;
+                border-width: 1px;
+                border-color: IdeTheme.border-faint;
+
+                HorizontalLayout {
+                    padding: 10px;
+                    spacing: 9px;
+                    alignment: start;
+                    cross-axis-alignment: start;
+
+                    // Avatar: distingue usuario de IA (y herramienta/aviso/error).
+                    Rectangle {
+                        width: 26px;
+                        height: 26px;
+                        border-radius: 13px;
+                        background: root.role-avatar-bg(m.role);
+                        Text {
+                            width: parent.width;
+                            height: parent.height;
+                            text: root.role-avatar(m.role);
+                            font-size: 14px;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+                    }
+
+                    VerticalLayout {
+                        horizontal-stretch: 1;
+                        spacing: 5px;
+
+                        HorizontalLayout {
+                            spacing: 6px;
+                            alignment: start;
+                            cross-axis-alignment: center;
+                            Text {
+                                text: m.title;
+                                color: root.role-color(m.role);
+                                font-family: IdeTheme.mono;
+                                font-size: 10px;
+                                font-weight: 600;
+                                letter-spacing: 0.8px;
+                                vertical-alignment: center;
+                            }
+                            Rectangle { horizontal-stretch: 1; background: transparent; }
+                            msg-copy := Rectangle {
+                                width: 50px;
+                                height: 16px;
+                                border-radius: 3px;
+                                background: msg-copy-hit.has-hover ? IdeTheme.control-hi : transparent;
+                                Text {
+                                    width: parent.width;
+                                    height: parent.height;
+                                    text: @tr("copiar");
+                                    color: msg-copy-hit.has-hover ? IdeTheme.mint : IdeTheme.text-dim;
+                                    font-family: IdeTheme.sans;
+                                    font-size: 9px;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                }
+                                msg-copy-hit := TouchArea {
+                                    mouse-cursor: MouseCursor.pointer;
+                                    clicked => { root.copy-text(m.text); }
+                                }
+                                Tooltip { TipContent { text: @tr("Copiar la respuesta completa"); } }
+                            }
+                        }
+
+                    for s[j] in m.segs: Rectangle {
+                        height: self.preferred-height;
+
+                        VerticalLayout {
+                            spacing: 2px;
+
+                            if !s.code: StyledText {
+                                text: s.md;
+                                default-color: IdeTheme.text;
+                                default-font-family: IdeTheme.sans;
+                                default-font-size: 13px;
+                                link-color: IdeTheme.mint;
+                            }
+
+                            if s.code: Rectangle {
+                                height: code-body.preferred-height + (s.lang == "" ? 14px : 28px);
+                                border-radius: IdeTheme.radius-sm;
+                                background: IdeTheme.panel;
+                                border-width: 1px;
+                                border-color: IdeTheme.border-faint;
+                                clip: true;
+
+                                if s.lang != "": Text {
+                                    x: 12px;
+                                    y: 7px;
+                                    text: s.lang;
+                                    color: IdeTheme.text-dim;
+                                    font-family: IdeTheme.mono;
+                                    font-size: 10px;
+                                }
+
+                                // Copiar sólo este bloque de código.
+                                code-copy := Rectangle {
+                                    x: parent.width - 58px;
+                                    y: 4px;
+                                    width: 50px;
+                                    height: 18px;
+                                    border-radius: 3px;
+                                    background: code-copy-hit.has-hover ? IdeTheme.control : transparent;
+                                    Text {
+                                        width: parent.width;
+                                        height: parent.height;
+                                        text: @tr("copiar");
+                                        color: code-copy-hit.has-hover ? IdeTheme.mint : IdeTheme.text-dim;
+                                        font-family: IdeTheme.sans;
+                                        font-size: 9px;
+                                        horizontal-alignment: center;
+                                        vertical-alignment: center;
+                                    }
+                                    code-copy-hit := TouchArea {
+                                        mouse-cursor: MouseCursor.pointer;
+                                        clicked => { root.copy-text(s.raw); }
+                                    }
+                                    Tooltip { TipContent { text: @tr("Copiar sólo este bloque de código"); } }
+                                }
+
+                                code-body := VerticalLayout {
+                                    x: 12px;
+                                    y: s.lang == "" ? 7px : 24px;
+                                    width: parent.width - 24px;
+                                    spacing: 1px;
+
+                                    for l in s.lines: HorizontalLayout {
+                                        spacing: 0;
+                                        alignment: start;
+                                        for t in l.tokens: Text {
+                                            text: t.text;
+                                            color: t.kind == 1 ? IdeTheme.code-comment
+                                                : t.kind == 2 ? IdeTheme.code-keyword
+                                                : t.kind == 3 ? IdeTheme.code-string
+                                                : t.kind == 4 ? IdeTheme.code-number
+                                                : t.kind == 5 ? IdeTheme.mint
+                                                : IdeTheme.code-text;
+                                            font-family: IdeTheme.mono;
+                                            font-size: IdeTheme.editor-font-size;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    }
+
+    // ------------------------------------------------------------------ input
+    Rectangle {
+        visible: root.view == 0;
+        x: 0;
+        y: parent.height - root.bottom-h;
+        width: parent.width;
+        height: root.input-h;
+        background: IdeTheme.bg;
+
+        Rectangle {
+            x: 12px;
+            y: 8px;
+            width: parent.width - 24px;
+            height: 30px;
+            border-radius: IdeTheme.radius-sm;
+            background: IdeTheme.panel;
+            border-width: 1px;
+            border-color: prompt.has-focus ? IdeTheme.mint : IdeTheme.border-soft;
+
+            prompt := TextInput {
+                x: 10px;
+                y: 0;
+                width: parent.width - 20px;
+                height: parent.height;
+                text <=> root.draft;
+                single-line: true;
+                enabled: !root.running && !root.modal-open;
+                color: IdeTheme.text;
+                font-family: IdeTheme.mono;
+                font-size: 12px;
+                vertical-alignment: center;
+                accepted => { root.send(root.draft); }
+            }
+
+            if root.draft == "" && !root.running && !root.modal-open: Text {
+                x: 11px;
+                y: (parent.height - self.height) / 2;
+                text: @tr("Escribí y Enter para enviar…");
+                color: IdeTheme.text-dim;
+                font-family: IdeTheme.mono;
+                font-size: 12px;
+                vertical-alignment: center;
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------ footer
+    Rectangle {
+        visible: root.view == 0;
+        x: 0;
+        y: parent.height - root.footer-h;
+        width: parent.width;
+        height: root.footer-h;
+        background: IdeTheme.panel;
+
+        Text {
+            x: 14px;
+            y: (parent.height - self.height) / 2;
+            width: parent.width - 160px;
+            text: root.pending ? @tr("Confirmá la acción")
+                : root.running ? @tr("🧠 pensando…")
+                : @tr("Enter envía · auto-aprobar saltea las confirmaciones");
+            color: IdeTheme.text-dim;
+            font-family: IdeTheme.sans;
+            font-size: 10px;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+
+        HorizontalLayout {
+            x: parent.width - 150px;
+            y: 3px;
+            width: 140px;
+            height: parent.height - 6px;
+            spacing: 8px;
+            alignment: end;
+            cross-axis-alignment: center;
+
+            end-btn := Rectangle {
+                width: 44px;
+                height: 24px;
+                border-radius: IdeTheme.radius-sm;
+                background: end-hit.has-hover ? IdeTheme.control-hi : IdeTheme.control;
+                Text {
+                    width: parent.width;
+                    height: parent.height;
+                    text: @tr("final");
+                    color: IdeTheme.text-soft;
+                    font-family: IdeTheme.sans;
+                    font-size: 10px;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+                end-hit := TouchArea {
+                    mouse-cursor: MouseCursor.pointer;
+                    clicked => { chat.content-y = max(0px, chat.content-height - chat.height); }
+                }
+                Tooltip { TipContent { text: @tr("Ir al final del texto"); } }
+            }
+
+            if root.running: NButton {
+                label: @tr("Detener");
+                activated => { root.cancel(); }
+            }
+            if !root.running: NButton {
+                label: @tr("Enviar");
+                primary: true;
+                enabled: root.draft != "";
+                activated => { root.send(root.draft); }
+            }
+        }
+    }
+
+    // ------------------------------------------------ permisos
+    if root.view == 1: Rectangle {
+        x: 0;
+        y: root.header-h;
+        width: parent.width;
+        height: parent.height - root.header-h;
+        background: IdeTheme.bg;
+
+        VerticalLayout {
+            x: 0;
+            y: 0;
+            width: parent.width;
+            height: parent.height;
+            padding-top: 8px;
+            padding-bottom: 8px;
+
+            PermRow {
+                label: @tr("Internet");
+                hint: @tr("Navegar y consultar la web (web_fetch / web_search, DuckDuckGo)");
+                active: root.perm-web;
+                toggled => { root.toggle-perm("web"); }
+            }
+            PermRow {
+                label: @tr("Leer fuera del proyecto");
+                hint: @tr("Permitir leer rutas fuera del workspace (las escrituras siguen confinadas)");
+                active: root.perm-read-outside;
+                toggled => { root.toggle-perm("read-outside"); }
+            }
+            PermRow {
+                label: @tr("Terminales de la IDE");
+                hint: @tr("Escribir comandos en las terminales reales (run_in_terminal)");
+                active: root.perm-terminal;
+                toggled => { root.toggle-perm("terminal"); }
+            }
+            PermRow {
+                label: @tr("Cliente FTP");
+                hint: @tr("Operar el cliente FTP de la IDE: listar, subir, bajar, borrar (ftp_*)");
+                active: root.perm-ftp;
+                toggled => { root.toggle-perm("ftp"); }
+            }
+            PermRow {
+                label: @tr("Sandbox de escrituras");
+                hint: @tr("Confina las escrituras al proyecto; apagado, deja escribir fuera (--no-sandbox)");
+                active: root.sandbox;
+                toggled => { root.toggle-perm("sandbox"); }
+            }
+            PermRow {
+                label: @tr("Confirmación");
+                hint: @tr("Pedir aprobación antes de borrar/mover/bash/terminal (lo pisa auto-aprobar)");
+                active: root.confirm;
+                toggled => { root.toggle-perm("confirm"); }
+            }
+            PermRow {
+                label: @tr("Autopiloto");
+                hint: @tr("Tras aprobar el plan, ejecutar todos los pasos sin pedir confirmación");
+                active: root.autopilot;
+                toggled => { root.toggle-perm("autopilot"); }
+            }
+
+            Rectangle { vertical-stretch: 1; background: transparent; }
+
+            Text {
+                width: parent.width;
+                text: @tr("Los permisos se guardan en la config de NuCoder y se aplican al próximo turno del agente.");
+                color: IdeTheme.text-dim;
+                font-family: IdeTheme.sans;
+                font-size: 10px;
+                wrap: word-wrap;
+            }
+        }
+    }
+
+    // ------------------------------------------------ listado de modelos
+    if root.view == 2: Rectangle {
+        x: 0;
+        y: root.header-h;
+        width: parent.width;
+        height: parent.height - root.header-h;
+        background: IdeTheme.bg;
+
+        // Filtro + probar todos.
+        Rectangle {
+            x: 0;
+            y: 0;
+            width: parent.width;
+            height: 40px;
+            background: IdeTheme.panel-hi;
+
+            HorizontalLayout {
+                x: 10px;
+                y: 6px;
+                width: parent.width - 20px;
+                height: 28px;
+                spacing: 8px;
+                alignment: start;
+                cross-axis-alignment: center;
+
+                Rectangle {
+                    width: parent.width - 350px;
+                    height: 28px;
+                    border-radius: IdeTheme.radius-sm;
+                    background: IdeTheme.bg;
+                    border-width: 1px;
+                    border-color: mfilter.has-focus ? IdeTheme.mint : IdeTheme.border-soft;
+                    mfilter := TextInput {
+                        x: 8px;
+                        y: 0;
+                        width: parent.width - 16px;
+                        height: parent.height;
+                        text <=> root.model-filter;
+                        single-line: true;
+                        color: IdeTheme.text;
+                        font-family: IdeTheme.mono;
+                        font-size: 11px;
+                        vertical-alignment: center;
+                        edited => { root.model-filter-changed(mfilter.text); }
+                    }
+                    if root.model-filter == "": Text {
+                        x: 8px;
+                        y: (parent.height - self.height) / 2;
+                        text: @tr("filtrar por nombre o especialidad…");
+                        color: IdeTheme.text-dim;
+                        font-family: IdeTheme.mono;
+                        font-size: 11px;
+                        vertical-alignment: center;
+                    }
+                }
+                NChip {
+                    label: "orden: " + root.model-sort;
+                    tip: @tr("Cambiar el orden del listado (especialidad / ping / nombre / gratis)");
+                    activated => { root.model-sort-cycle(); }
+                }
+                NButton {
+                    label: @tr("probar todos");
+                    activated => { root.model-ping-all(); }
+                }
+                NButton {
+                    label: @tr("sincronizar");
+                    activated => { root.model-sync(); }
+                }
+            }
+
+            Rectangle { y: parent.height - IdeTheme.hairline; width: parent.width; height: IdeTheme.hairline; background: IdeTheme.border-faint; }
+        }
+
+        // Lista.
+        Flickable {
+            x: 0;
+            y: 40px;
+            width: parent.width;
+            height: parent.height - 40px;
+            content-width: self.width;
+            content-height: mlist.preferred-height + 8px;
+
+            mlist := VerticalLayout {
+                x: 6px;
+                y: 4px;
+                width: parent.width - 12px;
+                spacing: 1px;
+
+                for r[i] in root.model-rows: Rectangle {
+                    height: r.header ? 26px : 30px;
+
+                    // Cabecera de sección (especialidad).
+                    if r.header: Text {
+                        x: 12px;
+                        y: (parent.height - self.height) / 2;
+                        text: r.label;
+                        color: IdeTheme.text-dim;
+                        font-family: IdeTheme.sans;
+                        font-size: 10px;
+                        font-weight: 600;
+                        letter-spacing: 1.4px;
+                        vertical-alignment: center;
+                    }
+                    if !r.header: ModelRowView {
+                        width: parent.width;
+                        height: 30px;
+                        label: r.label;
+                        specialty: r.specialty;
+                        free: r.free;
+                        power: r.power;
+                        status: r.status;
+                        state: r.state;
+                        chat: r.chat;
+                        probed => { root.model-ping(i); }
+                        used => { root.model-row-use(i); }
+                    }
+                }
+            }
+        }
+
+        if root.model-rows.length == 0: Text {
+            x: 0;
+            y: (parent.height - self.height) / 2;
+            width: parent.width;
+            text: @tr("sin modelos (configurá un proveedor y descubrí modelos: nucoder discover)");
+            color: IdeTheme.text-dim;
+            font-family: IdeTheme.sans;
+            font-size: 12px;
+            horizontal-alignment: center;
+        }
+    }
+
+    // ------------------------------------------------ selector de modelo
+    if root.model-menu-open: Rectangle {
+        x: 0;
+        y: root.header-h + root.toolbar-h;
+        width: parent.width;
+        height: parent.height - root.header-h - root.toolbar-h;
+        background: #00000044;
+
+        TouchArea { clicked => { root.model-menu-open = false; } }
+
+        menu := Rectangle {
+            x: 10px;
+            y: 8px;
+            width: min(380px, parent.width - 20px);
+            height: min(model-list.preferred-height + 16px, parent.height - 16px);
+            background: IdeTheme.panel;
+            border-width: 1px;
+            border-color: IdeTheme.border-soft;
+            border-radius: IdeTheme.radius;
+            clip: true;
+
+            Flickable {
+                x: 0;
+                y: 8px;
+                width: parent.width;
+                height: parent.height - 16px;
+                content-width: self.width;
+                content-height: model-list.preferred-height;
+
+                model-list := VerticalLayout {
+                    x: 0;
+                    width: parent.width;
+                    spacing: 1px;
+
+                    auto-row := Rectangle {
+                        height: 26px;
+                        width: parent.width;
+                        border-radius: IdeTheme.radius-sm;
+                        background: root.model-index == -1 ? IdeTheme.selection
+                            : (auto-row-hit.has-hover ? IdeTheme.control : transparent);
+                        Text {
+                            x: 12px;
+                            y: (parent.height - self.height) / 2;
+                            text: @tr("auto (router)");
+                            color: IdeTheme.text;
+                            font-family: IdeTheme.mono;
+                            font-size: 11px;
+                            vertical-alignment: center;
+                        }
+                        auto-row-hit := TouchArea {
+                            mouse-cursor: MouseCursor.pointer;
+                            clicked => { root.model-menu-open = false; root.model-picked(-1); }
+                        }
+                    }
+
+                    for m[i] in root.models: Rectangle {
+                        height: 26px;
+                        width: parent.width;
+                        border-radius: IdeTheme.radius-sm;
+                        background: root.model-index == i ? IdeTheme.selection
+                            : (mrow-hit.has-hover ? IdeTheme.control : transparent);
+                        Text {
+                            x: 12px;
+                            width: parent.width - 96px;
+                            y: (parent.height - self.height) / 2;
+                            text: m.label;
+                            color: IdeTheme.text;
+                            font-family: IdeTheme.mono;
+                            font-size: 11px;
+                            vertical-alignment: center;
+                            overflow: elide;
+                        }
+                        Text {
+                            x: parent.width - 86px;
+                            y: (parent.height - self.height) / 2;
+                            text: (m.free ? "free" : "pago") + " p" + m.power;
+                            color: m.free ? IdeTheme.add : IdeTheme.text-dim;
+                            font-family: IdeTheme.mono;
+                            font-size: 10px;
+                            vertical-alignment: center;
+                        }
+                        mrow-hit := TouchArea {
+                            mouse-cursor: MouseCursor.pointer;
+                            clicked => { root.model-menu-open = false; root.model-picked(i); }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    }
+}

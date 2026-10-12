@@ -5,7 +5,6 @@
 //! en un hilo y avisan por un canal, igual que el linter y el build.
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::sync::mpsc::Sender;
 use std::thread;
 
@@ -77,6 +76,8 @@ pub enum Op {
 
 /// Resultado de una operación, con el estado ya refrescado.
 pub struct GitResult {
+    /// Época de la operación (para descartar resultados viejos).
+    pub gen: u64,
     /// Mensaje para mostrar al usuario.
     pub note: String,
     /// El mensaje es un error.
@@ -88,7 +89,7 @@ pub struct GitResult {
 
 /// Lee el estado del repositorio en `root`.
 pub fn status(root: &Path) -> Status {
-    let out = Command::new("git")
+    let out = crate::proc::hidden("git")
         .current_dir(root)
         .args(["status", "--porcelain=v1", "-b"])
         .output();
@@ -166,7 +167,7 @@ fn branch_of(rest: &str) -> String {
 /// Corre `git` en `root` y devuelve la salida (stdout, o stderr si stdout está
 /// vacío). Un fallo devuelve el stderr como error.
 fn run(root: &Path, args: &[&str]) -> Result<String, String> {
-    let out = Command::new("git")
+    let out = crate::proc::hidden("git")
         .current_dir(root)
         .args(args)
         .output()
@@ -292,7 +293,7 @@ fn normalize_remote(raw: &str) -> String {
 }
 
 /// Corre la operación en un hilo y manda el resultado (con el estado nuevo).
-pub fn spawn(root: PathBuf, op: Op, tx: Sender<GitResult>) {
+pub fn spawn(root: PathBuf, op: Op, gen: u64, tx: Sender<GitResult>) {
     thread::spawn(move || {
         let committed = matches!(op, Op::Commit(_) | Op::Amend(_));
         let (note, error) = match perform(&root, &op) {
@@ -301,6 +302,7 @@ pub fn spawn(root: PathBuf, op: Op, tx: Sender<GitResult>) {
         };
         let status = status(&root);
         let _ = tx.send(GitResult {
+            gen,
             note,
             error,
             committed: committed && !error,
@@ -362,7 +364,7 @@ mod tests {
     #[test]
     fn flujo_real_de_un_repositorio_temporal() {
         // Sin `git` instalado, el test se saltea.
-        if Command::new("git").arg("--version").output().is_err() {
+        if crate::proc::hidden("git").arg("--version").output().is_err() {
             return;
         }
         let dir = std::env::temp_dir().join(format!("nuide-git-flow-{}", std::process::id()));

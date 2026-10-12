@@ -1,0 +1,503 @@
+// Cliente FTP/FTPS/SFTP básico (módulo opt-in). Modal, como el visor de SQLite.
+//
+// Motor: `curl.exe` (ver `src/ftp.rs`). Acá sólo se dibuja: conexión, barra de
+// navegación, listado remoto y las acciones (entrar/bajar/subir/borrar/mkdir).
+
+import { IdeTheme } from "ide_theme.slint";
+import { IdeFtpEntry } from "ide_types.slint";
+import { TipContent } from "ide_tooltip.slint";
+
+// Campo de texto compacto del diálogo.
+component FtpField inherits Rectangle {
+    in property <string> label: "";
+    in-out property <string> value: "";
+    in property <bool> secret: false;
+    in property <length> w: 120px;
+    callback edited(string);
+
+    width: root.w;
+    height: 28px;
+    border-radius: IdeTheme.radius-sm;
+    background: IdeTheme.bg;
+    border-width: 1px;
+    border-color: field.has-focus ? IdeTheme.mint : IdeTheme.border-soft;
+
+    Text {
+        x: 8px;
+        y: (parent.height - self.height) / 2;
+        text: root.label;
+        color: IdeTheme.text-dim;
+        font-family: IdeTheme.sans;
+        font-size: 10px;
+        vertical-alignment: center;
+    }
+
+    field := TextInput {
+        x: root.label == "" ? 8px : 8px + 74px;
+        y: 0;
+        width: parent.width - self.x - 8px;
+        height: parent.height;
+        text <=> root.value;
+        single-line: true;
+        input-type: root.secret ? InputType.password : InputType.text;
+        color: IdeTheme.text;
+        font-family: IdeTheme.mono;
+        font-size: 11px;
+        vertical-alignment: center;
+        edited => { root.edited(field.text); }
+    }
+}
+
+// Fila del listado remoto.
+component FtpRow inherits Rectangle {
+    in property <string> name: "";
+    in property <bool> is-dir: false;
+    in property <string> size: "";
+    in property <bool> selected: false;
+    callback activated();
+    callback removed();
+
+    height: 24px;
+    border-radius: IdeTheme.radius-sm;
+    background: root.selected ? IdeTheme.selection : (row-hit.has-hover ? IdeTheme.control : transparent);
+
+    Text {
+        x: 10px;
+        y: (parent.height - self.height) / 2;
+        text: root.is-dir ? "📁" : "📄";
+        font-size: 11px;
+        vertical-alignment: center;
+    }
+    Text {
+        x: 30px;
+        y: (parent.height - self.height) / 2;
+        width: parent.width - 30px - 96px;
+        text: root.name;
+        color: root.is-dir ? IdeTheme.mint : IdeTheme.text;
+        font-family: IdeTheme.mono;
+        font-size: 11px;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    Text {
+        x: parent.width - 92px;
+        y: (parent.height - self.height) / 2;
+        width: 56px;
+        text: root.size;
+        color: IdeTheme.text-dim;
+        font-family: IdeTheme.mono;
+        font-size: 10px;
+        horizontal-alignment: right;
+        vertical-alignment: center;
+    }
+    row-hit := TouchArea {
+        mouse-cursor: MouseCursor.pointer;
+        clicked => { root.activated(); }
+    }
+    rm-hit := TouchArea {
+        x: parent.width - 26px;
+        y: 0;
+        width: 26px;
+        height: parent.height;
+        visible: root.name != "..";
+        mouse-cursor: MouseCursor.pointer;
+        clicked => { root.removed(); }
+        Text {
+            width: parent.width;
+            height: parent.height;
+            text: "✕";
+            color: rm-hit.has-hover ? IdeTheme.del : IdeTheme.text-dim;
+            font-family: IdeTheme.sans;
+            font-size: 12px;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+    }
+}
+
+export component IdeFtp inherits Rectangle {
+    in property <string> transport: "FTP";
+    in-out property <string> host: "";
+    in-out property <string> port: "21";
+    in-out property <string> user: "";
+    in-out property <string> pass: "";
+    in property <string> path: "/";
+    in property <[IdeFtpEntry]> entries: [];
+    in property <int> selected: 0;
+    in property <bool> busy: false;
+    in property <string> note: "";
+    in property <bool> error: false;
+    in property <string> pending-delete: "";
+    in-out property <string> new-folder: "";
+    in-out property <string> filter: "";
+
+    callback close();
+    callback cycle-transport();
+    callback edited(string, string);
+    callback use-project-site();
+    callback up();
+    callback refresh();
+    callback open-entry(int);
+    callback delete-entry(int);
+    callback confirm-delete();
+    callback cancel-delete();
+    callback upload();
+    callback mkdir(string);
+    callback filter-changed(string);
+
+    // Fondo que cierra al clic afuera.
+    Rectangle {
+        x: 0;
+        y: 0;
+        width: parent.width;
+        height: parent.height;
+        background: #000000aa;
+        TouchArea { clicked => { root.close(); } }
+    }
+
+    box := Rectangle {
+        x: (parent.width - self.width) / 2;
+        y: 48px;
+        width: min(900px, parent.width - 80px);
+        height: min(600px, parent.height - 96px);
+        background: IdeTheme.panel;
+        border-width: 1px;
+        border-color: IdeTheme.border-soft;
+        border-radius: IdeTheme.radius;
+        clip: true;
+
+        // --- encabezado ---
+        Rectangle {
+            x: 0;
+            y: 0;
+            width: parent.width;
+            height: 40px;
+            background: IdeTheme.bg;
+
+            Text {
+                x: 16px;
+                y: (parent.height - self.height) / 2;
+                text: @tr("CLIENTE FTP");
+                color: IdeTheme.text;
+                font-family: IdeTheme.sans;
+                font-size: 13px;
+                font-weight: 600;
+                letter-spacing: 1.2px;
+                vertical-alignment: center;
+            }
+            Text {
+                x: 150px;
+                y: (parent.height - self.height) / 2;
+                width: parent.width - 260px;
+                text: root.busy ? @tr("trabajando…") : (root.host == "" ? @tr("sin conexión") : root.transport + " · " + root.host);
+                color: root.busy ? IdeTheme.amber : IdeTheme.text-dim;
+                font-family: IdeTheme.mono;
+                font-size: 11px;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+            close-hit := TouchArea {
+                x: parent.width - 36px;
+                y: 8px;
+                width: 24px;
+                height: 24px;
+                mouse-cursor: MouseCursor.pointer;
+                clicked => { root.close(); }
+                Text {
+                    width: parent.width;
+                    height: parent.height;
+                    text: "✕";
+                    color: close-hit.has-hover ? IdeTheme.text : IdeTheme.text-soft;
+                    font-family: IdeTheme.sans;
+                    font-size: 14px;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+            Rectangle { y: parent.height - IdeTheme.hairline; width: parent.width; height: IdeTheme.hairline; background: IdeTheme.border-soft; }
+        }
+
+        // --- conexión ---
+        Rectangle {
+            x: 0;
+            y: 40px;
+            width: parent.width;
+            height: 42px;
+            background: transparent;
+
+            HorizontalLayout {
+                x: 12px;
+                y: 7px;
+                height: 28px;
+                spacing: 8px;
+                alignment: start;
+                cross-axis-alignment: center;
+
+                // transporte (clic: cicla)
+                tr-btn := Rectangle {
+                    width: 62px;
+                    height: 28px;
+                    border-radius: IdeTheme.radius-sm;
+                    background: tr-hit.has-hover ? IdeTheme.control-hi : IdeTheme.control;
+                    Text {
+                        width: parent.width;
+                        height: parent.height;
+                        text: root.transport + " ⟳";
+                        color: IdeTheme.mint;
+                        font-family: IdeTheme.sans;
+                        font-size: 11px;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                    tr-hit := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.cycle-transport(); } }
+                }
+                FtpField { label: @tr("Host"); w: 200px; value <=> root.host; edited(v) => { root.edited("host", v); } }
+                FtpField { label: @tr("Puerto"); w: 90px; value <=> root.port; edited(v) => { root.edited("port", v); } }
+                FtpField { label: @tr("Usuario"); w: 150px; value <=> root.user; edited(v) => { root.edited("user", v); } }
+                FtpField { label: @tr("Clave"); w: 150px; value <=> root.pass; secret: true; edited(v) => { root.edited("pass", v); } }
+
+                site-btn := Rectangle {
+                    width: 120px;
+                    height: 28px;
+                    border-radius: IdeTheme.radius-sm;
+                    background: site-hit.has-hover ? IdeTheme.control-hi : IdeTheme.control;
+                    Text {
+                        width: parent.width;
+                        height: parent.height;
+                        text: @tr("usar el proyecto");
+                        color: IdeTheme.text-soft;
+                        font-family: IdeTheme.sans;
+                        font-size: 11px;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                    site-hit := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.use-project-site(); } }
+                    Tooltip { TipContent { text: @tr("Trae host/usuario/clave del sitio configurado en Preferencias → Despliegue"); } }
+                }
+                conn-btn := Rectangle {
+                    width: 92px;
+                    height: 28px;
+                    border-radius: IdeTheme.radius-sm;
+                    background: conn-hit.has-hover ? #9fe6d8 : IdeTheme.mint;
+                    Text {
+                        width: parent.width;
+                        height: parent.height;
+                        text: @tr("Conectar");
+                        color: IdeTheme.bg;
+                        font-family: IdeTheme.sans;
+                        font-size: 11px;
+                        font-weight: 600;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                    conn-hit := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.refresh(); } }
+                }
+            }
+        }
+
+        // --- barra de navegación ---
+        Rectangle {
+            x: 0;
+            y: 82px;
+            width: parent.width;
+            height: 36px;
+            background: IdeTheme.panel-hi;
+
+            HorizontalLayout {
+                x: 12px;
+                y: 5px;
+                width: parent.width - 24px;
+                height: 26px;
+                spacing: 8px;
+                alignment: start;
+                cross-axis-alignment: center;
+
+                up-btn := Rectangle {
+                    width: 34px; height: 26px;
+                    border-radius: IdeTheme.radius-sm;
+                    background: up-hit.has-hover ? IdeTheme.control-hi : IdeTheme.control;
+                    Text { width: parent.width; height: parent.height; text: "↑"; color: IdeTheme.text-soft;
+                        font-family: IdeTheme.sans; font-size: 13px; horizontal-alignment: center; vertical-alignment: center; }
+                    up-hit := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.up(); } }
+                }
+                refresh-btn := Rectangle {
+                    width: 34px; height: 26px;
+                    border-radius: IdeTheme.radius-sm;
+                    background: rf-hit.has-hover ? IdeTheme.control-hi : IdeTheme.control;
+                    Text { width: parent.width; height: parent.height; text: "⟳"; color: IdeTheme.text-soft;
+                        font-family: IdeTheme.sans; font-size: 13px; horizontal-alignment: center; vertical-alignment: center; }
+                    rf-hit := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.refresh(); } }
+                }
+                Text {
+                    horizontal-stretch: 1;
+                    text: root.path;
+                    color: IdeTheme.mint;
+                    font-family: IdeTheme.mono;
+                    font-size: 11px;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+
+                // Filtro por nombre.
+                Rectangle {
+                    width: 120px;
+                    height: 26px;
+                    border-radius: IdeTheme.radius-sm;
+                    background: IdeTheme.bg;
+                    border-width: 1px;
+                    border-color: filter.has-focus ? IdeTheme.mint : IdeTheme.border-soft;
+                    filter := TextInput {
+                        x: 8px;
+                        y: 0;
+                        width: parent.width - 16px;
+                        height: parent.height;
+                        text <=> root.filter;
+                        single-line: true;
+                        color: IdeTheme.text;
+                        font-family: IdeTheme.mono;
+                        font-size: 11px;
+                        vertical-alignment: center;
+                        edited => { root.filter-changed(filter.text); }
+                    }
+                    if root.filter == "": Text {
+                        x: 8px; y: (parent.height - self.height) / 2;
+                        text: @tr("filtrar…");
+                        color: IdeTheme.text-dim;
+                        font-family: IdeTheme.mono;
+                        font-size: 11px;
+                        vertical-alignment: center;
+                    }
+                }
+
+                Rectangle {
+                    width: 120px;
+                    height: 26px;
+                    border-radius: IdeTheme.radius-sm;
+                    background: IdeTheme.bg;
+                    border-width: 1px;
+                    border-color: new-folder.has-focus ? IdeTheme.mint : IdeTheme.border-soft;
+                    new-folder := TextInput {
+                        x: 8px;
+                        y: 0;
+                        width: parent.width - 16px;
+                        height: parent.height;
+                        text <=> root.new-folder;
+                        single-line: true;
+                        color: IdeTheme.text;
+                        font-family: IdeTheme.mono;
+                        font-size: 11px;
+                        vertical-alignment: center;
+                    }
+                    if root.new-folder == "": Text {
+                        x: 8px; y: (parent.height - self.height) / 2;
+                        text: @tr("nueva carpeta…");
+                        color: IdeTheme.text-dim;
+                        font-family: IdeTheme.mono;
+                        font-size: 11px;
+                        vertical-alignment: center;
+                    }
+                }
+                mkdir-btn := Rectangle {
+                    width: 92px; height: 26px;
+                    border-radius: IdeTheme.radius-sm;
+                    background: mk-hit.has-hover ? IdeTheme.control-hi : IdeTheme.control;
+                    Text { width: parent.width; height: parent.height; text: @tr("Nueva carpeta"); color: IdeTheme.text-soft;
+                        font-family: IdeTheme.sans; font-size: 10px; horizontal-alignment: center; vertical-alignment: center; }
+                    mk-hit := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.mkdir(root.new-folder); root.new-folder = ""; } }
+                }
+                up-file := Rectangle {
+                    width: 104px; height: 26px;
+                    border-radius: IdeTheme.radius-sm;
+                    background: uf-hit.has-hover ? #9fe6d8 : IdeTheme.mint;
+                    Text { width: parent.width; height: parent.height; text: @tr("Subir archivo…"); color: IdeTheme.bg;
+                        font-family: IdeTheme.sans; font-size: 10px; font-weight: 600; horizontal-alignment: center; vertical-alignment: center; }
+                    uf-hit := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.upload(); } }
+                }
+            }
+
+            Rectangle { y: parent.height - IdeTheme.hairline; width: parent.width; height: IdeTheme.hairline; background: IdeTheme.border-faint; }
+        }
+
+        // --- listado ---
+        Flickable {
+            x: 0;
+            y: 118px;
+            width: parent.width;
+            height: parent.height - 118px - (root.pending-delete == "" ? 30px : 66px);
+            content-width: self.width;
+            content-height: list.preferred-height + 8px;
+
+            list := VerticalLayout {
+                x: 6px;
+                y: 4px;
+                width: parent.width - 12px;
+                spacing: 1px;
+                for e[i] in root.entries: FtpRow {
+                    name: e.name;
+                    is-dir: e.dir;
+                    size: e.size;
+                    selected: root.selected == i;
+                    activated => { root.open-entry(i); }
+                    removed => { root.delete-entry(i); }
+                }
+            }
+        }
+
+        // --- confirmación de borrado (inline) ---
+        if root.pending-delete != "": Rectangle {
+            x: 0;
+            y: parent.height - 66px;
+            width: parent.width;
+            height: 36px;
+            background: IdeTheme.find-current;
+            Text {
+                x: 14px;
+                y: (parent.height - self.height) / 2;
+                width: parent.width - 220px;
+                text: @tr("¿Borrar") + " " + root.pending-delete + "?";
+                color: IdeTheme.amber;
+                font-family: IdeTheme.sans;
+                font-size: 11px;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+            HorizontalLayout {
+                x: parent.width - 200px; y: 5px; height: 26px; spacing: 8px; alignment: end; cross-axis-alignment: center;
+                ok := Rectangle {
+                    width: 84px; height: 26px; border-radius: IdeTheme.radius-sm;
+                    background: ok-hit.has-hover ? IdeTheme.del : #7a5252;
+                    Text { width: parent.width; height: parent.height; text: @tr("Borrar"); color: IdeTheme.bg;
+                        font-family: IdeTheme.sans; font-size: 11px; font-weight: 600; horizontal-alignment: center; vertical-alignment: center; }
+                    ok-hit := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.confirm-delete(); } }
+                }
+                no := Rectangle {
+                    width: 96px; height: 26px; border-radius: IdeTheme.radius-sm;
+                    background: no-hit.has-hover ? IdeTheme.control-hi : IdeTheme.control;
+                    Text { width: parent.width; height: parent.height; text: @tr("Cancelar"); color: IdeTheme.text-soft;
+                        font-family: IdeTheme.sans; font-size: 11px; horizontal-alignment: center; vertical-alignment: center; }
+                    no-hit := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.cancel-delete(); } }
+                }
+            }
+        }
+
+        // --- pie (nota) ---
+        Rectangle {
+            x: 0;
+            y: parent.height - 30px;
+            width: parent.width;
+            height: 30px;
+            background: IdeTheme.panel;
+            Text {
+                x: 14px;
+                y: (parent.height - self.height) / 2;
+                width: parent.width - 28px;
+                text: root.note;
+                color: root.error ? IdeTheme.del : IdeTheme.text-dim;
+                font-family: IdeTheme.sans;
+                font-size: 10px;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+        }
+    }
+}

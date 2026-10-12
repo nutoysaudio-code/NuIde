@@ -252,6 +252,9 @@ impl Site {
     }
 
     /// URL de destino para curl (`ftps://host/ruta`).
+    ///
+    /// **FTPS explícito** (recomendado): `ftp://` + `AUTH TLS` en el puerto 21.
+    /// Sólo se usa el esquema `ftps://` (implícito) cuando el puerto es 990.
     pub fn url_for(&self, remote: &str) -> String {
         let port = self.port_or_default();
         let suffix = if port == self.transport.default_port() {
@@ -259,19 +262,23 @@ impl Site {
         } else {
             format!(":{port}")
         };
+        let scheme = match self.transport {
+            Transport::Ftps if port != 990 => "ftp",
+            t => t.scheme(),
+        };
         let remote = remote.replace('\\', "/");
         let remote = if remote.starts_with('/') {
             remote
         } else {
             format!("/{remote}")
         };
-        format!(
-            "{}://{}{}{}",
-            self.transport.scheme(),
-            self.host,
-            suffix,
-            remote
-        )
+        format!("{scheme}://{}{suffix}{remote}", self.host)
+    }
+
+    /// ¿Es FTPS **explícito** (`ftp://` + `--ssl-reqd`)? El implícito (`ftps://`)
+    /// sólo aplica en el puerto 990.
+    pub fn is_explicit_ftps(&self) -> bool {
+        self.transport == Transport::Ftps && self.port_or_default() != 990
     }
 
     /// Argumentos de `curl` para subir un archivo.
@@ -290,6 +297,9 @@ impl Site {
         ];
         if self.transport == Transport::Ftp || self.transport == Transport::Ftps {
             args.push("--ftp-create-dirs".to_string());
+        }
+        if self.is_explicit_ftps() {
+            args.push("--ssl-reqd".to_string());
         }
         if self.transport == Transport::Ftps && !self.cacert.trim().is_empty() {
             args.push("--cacert".to_string());
@@ -446,9 +456,17 @@ mod tests {
             site(Transport::Ftp).url_for("public_html/a.html"),
             "ftp://ftp.ejemplo.com/public_html/a.html"
         );
+        // FTPS por defecto = **explícito** (`ftp://` + AUTH TLS, puerto 21).
         assert_eq!(
             site(Transport::Ftps).url_for("/x.css"),
-            "ftps://ftp.ejemplo.com/x.css"
+            "ftp://ftp.ejemplo.com/x.css"
+        );
+        // FTPS implícito sólo en el puerto 990.
+        let mut implicito = site(Transport::Ftps);
+        implicito.port = 990;
+        assert_eq!(
+            implicito.url_for("/x.css"),
+            "ftps://ftp.ejemplo.com:990/x.css"
         );
         assert_eq!(
             site(Transport::Sftp).url_for("x"),
@@ -462,16 +480,20 @@ mod tests {
     #[test]
     fn curl_args_sube_el_archivo_crea_carpetas_y_valida_ftps() {
         let args = site(Transport::Ftps).curl_args(Path::new("F:/p/a.html"), "public_html/a.html");
+        // FTPS explícito: `ftp://` + `--ssl-reqd`.
         let joined = args.join(" ");
         assert!(joined.contains("-T"), "{joined}");
         assert!(joined.contains("--ftp-create-dirs"), "{joined}");
         assert!(joined.contains("--fail"), "{joined}");
+        assert!(joined.contains("--ssl-reqd"), "{joined}");
         assert!(
-            joined.contains("ftps://ftp.ejemplo.com/public_html/a.html"),
+            joined.contains("ftp://ftp.ejemplo.com/public_html/a.html"),
             "{joined}"
         );
-        // FTP plano no necesita `--cacert`; FTPS con CA propia sí.
+        // FTP plano no necesita `--cacert` ni TLS; FTPS con CA propia sí.
         assert!(!joined.contains("--cacert"), "{joined}");
+        let plano = site(Transport::Ftp).curl_args(Path::new("a"), "b").join(" ");
+        assert!(!plano.contains("--ssl-reqd"), "{plano}");
         let mut con_ca = site(Transport::Ftps);
         con_ca.cacert = "F:/certs/mi-ca.pem".into();
         assert!(con_ca

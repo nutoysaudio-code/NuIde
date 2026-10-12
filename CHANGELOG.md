@@ -4,6 +4,49 @@ Todos los cambios relevantes de NuIde. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/) y el proyecto usa
 versionado semántico.
 
+## [0.3.2] — 2026-10-11
+
+### Corregido
+
+- **NuCoder**: ya no captura el mouse. Antes activaba el *mouse reporting* pero no
+  procesaba eventos de mouse, así que la terminal exigía `Shift` para seleccionar
+  texto y no se podía copiar. Ahora la selección/copia nativa funciona en el panel
+  del agente (el scroll sigue por teclado).
+
+## [0.3.1] — 2026-10-11
+
+### Agregado
+
+- **Presentación de NuCoder**: al iniciar la TUI (y en `--help`) muestra arte
+  ASCII moderno con la versión; si el panel es angosto se usa un título compacto.
+
+## [0.3.0] — 2026-10-11
+
+### Agregado
+
+- **Menú contextual del coder**: clic derecho en el panel del agente suma los
+  atajos de los comandos de NuCoder (tareas se insertan, acciones se ejecutan).
+- **NuCoder — proveedores por preset** (`provider add openrouter --api-key …`) y
+  **filtro de gratis por proveedor** (`free_filter`: auto/pricing/name/all/list).
+- **NuCoder — capacidades por modelo** (text/code/vision/image/audio/video/…),
+  listado/filtro (`nucoder models --free --cap image`) y ruteo (`--cap`).
+- **NuCoder — imágenes (visión)**: `/img` y `--img` adjuntan una imagen; el turno
+  se rutea a un modelo con visión.
+- **NuCoder — modelo forzado** (`--model`, `/model [n|id|auto]`, con Tab).
+- **NuCoder — chatear con Markdown** (títulos, listas, tablas, enlaces) con
+  **resaltado de sintaxis**, y paleta alineada al tema del IDE.
+- **NuCoder — memoria/contexto**: tope configurable (`context_chars`),
+  compactación, `/context`, y **sesiones por proyecto** (`/save`, `/load`,
+  `/sessions`, auto al salir/entrar).
+- **NuCoder — internet** (`web_fetch`, `web_search`), **KB local** (`read_docs`),
+  **sandbox** y **confirmación** de acciones sensibles.
+
+### Cambiado
+
+- **IDE — hilos y estados**: épocas (`gen`) en build/git/sqlite/lint/explorer para
+  descartar resultados viejos, tope de drenado por tick en los PTY, cancelación
+  cooperativa del build y **explorador reconstruido fuera del hilo de UI**.
+
 ## [0.2.2] — 2026-10-08
 
 ### Agregado

@@ -203,6 +203,75 @@ pub fn save_to(path: &Path, providers: &[Provider]) -> Result<String, String> {
 mod tests {
     use super::*;
 
+    /// Prefijos típicos de API keys.
+    const KEY_PREFIXES: [&str; 5] = ["sk-", "gsk_", "nvapi-", "AIza", "xai-"];
+
+    /// ¿El texto tiene algo con forma de API key? (prefijo + ≥16 alfanuméricos).
+    fn file_tiene_key(text: &str) -> bool {
+        for line in text.lines() {
+            for p in KEY_PREFIXES {
+                let mut from = 0;
+                while let Some(pos) = line[from..].find(p) {
+                    let start = from + pos + p.len();
+                    let run = line[start..]
+                        .chars()
+                        .take_while(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '-')
+                        .count();
+                    if run >= 16 {
+                        return true;
+                    }
+                    from = start;
+                }
+            }
+        }
+        false
+    }
+
+    /// Guardián: **ninguna API key debe quedar versionada** en el repo. Las keys
+    /// viven en `~/.config/nucoder/config.json` (fuera del repo). Se saltea si no
+    /// hay `git`.
+    #[test]
+    fn el_repo_no_tiene_keys_versionadas() {
+        let root = env!("CARGO_MANIFEST_DIR");
+        let out = crate::proc::hidden("git")
+            .args(["ls-files"])
+            .current_dir(root)
+            .output();
+        let Ok(out) = out else {
+            eprintln!("test salteado: no se pudo correr git");
+            return;
+        };
+        if !out.status.success() {
+            eprintln!("test salteado: `git ls-files` falló");
+            return;
+        }
+        let files = String::from_utf8_lossy(&out.stdout);
+        let mut bad: Vec<String> = Vec::new();
+        for f in files.lines() {
+            let path = std::path::Path::new(root).join(f);
+            let Ok(text) = fs::read_to_string(&path) else {
+                continue; // binario o no legible
+            };
+            if file_tiene_key(&text) {
+                bad.push(f.to_string());
+            }
+        }
+        assert!(bad.is_empty(), "posibles API keys versionadas: {bad:?}");
+    }
+
+    #[test]
+    fn el_detector_reconoce_keys_y_ignora_ejemplos() {
+        // Se arman por partes para que ESTE archivo no parezca tener una key.
+        let sk = format!("sk-{}", "or-v1-abcdefghijklmnop0123");
+        let gsk = format!("gsk_{}", "abcdefghijklmnopq");
+        assert!(file_tiene_key(&format!("api_key = \"{sk}\"")));
+        assert!(file_tiene_key(&format!("Authorization: Bearer {gsk}")));
+        // Ejemplos del README (con `...`) NO cuentan.
+        assert!(!file_tiene_key("--api-key sk-or-..."));
+        assert!(!file_tiene_key("--api-key sk-ant-..."));
+        assert!(!file_tiene_key("sin nada parecido"));
+    }
+
     struct TestDir(PathBuf);
 
     impl TestDir {

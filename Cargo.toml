@@ -1,13 +1,15 @@
 [package]
 name = "nuide"
-version = "0.2.2"
+version = "0.3.2"
 edition = "2021"
 description = "NuIde — IDE multi-lenguaje"
 
 # Proyecto independiente: no forma parte del workspace de audio NuToys. Declara
 # su propio workspace para poder compilarse solo, incluso viviendo dentro de
-# otra carpeta de trabajo.
+# otra carpeta de trabajo. `nucoder/` es un crate aparte (su propio workspace);
+# se enlaza por path como dependencia (núcleo compartido del agente).
 [workspace]
+exclude = ["nucoder"]
 
 [lib]
 name = "nuide"
@@ -32,6 +34,9 @@ serde_json = "1.0"
 # Diálogo nativo de carpetas para elegir el proyecto.
 rfd = "0.17.2"
 slint = "1.0"
+# Núcleo de NuCoder (router + config + agente + herramientas), compartido con el
+# CLI `nucoder`. UI-agnóstico: el panel de chat se dibuja acá, en Slint.
+nucoder = { path = "nucoder" }
 
 [build-dependencies]
 slint-build = "1.0"

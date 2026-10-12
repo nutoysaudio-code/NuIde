@@ -16,7 +16,7 @@
 
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::sync::mpsc::Sender;
 use std::thread::{self, JoinHandle};
 
@@ -148,7 +148,7 @@ fn transfer_args(site: &Site, t: &Transfer) -> (String, Vec<String>) {
 /// Corre una transferencia y devuelve `ok` + el detalle para la terminal.
 fn transfer_one(site: &Site, t: &Transfer) -> (bool, String) {
     let (program, args) = transfer_args(site, t);
-    match Command::new(&program).args(&args).output() {
+    match crate::proc::hidden(&program).args(&args).output() {
         Ok(out) => {
             let detail = String::from_utf8_lossy(&out.stderr).trim().to_string();
             (out.status.success(), detail)
@@ -183,7 +183,7 @@ pub fn spawn_test(site: Site, tx: Sender<DeployMsg>) -> JoinHandle<()> {
             site.host,
             site.transport.label()
         )));
-        match Command::new(CURL).args(&args).output() {
+        match crate::proc::hidden(CURL).args(&args).output() {
             Ok(out) if out.status.success() => {
                 let lines = String::from_utf8_lossy(&out.stdout).lines().count();
                 let _ = tx.send(DeployMsg::Log(format!(
@@ -318,7 +318,7 @@ fn run_script(
         "corriendo {} ...",
         script.file_name().unwrap_or_default().to_string_lossy()
     )));
-    let child = Command::new(&bin)
+    let child = crate::proc::hidden(&bin)
         .current_dir(script_dir)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

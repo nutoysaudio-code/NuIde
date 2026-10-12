@@ -34,6 +34,8 @@ pub struct Symbol {
 
 /// Resultado de una corrida del analizador.
 pub struct LintResult {
+    /// Época de la corrida (para descartar resultados viejos).
+    pub gen: u64,
     pub path: PathBuf,
     pub diagnostics: Vec<Diagnostic>,
     pub symbols: Vec<Symbol>,
@@ -92,7 +94,13 @@ for kind, name, line, detail in symbols:
 
 /// Corre el analizador de SpASM sobre `source` en un hilo y manda el resultado
 /// por `tx`. Si el proceso no arranca, devuelve un diagnóstico con el motivo.
-pub fn spawn(python: PathBuf, frontend: PathBuf, source: PathBuf, tx: Sender<LintResult>) {
+pub fn spawn(
+    python: PathBuf,
+    frontend: PathBuf,
+    source: PathBuf,
+    gen: u64,
+    tx: Sender<LintResult>,
+) {
     thread::spawn(move || {
         let mut cmd = Command::new(&python);
         cmd.arg("-c").arg(LINT_PY).arg(&frontend).arg(&source);
@@ -116,6 +124,7 @@ pub fn spawn(python: PathBuf, frontend: PathBuf, source: PathBuf, tx: Sender<Lin
             ),
         };
         let _ = tx.send(LintResult {
+            gen,
             path: source,
             diagnostics,
             symbols,
@@ -221,7 +230,7 @@ mod tests {
         .unwrap();
 
         let (tx, rx) = std::sync::mpsc::channel();
-        spawn(python, frontend, file.clone(), tx);
+        spawn(python, frontend, file.clone(), 0, tx);
         let result = rx
             .recv_timeout(std::time::Duration::from_secs(40))
             .expect("el linter devolvió un resultado");

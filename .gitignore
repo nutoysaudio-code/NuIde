@@ -11,3 +11,12 @@
 # Python (herramientas de desarrollo).
 __pycache__/
 *.pyc
+
+# Secretos: nunca versionar. Las API keys y las contraseñas de sitio viven en la
+# config del usuario (`~/.config/nucoder/config.json`, `%APPDATA%\NuIde`), no en
+# el repo. Estas reglas son un cinturón de seguridad.
+.env
+.env.*
+*.pem
+*.key
+secrets*.json

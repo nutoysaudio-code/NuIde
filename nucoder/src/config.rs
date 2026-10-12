@@ -14,7 +14,10 @@ use std::path::PathBuf;
 
 use serde_json::{json, Value};
 
+use crate::caps::{self, Cap};
+use crate::client;
 use crate::ffi;
+use crate::freefilter::{self, FreeFilter};
 
 /// Las tareas que entiende el router (prefijo `/tarea` en la TUI).
 pub const TASKS: [&str; 6] = [
@@ -26,6 +29,36 @@ pub const TASKS: [&str; 6] = [
     "architect",
 ];
 
+/// Un modelo de chat "curado" para la UI: sólo los ruteables (`text`), gratis
+/// primero y ordenados por utilidad (código → visión → texto → resto, luego
+/// potencia). Es lo que ofrece el selector del panel.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CuratedModel {
+    pub id: String,
+    pub label: String,
+    pub caps: Vec<Cap>,
+    pub free: bool,
+    pub power: u8,
+}
+
+/// Prioridad de capacidad para ordenar (lo más útil para el coder, primero).
+fn cap_rank(caps: &[Cap]) -> usize {
+    const ORDER: [Cap; 8] = [
+        Cap::Code,
+        Cap::Vision,
+        Cap::Text,
+        Cap::Audio,
+        Cap::Image,
+        Cap::Video,
+        Cap::Embedding,
+        Cap::Guard,
+    ];
+    caps.iter()
+        .map(|c| ORDER.iter().position(|o| o == c).unwrap_or(9))
+        .min()
+        .unwrap_or(9)
+}
+
 /// Un modelo de un proveedor.
 #[derive(Debug, Clone)]
 pub struct Model {
@@ -34,6 +67,8 @@ pub struct Model {
     pub free: bool,
     pub power: u8,
     pub cost_scaled: i64,
+    /// Capacidades (texto, código, visión, imagen, audio, video…).
+    pub caps: Vec<Cap>,
 }
 
 /// Un proveedor (endpoint OpenAI-compatible + su key).
@@ -45,17 +80,71 @@ pub struct Provider {
     pub api_key: String,
     /// Si es verdadero, sólo se ofrecen los modelos gratuitos de este proveedor.
     pub free_only: bool,
+    /// Cómo decidir si un modelo es gratis al descubrir.
+    pub free_filter: FreeFilter,
+    /// Marcadores/globs propios (si vacío, los por defecto).
+    pub free_match: Vec<String>,
     pub models: Vec<Model>,
 }
 
 /// Configuración cargada (unión de las dos fuentes).
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct Config {
     pub providers: Vec<Provider>,
     /// Campo `model` global (referencia opcional, hoy sólo informativa).
     pub default_model: Option<String>,
     /// Si es verdadero, el router sólo considera modelos gratuitos.
     pub free_only: bool,
+    /// Confina las tools de archivos del agente a la raíz del proyecto.
+    pub sandbox: bool,
+    /// Pide confirmación (TUI) antes de acciones sensibles.
+    pub confirm: bool,
+    /// **Auto-aprobar**: si es `true`, el agente no pide confirmación para
+    /// acciones sensibles (borrar/mover/bash) y las ejecuta directamente. Pisa
+    /// a `confirm`. Es el "switch" que se prende desde el panel (o por CLI).
+    pub auto_approve: bool,
+    /// --- permisos (pestaña Permisos del panel) ---
+    /// Permitir `web_fetch`/`web_search` (navegar/consultar internet).
+    pub perm_web: bool,
+    /// Permitir **leer** fuera del proyecto (el sandbox sólo confina escrituras).
+    pub perm_read_outside: bool,
+    /// Permitir `run_in_terminal` (escribir en las terminales de la IDE).
+    pub perm_terminal: bool,
+    /// Permitir el cliente FTP (`ftp_*` sobre el cliente abierto en la IDE).
+    pub perm_ftp: bool,
+    /// **Autopiloto**: tras aprobar un plan, sigue hasta terminarlo sin pedir
+    /// confirmación en cada paso.
+    pub autopilot: bool,
+    /// Rutas extra de la KB local (`read_docs`).
+    pub knowledge: Vec<String>,
+    /// Marca el system como cacheable (prompt caching del proveedor).
+    pub prompt_cache: bool,
+    /// Tope aproximado de contexto (caracteres) para la compactación.
+    pub context_chars: usize,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Config {
+            providers: Vec::new(),
+            default_model: None,
+            free_only: false,
+            // El sandbox y la confirmación arrancan activos (más seguro).
+            sandbox: true,
+            confirm: true,
+            auto_approve: false,
+            // Permisos: internet y terminales disponibles; leer fuera del
+            // proyecto, no; autopiloto, apagado.
+            perm_web: true,
+            perm_read_outside: false,
+            perm_terminal: true,
+            perm_ftp: true,
+            autopilot: false,
+            knowledge: Vec::new(),
+            prompt_cache: false,
+            context_chars: 48_000,
+        }
+    }
 }
 
 /// Un (proveedor, modelo) listo para pedirle al router.
@@ -79,6 +168,41 @@ impl Config {
 
         if let Some(v) = read_json(&own_path()) {
             cfg.free_only = v.get("free_only").and_then(Value::as_bool).unwrap_or(false);
+            cfg.sandbox = v.get("sandbox").and_then(Value::as_bool).unwrap_or(true);
+            cfg.confirm = v.get("confirm").and_then(Value::as_bool).unwrap_or(true);
+            cfg.auto_approve = v
+                .get("auto_approve")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            if let Some(p) = v.get("permissions") {
+                cfg.perm_web = p.get("web").and_then(Value::as_bool).unwrap_or(true);
+                cfg.perm_read_outside = p
+                    .get("read_outside")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
+                cfg.perm_terminal = p.get("terminal").and_then(Value::as_bool).unwrap_or(true);
+                cfg.perm_ftp = p.get("ftp").and_then(Value::as_bool).unwrap_or(true);
+            }
+            cfg.autopilot = v.get("autopilot").and_then(Value::as_bool).unwrap_or(false);
+            cfg.prompt_cache = v
+                .get("prompt_cache")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            cfg.context_chars = v
+                .get("context_chars")
+                .and_then(Value::as_u64)
+                .map(|n| n as usize)
+                .filter(|n| *n >= 2_000)
+                .unwrap_or(48_000);
+            cfg.knowledge = v
+                .get("knowledge")
+                .and_then(Value::as_array)
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|x| x.as_str().map(str::to_string))
+                        .collect()
+                })
+                .unwrap_or_default();
             cfg.default_model = v
                 .get("default_model")
                 .and_then(Value::as_str)
@@ -118,6 +242,12 @@ impl Config {
     }
 
     /// Escribe la config propia.
+    /// ¿El agente debe **pedir confirmación** antes de una acción sensible?
+    /// `auto_approve` gana: si está prendido, nunca se pregunta.
+    pub fn asks_confirmation(&self) -> bool {
+        self.confirm && !self.auto_approve
+    }
+
     pub fn save_own(&self) -> std::io::Result<PathBuf> {
         let path = own_path();
         if let Some(dir) = path.parent() {
@@ -127,6 +257,19 @@ impl Config {
         let doc = json!({
             "default_model": self.default_model,
             "free_only": self.free_only,
+            "sandbox": self.sandbox,
+            "confirm": self.confirm,
+            "auto_approve": self.auto_approve,
+            "permissions": {
+                "web": self.perm_web,
+                "read_outside": self.perm_read_outside,
+                "terminal": self.perm_terminal,
+                "ftp": self.perm_ftp,
+            },
+            "autopilot": self.autopilot,
+            "knowledge": self.knowledge,
+            "prompt_cache": self.prompt_cache,
+            "context_chars": self.context_chars,
             "providers": providers,
         });
         let mut text = serde_json::to_string_pretty(&doc).unwrap_or_else(|_| "{}".to_string());
@@ -136,8 +279,9 @@ impl Config {
     }
 
     /// Aplana proveedores/modelos a candidatos. `free_only` (además del flag por
-    /// proveedor) deja pasar sólo los modelos gratuitos.
-    pub fn candidates(&self, free_only: bool) -> Vec<Candidate> {
+    /// proveedor) deja pasar sólo los modelos gratuitos; `cap` filtra por
+    /// capacidad (texto/código/visión/imagen/audio/video…).
+    pub fn candidates(&self, free_only: bool, cap: Option<Cap>, vision: bool) -> Vec<Candidate> {
         let mut out = Vec::new();
         for (pi, p) in self.providers.iter().enumerate() {
             if p.base_url.trim().is_empty() {
@@ -146,6 +290,14 @@ impl Config {
             let only_free = free_only || p.free_only;
             for (mi, m) in p.models.iter().enumerate() {
                 if only_free && !m.free {
+                    continue;
+                }
+                if let Some(c) = cap {
+                    if !m.caps.contains(&c) {
+                        continue;
+                    }
+                }
+                if vision && !m.caps.contains(&Cap::Vision) {
                     continue;
                 }
                 let flat = out.len();
@@ -163,9 +315,87 @@ impl Config {
         out
     }
 
+    /// Busca un modelo por id (exacto, luego sufijo, luego "contiene"),
+    /// ignorando los filtros de gratis/capacidad: es una elección explícita.
+    pub fn find_candidate(&self, id: &str) -> Option<Candidate> {
+        let q = id.trim().to_lowercase();
+        if q.is_empty() {
+            return None;
+        }
+        let mut best: Option<(u8, Candidate)> = None;
+        for (pi, p) in self.providers.iter().enumerate() {
+            if p.base_url.trim().is_empty() {
+                continue;
+            }
+            for (mi, m) in p.models.iter().enumerate() {
+                let mid = m.id.to_lowercase();
+                let score = if mid == q {
+                    3
+                } else if mid.ends_with(&q) {
+                    2
+                } else if mid.contains(&q) {
+                    1
+                } else {
+                    0
+                };
+                if score == 0 || best.as_ref().is_some_and(|(s, _)| score <= *s) {
+                    continue;
+                }
+                best = Some((
+                    score,
+                    Candidate {
+                        provider_idx: pi,
+                        model_idx: mi,
+                        label: format!("{}/{}", p.name, m.name),
+                        free: m.free,
+                        power: m.power,
+                        cost_scaled: m.cost_scaled,
+                        flat: 0,
+                    },
+                ));
+            }
+        }
+        best.map(|(_, c)| c)
+    }
+
+    /// Modelos de chat curados para la UI: sólo los ruteables (`text`), gratis
+    /// primero, ordenados por capacidad y potencia.
+    pub fn curated_models(&self) -> Vec<CuratedModel> {
+        let mut out: Vec<CuratedModel> = Vec::new();
+        for p in &self.providers {
+            for m in &p.models {
+                if !m.caps.contains(&Cap::Text) {
+                    continue;
+                }
+                out.push(CuratedModel {
+                    id: m.id.clone(),
+                    label: format!("{}/{}", p.id, m.name),
+                    caps: m.caps.clone(),
+                    free: m.free,
+                    power: m.power,
+                });
+            }
+        }
+        out.sort_by(|a, b| {
+            (!a.free)
+                .cmp(&(!b.free))
+                .then(cap_rank(&a.caps).cmp(&cap_rank(&b.caps)))
+                .then(b.power.cmp(&a.power))
+                .then(a.id.cmp(&b.id))
+        });
+        out
+    }
+
     /// Decide el candidato para `task` con el router SpASM, saltando `excluded`.
-    pub fn route(&self, task: &str, excluded: &[usize], free_only: bool) -> Option<Candidate> {
-        let cands = self.candidates(free_only);
+    pub fn route(
+        &self,
+        task: &str,
+        excluded: &[usize],
+        free_only: bool,
+        cap: Option<Cap>,
+        vision: bool,
+    ) -> Option<Candidate> {
+        let cands = self.candidates(free_only, cap, vision);
         if cands.is_empty() {
             return None;
         }
@@ -206,6 +436,22 @@ fn parse_own_provider(v: &Value) -> Option<Provider> {
         .unwrap_or_default();
     let free_only = v.get("free_only").and_then(Value::as_bool).unwrap_or(false)
         || v.get("freeOnly").and_then(Value::as_bool).unwrap_or(false);
+    let free_match: Vec<String> = v
+        .get("free_match")
+        .and_then(Value::as_array)
+        .map(|a| {
+            a.iter()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default();
+    // Filtro explícito o, si falta, el preset del proveedor (o `Auto`).
+    let free_filter = v
+        .get("free_filter")
+        .and_then(Value::as_str)
+        .and_then(FreeFilter::parse)
+        .unwrap_or_else(|| freefilter::default_filter(&id));
 
     let mut models = Vec::new();
     if let Some(arr) = v.get("models").and_then(Value::as_array) {
@@ -220,6 +466,8 @@ fn parse_own_provider(v: &Value) -> Option<Provider> {
         base_url,
         api_key,
         free_only,
+        free_filter,
+        free_match,
         models,
     })
 }
@@ -228,11 +476,13 @@ fn parse_own_model(v: &Value) -> Model {
     if let Some(id) = v.as_str() {
         let id = id.to_string();
         let free = looks_free(&id, &id);
+        let caps = caps::infer(&id, &id, &Value::Null);
         return Model {
             power: guess_power(&id),
             name: id.clone(),
             free,
             cost_scaled: 0,
+            caps,
             id,
         };
     }
@@ -253,12 +503,15 @@ fn parse_own_model(v: &Value) -> Model {
         .and_then(Value::as_u64)
         .map(|p| p.min(9) as u8)
         .unwrap_or_else(|| guess_power(&format!("{id} {name}")));
+    // Capacidades: declaradas o inferidas del crudo/nombre.
+    let caps = caps::explicit(v).unwrap_or_else(|| caps::infer(&id, &name, v));
     Model {
         id,
         name,
         free,
         power,
         cost_scaled,
+        caps,
     }
 }
 
@@ -313,13 +566,116 @@ fn env_api_key(v: &Value) -> Option<String> {
     None
 }
 
-/// ¿El modelo se anuncia como gratuito? (sufijo `:free`, o la palabra "free").
-fn looks_free(id: &str, name: &str) -> bool {
+/// ¿El modelo se anuncia como gratuito por su nombre/id? (sufijo `:free`, o la
+/// palabra "free"/"gratis"/"trial"). Es sólo una pista: hay endpoints (p. ej.
+/// NVIDIA NIM) en los que el catálogo **es** la lista de endpoints libres y no
+/// etiquetan nada.
+pub fn looks_free(id: &str, name: &str) -> bool {
     let l = format!("{id} {name}").to_lowercase();
     l.contains(":free") || l.contains("free") || l.contains("gratis") || l.contains("trial")
 }
 
 /// Capacidad aproximada 0..9 a partir del nombre (proxy del tamaño/calidad).
+/// Un modelo recién descubierto en el endpoint, listo para fusionar.
+#[derive(Debug, Clone)]
+pub struct DiscoveredModel {
+    pub id: String,
+    pub name: String,
+    /// Si el filtro del proveedor lo marca como gratis.
+    pub free: bool,
+    /// Capacidades inferidas.
+    pub caps: Vec<Cap>,
+}
+
+/// Fusiona el catálogo **descubierto** con los modelos guardados: conserva el
+/// `free` fijado a mano (salvo `reset_free`) y el costo, y recalcula
+/// nombre/potencia/capacidades si el descubrimiento los trae.
+pub fn merge_discovered(
+    existing: &[Model],
+    discovered: &[DiscoveredModel],
+    reset_free: bool,
+) -> Vec<Model> {
+    discovered
+        .iter()
+        .map(|d| {
+            let prev = existing.iter().find(|m| m.id == d.id);
+            let free = if reset_free {
+                d.free
+            } else {
+                prev.map(|p| p.free).unwrap_or(d.free)
+            };
+            let name = if d.name.trim().is_empty() {
+                prev.map(|p| p.name.clone()).unwrap_or_else(|| d.id.clone())
+            } else {
+                d.name.clone()
+            };
+            let caps = if d.caps.is_empty() {
+                prev.map(|p| p.caps.clone()).unwrap_or_default()
+            } else {
+                d.caps.clone()
+            };
+            Model {
+                id: d.id.clone(),
+                name,
+                free,
+                power: prev.map(|p| p.power).unwrap_or_else(|| guess_power(&d.id)),
+                cost_scaled: prev.map(|p| p.cost_scaled).unwrap_or(0),
+                caps,
+            }
+        })
+        .collect()
+}
+
+/// Re-baja el catálogo de cada proveedor (o del indicado) y lo **fusiona** con
+/// los modelos guardados (conserva los `free` a mano salvo `reset_free`).
+/// Devuelve, por proveedor, el número de modelos o el error.
+pub fn refresh_catalog(
+    cfg: &mut Config,
+    only: Option<&str>,
+    reset_free: bool,
+) -> Vec<(String, Result<usize, String>)> {
+    let ids: Vec<String> = match only {
+        Some(id) => vec![id.to_string()],
+        None => cfg.providers.iter().map(|p| p.id.clone()).collect(),
+    };
+    let mut out = Vec::new();
+    for id in ids {
+        let Some(prov) = cfg.provider(&id).cloned() else {
+            out.push((id, Err("no existe".into())));
+            continue;
+        };
+        match client::list_models(&prov.base_url, &prov.api_key) {
+            Ok(models) if !models.is_empty() => {
+                let discovered: Vec<DiscoveredModel> = models
+                    .iter()
+                    .map(|m| DiscoveredModel {
+                        id: m.id.clone(),
+                        name: m.name.clone(),
+                        free: freefilter::classify(
+                            prov.free_filter,
+                            &m.raw,
+                            &m.id,
+                            &m.name,
+                            &prov.free_match,
+                            prov.free_only,
+                        ),
+                        caps: caps::infer(&m.id, &m.name, &m.raw),
+                    })
+                    .collect();
+                let merged = merge_discovered(&prov.models, &discovered, reset_free);
+                let n = merged.len();
+                let mut newp = prov;
+                newp.models = merged;
+                cfg.upsert_own(newp);
+                out.push((id, Ok(n)));
+            }
+            Ok(_) => out.push((id, Err("sin modelos".into()))),
+            Err(e) => out.push((id, Err(e.to_string()))),
+        }
+    }
+    out
+}
+
 fn guess_power(name: &str) -> u8 {
     let l = name.to_lowercase();
     let mut p: i32 = 3;
@@ -351,11 +707,13 @@ fn provider_to_json(p: &Provider) -> Value {
         .models
         .iter()
         .map(|m| {
+            let caps: Vec<&str> = m.caps.iter().map(|c| c.as_str()).collect();
             json!({
                 "id": m.id,
                 "name": m.name,
                 "free": m.free,
                 "power": m.power,
+                "caps": caps,
             })
         })
         .collect();
@@ -365,6 +723,8 @@ fn provider_to_json(p: &Provider) -> Value {
         "base_url": p.base_url,
         "api_key": p.api_key,
         "free_only": p.free_only,
+        "free_filter": p.free_filter.as_str(),
+        "free_match": p.free_match,
         "models": models,
     })
 }
@@ -386,10 +746,20 @@ pub fn own_config_path() -> PathBuf {
     own_path()
 }
 
+/// Carpeta de la config propia (donde vive `config.json`).
+pub fn config_dir() -> PathBuf {
+    own_path()
+        .parent()
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("."))
+}
+
 /// Lee y parsea un JSON (tolerando comentarios `//` y `/* */` de `.jsonc`).
 fn read_json(path: &std::path::Path) -> Option<Value> {
     let raw = fs::read_to_string(path).ok()?;
-    parse_jsonc(&raw)
+    // Tolerar el BOM UTF-8 (editores como Notepad lo agregan).
+    let raw = raw.trim_start_matches('\u{feff}');
+    parse_jsonc(raw)
 }
 
 fn parse_jsonc(text: &str) -> Option<Value> {
@@ -462,6 +832,97 @@ mod tests {
     }
 
     #[test]
+    fn curados_filtra_por_texto_y_ordena_free() {
+        let mut cfg = Config::default();
+        cfg.providers.push(Provider {
+            id: "p".into(),
+            name: "P".into(),
+            base_url: "https://x/v1".into(),
+            api_key: String::new(),
+            free_only: false,
+            free_filter: FreeFilter::Auto,
+            free_match: Vec::new(),
+            models: vec![
+                Model {
+                    id: "paga".into(),
+                    name: "Paga".into(),
+                    free: false,
+                    power: 9,
+                    cost_scaled: 100,
+                    caps: vec![Cap::Text, Cap::Code],
+                },
+                Model {
+                    id: "gratis".into(),
+                    name: "Gratis".into(),
+                    free: true,
+                    power: 1,
+                    cost_scaled: 0,
+                    caps: vec![Cap::Text],
+                },
+                Model {
+                    id: "solo-imagen".into(),
+                    name: "Imagen".into(),
+                    free: true,
+                    power: 9,
+                    cost_scaled: 0,
+                    caps: vec![Cap::Image],
+                },
+            ],
+        });
+        let curados = cfg.curated_models();
+        assert_eq!(curados.len(), 2, "sólo los de `text`");
+        assert_eq!(curados[0].id, "gratis", "gratis primero");
+        assert!(curados.iter().all(|m| m.caps.contains(&Cap::Text)));
+    }
+
+    #[test]
+    fn merge_conserva_free_manual_salvo_reset() {
+        let existing = vec![Model {
+            id: "a".into(),
+            name: "A".into(),
+            free: true,
+            power: 5,
+            cost_scaled: 0,
+            caps: vec![Cap::Text],
+        }];
+        let discovered = vec![
+            DiscoveredModel {
+                id: "a".into(),
+                name: "A2".into(),
+                free: false,
+                caps: vec![Cap::Text, Cap::Code],
+            },
+            DiscoveredModel {
+                id: "b".into(),
+                name: "B".into(),
+                free: true,
+                caps: vec![Cap::Text],
+            },
+        ];
+        let merged = merge_discovered(&existing, &discovered, false);
+        assert_eq!(merged.len(), 2);
+        let a = merged.iter().find(|m| m.id == "a").unwrap();
+        assert!(a.free, "conserva el `free` manual");
+        assert_eq!(a.name, "A2");
+        assert!(a.caps.contains(&Cap::Code));
+        assert!(merged.iter().find(|m| m.id == "b").unwrap().free);
+        // `--reset-free`: se recalcula desde el filtro.
+        let reset = merge_discovered(&existing, &discovered, true);
+        assert!(!reset.iter().find(|m| m.id == "a").unwrap().free);
+    }
+
+    #[test]
+    fn auto_approve_pisa_a_confirm() {
+        let mut cfg = Config::default();
+        assert!(cfg.asks_confirmation()); // confirm=true, auto=false
+        cfg.auto_approve = true;
+        assert!(!cfg.asks_confirmation()); // auto pisa
+        cfg.auto_approve = false;
+        cfg.confirm = false;
+        assert!(!cfg.asks_confirmation());
+    }
+
+    #[test]
     fn strip_comments_no_rompe_urls() {
         let t = r#"{ "url": "https://x/v1", // nota
                        "b": 1 }"#;
@@ -499,15 +960,34 @@ mod tests {
               ]
             }"#,
         );
-        let c = cfg.route("refactor", &[], false).unwrap();
+        let c = cfg.route("refactor", &[], false, None, false).unwrap();
         assert_eq!(c.label, "free/tiny:free");
         // Con el gratis agotado, elige el pago mas potente.
-        let c2 = cfg.route("refactor", &[c.flat], false).unwrap();
+        let c2 = cfg
+            .route("refactor", &[c.flat], false, None, false)
+            .unwrap();
         assert_eq!(c2.label, "paid/big-max");
         // free_only deja solo el gratuito.
-        let cands = cfg.candidates(true);
+        let cands = cfg.candidates(true, None, false);
         assert_eq!(cands.len(), 1);
         assert!(cands[0].free);
+    }
+
+    #[test]
+    fn find_candidate_por_id() {
+        let cfg = cfg_from(
+            r#"{ "providers": [ { "id": "or", "base_url": "https://x/v1", "models": [
+                { "id": "google/gemma:free", "name": "Gemma", "free": true },
+                { "id": "meta/llama:free", "name": "Llama", "free": true }
+            ]} ] }"#,
+        );
+        assert_eq!(
+            cfg.find_candidate("google/gemma:free").unwrap().label,
+            "or/Gemma"
+        );
+        // Sufijo.
+        assert_eq!(cfg.find_candidate("llama:free").unwrap().label, "or/Llama");
+        assert!(cfg.find_candidate("nope").is_none());
     }
 
     #[test]
@@ -524,7 +1004,7 @@ mod tests {
             }"#,
         );
         // complete = rapida: entre gratuitos (costo 0) gana el de mayor power.
-        let c = cfg.route("complete", &[], false).unwrap();
+        let c = cfg.route("complete", &[], false, None, false).unwrap();
         assert!(c.free);
         assert_eq!(c.label, "f/a:free");
     }

@@ -133,3 +133,64 @@ export struct IdeMenuEntry {
     detail: string,
     enabled: bool,
 }
+
+// --- Chat del agente (NuCoder) ---
+
+// Línea de código de un mensaje. Reutiliza `IdeToken` para el resaltado de
+// sintaxis (misma semántica de `kind` que el editor).
+export struct IdeChatCodeLine {
+    tokens: [IdeToken],
+}
+
+// Segmento de un mensaje del chat: prosa Markdown (`code: false`, se dibuja con
+// `md`) o un bloque de código ya tokenizado (`code: true`, se dibuja con
+// `lines` y la etiqueta `lang`).
+export struct IdeChatSeg {
+    code: bool,
+    lang: string,
+    md: styled-text,
+    // Código crudo del bloque (para el botón «copiar»).
+    raw: string,
+    lines: [IdeChatCodeLine],
+}
+
+// Mensaje del chat.
+//   role: 0 usuario · 1 asistente · 2 herramienta · 3 aviso · 4 error
+export struct IdeChatMsg {
+    role: int,
+    title: string,
+    // Markdown crudo del mensaje (para el botón «copiar»).
+    text: string,
+    segs: [IdeChatSeg],
+}
+
+// Modelo de chat para el selector del panel de NuCoder.
+export struct IdeChatModel {
+    id: string,
+    label: string,
+    free: bool,
+    power: int,
+    caps: string,
+}
+
+// Fila del listado de modelos (con especialidad y estado de ping).
+// state: 0 sin probar · 1 probando · 2 ok · 3 error
+export struct IdeModelRow {
+    id: string,
+    label: string,
+    provider: string,
+    specialty: string,
+    free: bool,
+    power: int,
+    status: string,
+    state: int,
+    chat: bool,
+    header: bool,
+}
+
+// Entrada remota del cliente FTP.
+export struct IdeFtpEntry {
+    name: string,
+    dir: bool,
+    size: string,
+}
