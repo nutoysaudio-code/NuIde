@@ -734,8 +734,11 @@ fn split_frontmatter(text: &str) -> (Option<&str>, &str) {
 fn parse_frontmatter(fm: &str) -> Front {
     let mut f = Front::default();
     let mut collect_tools = false;
-    for raw in fm.lines() {
-        let line = raw.trim_end_matches('\r');
+    let lines: Vec<&str> = fm.lines().collect();
+    let mut i = 0;
+    while i < lines.len() {
+        let line = lines[i].trim_end_matches('\r');
+        i += 1;
         if line.trim().is_empty() || line.trim_start().starts_with('#') {
             continue;
         }
@@ -756,7 +759,22 @@ fn parse_frontmatter(fm: &str) -> Front {
             continue;
         };
         let key = trimmed[..colon].trim();
-        let value = unquote(trimmed[colon + 1..].trim());
+
+        // `clave: >` (plegado) o `clave: |` (literal): el valor son las líneas
+        // siguientes más indentadas. Es lo que usan muchos `SKILL.md`
+        // (caveman/ponytail) para descripciones multilínea.
+        let value: String = match block_scalar_kind(trimmed[colon + 1..].trim()) {
+            Some(folded) => {
+                let block = take_block(&lines, &mut i, indent);
+                if folded {
+                    fold_block(&block)
+                } else {
+                    block.join("\n")
+                }
+            }
+            None => unquote(trimmed[colon + 1..].trim()).to_string(),
+        };
+        let value = value.trim();
 
         if indent > 0 {
             // Dentro de `metadata:`.
@@ -786,6 +804,64 @@ fn parse_frontmatter(fm: &str) -> Front {
         }
     }
     f
+}
+
+/// Detecta un *block scalar* de YAML: `>`, `>-`, `>+`, `|`, `|-`, `|+`.
+/// Devuelve `Some(true)` si es plegado (`>`), `Some(false)` si es literal (`|`).
+fn block_scalar_kind(value: &str) -> Option<bool> {
+    let mut chars = value.chars();
+    match chars.next()? {
+        '>' => Some(true),
+        '|' => Some(false),
+        _ => None,
+    }
+}
+
+/// Junta las líneas de un *block scalar*: salta la indentación común, descarta
+/// las líneas en blanco finales.
+fn take_block(lines: &[&str], i: &mut usize, base_indent: usize) -> Vec<String> {
+    let mut block: Vec<String> = Vec::new();
+    let mut common: Option<usize> = None;
+    while *i < lines.len() {
+        let l = lines[*i].trim_end_matches('\r');
+        if l.trim().is_empty() {
+            block.push(String::new());
+            *i += 1;
+            continue;
+        }
+        let li = l.len() - l.trim_start().len();
+        if li <= base_indent {
+            break;
+        }
+        let cut = common.map(|c| c.min(li)).unwrap_or(li);
+        common = Some(cut);
+        block.push(l[cut..].to_string());
+        *i += 1;
+    }
+    while block.last().is_some_and(|s| s.trim().is_empty()) {
+        block.pop();
+    }
+    block
+}
+
+/// Plegado YAML (`>`): líneas consecutivas se unen con espacio; las líneas en
+/// blanco se vuelven saltos de línea.
+fn fold_block(lines: &[String]) -> String {
+    let mut out = String::new();
+    let mut prev_blank = true;
+    for l in lines {
+        if l.trim().is_empty() {
+            out.push('\n');
+            prev_blank = true;
+        } else {
+            if !prev_blank {
+                out.push(' ');
+            }
+            out.push_str(l);
+            prev_blank = false;
+        }
+    }
+    out
 }
 
 #[derive(Debug, Default)]
@@ -951,6 +1027,25 @@ mod tests {
         assert_eq!(f.description.as_deref(), Some("Preparar versión"));
         assert_eq!(f.autoinvoke, Some(false));
         assert_eq!(f.version.as_deref(), Some("40"));
+    }
+
+    #[test]
+    fn parsea_descripcion_multilinea_plegada_y_literal() {
+        // `description: >` (plegado): las líneas se unen con espacio.
+        let fm = "name: caveman\ndescription: >\n  Terse caveman voice: answer first, fluff gone.\n  Use for \"caveman mode\", \"be brief\".\nlicense: MIT\n";
+        let f = parse_frontmatter(fm);
+        assert_eq!(
+            f.description.as_deref(),
+            Some("Terse caveman voice: answer first, fluff gone. Use for \"caveman mode\", \"be brief\".")
+        );
+        // `description: |` (literal): se conservan los saltos.
+        let fm = "description: |\n  linea 1\n  linea 2\nautoinvoke: false\n";
+        let f = parse_frontmatter(fm);
+        assert_eq!(f.description.as_deref(), Some("linea 1\nlinea 2"));
+        assert_eq!(f.autoinvoke, Some(false));
+        // Un valor normal sigue andando.
+        let f = parse_frontmatter("description: una sola linea\n");
+        assert_eq!(f.description.as_deref(), Some("una sola linea"));
     }
 
     #[test]

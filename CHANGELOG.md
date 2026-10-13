@@ -25,6 +25,10 @@ versionado semántico.
   otro modelo en lugar de esperar hasta el `max-time` (600 s). También rota ante
   errores de red/parseo y trata una respuesta **vacía** (200 sin texto ni
   herramientas) como fallo, en vez de cerrar el turno en silencio.
+- **`SKILL.md` con *block scalars* de YAML** (`description: >` / `|`): el parser de
+  *frontmatter* de NuCoder no los entendía y dejaba la descripción como `>`. Ahora
+  pliega (`>`) o conserva los saltos (`|`), así los skills que usan descripciones
+  multilínea (p. ej. `caveman`, `ponytail`) se anuncian bien.
 
 ### Cambiado
 

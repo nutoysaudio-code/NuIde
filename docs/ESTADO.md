@@ -1194,6 +1194,11 @@ compresión; el visor muestra hasta 200 filas por tabla y no edita.
   se usaban como texto liberan ancho en paneles angostos. Glifos verificados con
   `slint-viewer --screenshot` (se descartaron ✕/⟳/↻ por no renderizar).
   i18n regenerado (440 claves: se van los rótulos de texto que pasaron a ícono).
+- **Parser de `SKILL.md`: *block scalars*** (`nucoder/src/skills.rs`). El
+  *frontmatter* YAML mínimo no entendía `description: >` (plegado) ni `|`
+  (literal), y dejaba la descripción como `>`. Se agregó `block_scalar_kind` +
+  `take_block` + `fold_block` (sirve para `description` y cualquier clave), con
+  test. Con eso `caveman` y `ponytail` (de GitHub) se descubren y anuncian bien.
 
 ## 4. Limitaciones conocidas
 - **Persistencia parcial.** Se recuerda el proyecto, el dock/visibilidad de los
