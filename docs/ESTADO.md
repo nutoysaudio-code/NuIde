@@ -1157,6 +1157,37 @@ compresión; el visor muestra hasta 200 filas por tabla y no edita.
   docs…* (diálogo nativo, en hilo) que cocina los `.md`/`.txt` de una carpeta al
   recetario; el resumen se ve en el modal de skills y en la terminal `build`.
 
+### 3.60 NuCoder: anti-cuelgue del chat y modelos que no funcionan
+
+- **Watchdog de inactividad del chat** (`nucoder/src/client.rs`): la config de
+  `curl` del turno suma `speed-limit`/`speed-time` (`CHAT_STALL_SECS = 60`). Si el
+  proveedor deja de mandar bytes, `curl` aborta (exit 28) y el error llega como
+  `Network`, en vez de bloquear el `read_until` hasta el `max-time` (600 s) —que
+  era lo que se veía como «se quedó pensando»—.
+- **El agente rota ante más fallos** (`nucoder/src/agent.rs`): además de
+  cuota/401/5xx/404, ahora rota con errores de **red/timeout** y de **parseo**, y
+  trata una **respuesta vacía** (200 sin texto ni tool calls) como fallo en vez de
+  cerrar el turno en silencio. La cancelación del usuario corta sin rotar, y un
+  fallo local de `curl` no rota ni marca modelos.
+- **Estado aprendido persistido** (`nucoder/src/config.rs`): `model_dead` /
+  `model_ok` + `mark_dead`/`mark_ok`/`clear_status`. `Config::candidates` **saltea
+  los muertos**, así el router no vuelve a elegir un modelo roto. El agente avisa
+  por el evento **`AgentEvent::Dead(id)`** sólo ante fallos **del modelo** (404,
+  timeout/trabado, respuesta inválida o vacía); los 5xx y los 4xx de pedido rotan
+  sin blacklistear (pueden ser transitorios). El ping también marca muertos. El
+  panel guarda el estado (una vez por drenado, no por mensaje).
+- **Panel** (`src/nucoder_ui.rs` + `ui/ide_nucoder.slint`): chip **«solo ok»**
+  (muestra sólo los que respondieron al ping) y botón **«limpiar»** para borrar el
+  estado aprendido; la chip **«gratis»** ahora **persiste** y además **filtra el
+  listado**; **probar todos** prueba sólo lo visible (respeta los filtros) y sus
+  resultados se persisten. Al abrir, el listado ya muestra el estado conocido
+  (verde/rojo) sin re-probar.
+- **Gratis por defecto**: `Config::default().free_only = true` y `load()` usa
+  `unwrap_or(true)`.
+- Tests nuevos (4): `candidates` saltea muertos, `mark_dead`/`mark_ok`/`clear`
+  se excluyen, gratis por defecto, y el watchdog en la config de `curl`.
+  i18n regenerado (447 claves).
+
 ## 4. Limitaciones conocidas
 - **Persistencia parcial.** Se recuerda el proyecto, el dock/visibilidad de los
   paneles, la geometría de la ventana, las pestañas abiertas, el filtro de

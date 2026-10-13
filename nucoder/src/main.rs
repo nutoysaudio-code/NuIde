@@ -1003,6 +1003,8 @@ fn run_ask(
                 let _ = reply.send(true);
             }
             AgentEvent::Error(m) => eprintln!("\x1b[31m✗ {m}\x1b[0m"),
+            // El modelo falló y se sacó del ruteo (en la CLI no se persiste).
+            AgentEvent::Dead(id) => eprintln!("\x1b[90m· descartado: {id}\x1b[0m"),
             AgentEvent::Done { .. } => break,
         }
     }

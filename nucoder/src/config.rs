@@ -132,6 +132,11 @@ pub struct Config {
     pub prompt_cache: bool,
     /// Tope aproximado de contexto (caracteres) para la compactación.
     pub context_chars: usize,
+    /// Modelos que **no funcionan** (404/timeout/5xx/respuesta vacía): el router
+    /// los saltea. Los marca el panel al rotar (evento `Dead`) o al hacer ping.
+    pub model_dead: Vec<String>,
+    /// Modelos que **respondieron** en el último ping (para filtrar «solo ok»).
+    pub model_ok: Vec<String>,
 }
 
 impl Default for Config {
@@ -139,7 +144,9 @@ impl Default for Config {
         Config {
             providers: Vec::new(),
             default_model: None,
-            free_only: false,
+            // Gratis por defecto: el router sólo considera modelos gratuitos
+            // (se puede apagar desde el panel).
+            free_only: true,
             // El sandbox y la confirmación arrancan activos (más seguro).
             sandbox: true,
             confirm: true,
@@ -158,6 +165,8 @@ impl Default for Config {
             mcp: Vec::new(),
             prompt_cache: false,
             context_chars: 48_000,
+            model_dead: Vec::new(),
+            model_ok: Vec::new(),
         }
     }
 }
@@ -182,7 +191,7 @@ impl Config {
         let mut seen: HashSet<String> = HashSet::new();
 
         if let Some(v) = read_json(&own_path()) {
-            cfg.free_only = v.get("free_only").and_then(Value::as_bool).unwrap_or(false);
+            cfg.free_only = v.get("free_only").and_then(Value::as_bool).unwrap_or(true);
             cfg.sandbox = v.get("sandbox").and_then(Value::as_bool).unwrap_or(true);
             cfg.confirm = v.get("confirm").and_then(Value::as_bool).unwrap_or(true);
             cfg.auto_approve = v
@@ -247,6 +256,24 @@ impl Config {
                         .collect()
                 })
                 .unwrap_or_default();
+            cfg.model_dead = v
+                .get("model_dead")
+                .and_then(Value::as_array)
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|x| x.as_str().map(str::to_string))
+                        .collect()
+                })
+                .unwrap_or_default();
+            cfg.model_ok = v
+                .get("model_ok")
+                .and_then(Value::as_array)
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|x| x.as_str().map(str::to_string))
+                        .collect()
+                })
+                .unwrap_or_default();
             cfg.default_model = v
                 .get("default_model")
                 .and_then(Value::as_str)
@@ -283,6 +310,28 @@ impl Config {
         let before = self.providers.len();
         self.providers.retain(|p| p.id != id);
         self.providers.len() != before
+    }
+
+    /// Marca un modelo como **roto** (falló) y lo saca de la lista de «ok».
+    pub fn mark_dead(&mut self, id: &str) {
+        self.model_ok.retain(|m| m != id);
+        if !self.model_dead.iter().any(|m| m == id) {
+            self.model_dead.push(id.to_string());
+        }
+    }
+
+    /// Marca un modelo como **funcional** (el ping respondió) y lo saca de «roto».
+    pub fn mark_ok(&mut self, id: &str) {
+        self.model_dead.retain(|m| m != id);
+        if !self.model_ok.iter().any(|m| m == id) {
+            self.model_ok.push(id.to_string());
+        }
+    }
+
+    /// Borra el estado aprendido (muertos/ok) para volver a empezar.
+    pub fn clear_status(&mut self) {
+        self.model_dead.clear();
+        self.model_ok.clear();
     }
 
     /// Escribe la config propia.
@@ -329,6 +378,8 @@ impl Config {
             },
             "prompt_cache": self.prompt_cache,
             "context_chars": self.context_chars,
+            "model_dead": self.model_dead,
+            "model_ok": self.model_ok,
             "providers": providers,
         });
         let mut text = serde_json::to_string_pretty(&doc).unwrap_or_else(|_| "{}".to_string());
@@ -341,6 +392,8 @@ impl Config {
     /// proveedor) deja pasar sólo los modelos gratuitos; `cap` filtra por
     /// capacidad (texto/código/visión/imagen/audio/video…).
     pub fn candidates(&self, free_only: bool, cap: Option<Cap>, vision: bool) -> Vec<Candidate> {
+        // Los modelos marcados como «no funciona» no entran al ruteo.
+        let dead: HashSet<&str> = self.model_dead.iter().map(String::as_str).collect();
         let mut out = Vec::new();
         for (pi, p) in self.providers.iter().enumerate() {
             if p.base_url.trim().is_empty() {
@@ -348,6 +401,9 @@ impl Config {
             }
             let only_free = free_only || p.free_only;
             for (mi, m) in p.models.iter().enumerate() {
+                if dead.contains(m.id.as_str()) {
+                    continue;
+                }
                 if only_free && !m.free {
                     continue;
                 }
@@ -1081,5 +1137,59 @@ mod tests {
         let c = cfg.route("complete", &[], false, None, false).unwrap();
         assert!(c.free);
         assert_eq!(c.label, "f/a:free");
+    }
+
+    fn cfg_con_modelos(ids: &[(&str, bool)]) -> Config {
+        let mut cfg = Config::default();
+        cfg.providers.push(Provider {
+            id: "p".into(),
+            name: "P".into(),
+            base_url: "https://x/v1".into(),
+            api_key: String::new(),
+            free_only: false,
+            free_filter: FreeFilter::Auto,
+            free_match: Vec::new(),
+            models: ids
+                .iter()
+                .map(|(id, free)| Model {
+                    id: (*id).into(),
+                    name: (*id).into(),
+                    free: *free,
+                    power: 3,
+                    cost_scaled: 0,
+                    caps: vec![Cap::Text],
+                })
+                .collect(),
+        });
+        cfg
+    }
+
+    #[test]
+    fn candidates_saltea_los_modelos_muertos() {
+        let mut cfg = cfg_con_modelos(&[("a:free", true), ("b:free", true)]);
+        assert_eq!(cfg.candidates(true, None, false).len(), 2);
+        cfg.mark_dead("a:free");
+        let cands = cfg.candidates(true, None, false);
+        assert_eq!(cands.len(), 1, "el modelo muerto sale del ruteo");
+        assert_eq!(cands[0].label, "P/b:free");
+    }
+
+    #[test]
+    fn mark_dead_y_mark_ok_se_excluyen() {
+        let mut cfg = Config::default();
+        cfg.mark_ok("m");
+        assert!(cfg.model_ok.contains(&"m".to_string()));
+        cfg.mark_dead("m");
+        assert!(cfg.model_dead.contains(&"m".to_string()));
+        assert!(!cfg.model_ok.contains(&"m".to_string()));
+        cfg.mark_ok("m");
+        assert!(!cfg.model_dead.contains(&"m".to_string()));
+        cfg.clear_status();
+        assert!(cfg.model_dead.is_empty() && cfg.model_ok.is_empty());
+    }
+
+    #[test]
+    fn gratis_por_defecto() {
+        assert!(Config::default().free_only);
     }
 }

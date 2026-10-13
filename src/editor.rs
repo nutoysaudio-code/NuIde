@@ -8409,6 +8409,7 @@ impl Ide {
         w.set_nucoder_model_rows(self.nucoder.models_rows());
         w.set_nucoder_model_filter(self.nucoder.model_filter().into());
         w.set_nucoder_model_sort(self.nucoder.model_sort_label().into());
+        w.set_nucoder_model_only_ok(self.nucoder.model_only_ok());
         let (pending, ptitle, pdetail) = self.nucoder.pending_info();
         w.set_nucoder_pending(pending);
         w.set_nucoder_pending_title(ptitle.into());
@@ -11962,6 +11963,28 @@ pub fn attach(window: &NuIdeWindow, ide: Rc<RefCell<Ide>>) {
             if let Some(w) = weak.upgrade() {
                 let mut e = ide.borrow_mut();
                 e.nucoder.sync_models();
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_nucoder_model_only_ok_toggle(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.nucoder.toggle_model_only_ok();
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_nucoder_model_clear_status(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.nucoder.clear_model_status();
                 e.sync(&w);
             }
         });

@@ -5,7 +5,7 @@
 //! terminales**: los pedidos `run_in_terminal` del agente se atienden desde
 //! `Ide::drain`, que escribe el comando en una terminal real de la IDE.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
@@ -144,6 +144,19 @@ pub struct NuCoderPanel {
     ping_rx: Receiver<(String, Result<u64, String>)>,
     /// Orden del listado: 0 especialidad · 1 ping · 2 nombre · 3 gratis.
     model_sort: u8,
+    /// Mostrar en el listado **sólo** los modelos ya probados OK.
+    model_only_ok: bool,
+    /// Modelos que fallaron (persistidos en `model_dead`): se saltean en el
+    /// ruteo y se muestran marcados.
+    dead: HashSet<String>,
+    /// Modelos que respondieron (persistidos en `model_ok`).
+    known_ok: HashSet<String>,
+    /// Modelos que fallaron en este turno: se persisten al terminar el drenado.
+    pending_dead: Vec<String>,
+    /// Hay cambios de estado (ok/muertos) sin guardar.
+    status_dirty: bool,
+    /// Pings en vuelo: se persiste cuando llega a 0 (evita cientos de guardados).
+    pings_inflight: usize,
     /// Canal del hilo que re-baja el catálogo («sincronizar»).
     sync_tx: Sender<String>,
     sync_rx: Receiver<String>,
@@ -166,6 +179,8 @@ impl NuCoderPanel {
         let (ping_tx, ping_rx) = channel();
         let (sync_tx, sync_rx) = channel();
         let models = config.curated_models();
+        let dead: HashSet<String> = config.model_dead.iter().cloned().collect();
+        let known_ok: HashSet<String> = config.model_ok.iter().cloned().collect();
         let mut panel = Self {
             open: false,
             cwd,
@@ -211,6 +226,12 @@ impl NuCoderPanel {
             ping_tx,
             ping_rx,
             model_sort: 0,
+            model_only_ok: false,
+            dead,
+            known_ok,
+            pending_dead: Vec::new(),
+            status_dirty: false,
+            pings_inflight: 0,
             sync_tx,
             sync_rx,
         };
@@ -427,6 +448,17 @@ impl NuCoderPanel {
             .model_rows
             .iter()
             .filter(|r| {
+                // «solo gratis»: además del ruteo, filtra el listado.
+                if self.free_only && !r.free {
+                    return false;
+                }
+                // «solo ok»: sólo los que respondieron al ping.
+                if self.model_only_ok
+                    && !matches!(self.ping.get(&r.id), Some(PingState::Ok(_)))
+                    && !self.known_ok.contains(&r.id)
+                {
+                    return false;
+                }
                 f.is_empty()
                     || r.label.to_lowercase().contains(&f)
                     || r.specialty.to_lowercase().contains(&f)
@@ -571,6 +603,9 @@ impl NuCoderPanel {
                             },
                             3,
                         ),
+                        // Sin ping en esta sesión: lo que sepamos de antes.
+                        None if self.dead.contains(&r.id) => ("no responde".to_string(), 3),
+                        None if self.known_ok.contains(&r.id) => ("ok".to_string(), 2),
                         None => (String::new(), 0),
                     };
                     IdeModelRow {
@@ -600,9 +635,16 @@ impl NuCoderPanel {
         self.ping_model(&id);
     }
 
-    /// Probar **todos** los modelos.
+    /// Probar **todos** los modelos visibles (respeta los filtros del listado).
     pub fn ping_all(&mut self) {
-        let ids: Vec<String> = self.model_rows.iter().map(|r| r.id.clone()).collect();
+        let ids: Vec<String> = self
+            .display_rows()
+            .iter()
+            .filter_map(|d| match d {
+                DisplayRow::Model(r) => Some(r.id.clone()),
+                DisplayRow::Header(_) => None,
+            })
+            .collect();
         for id in ids {
             self.ping_model(&id);
         }
@@ -627,6 +669,7 @@ impl NuCoderPanel {
         };
         let model = id.to_string();
         self.ping.insert(model.clone(), PingState::Pinging);
+        self.pings_inflight += 1;
         let tx = self.ping_tx.clone();
         std::thread::spawn(move || {
             let res = nucoder::client::ping(&base, &key, &model).map_err(|e| e.to_string());
@@ -646,14 +689,26 @@ impl NuCoderPanel {
     pub fn poll_pings(&mut self) -> bool {
         let mut changed = false;
         while let Ok((id, res)) = self.ping_rx.try_recv() {
-            self.ping.insert(
-                id,
-                match res {
-                    Ok(ms) => PingState::Ok(ms),
-                    Err(e) => PingState::Err(e),
-                },
-            );
+            self.pings_inflight = self.pings_inflight.saturating_sub(1);
+            match res {
+                Ok(ms) => {
+                    self.known_ok.insert(id.clone());
+                    self.dead.remove(&id);
+                    self.ping.insert(id, PingState::Ok(ms));
+                }
+                Err(e) => {
+                    self.dead.insert(id.clone());
+                    self.known_ok.remove(&id);
+                    self.ping.insert(id, PingState::Err(e));
+                }
+            }
+            self.status_dirty = true;
             changed = true;
+        }
+        // Recién cuando no quedan pings en vuelo se guarda (evita cientos de
+        // escrituras al probar todos).
+        if self.status_dirty && self.pings_inflight == 0 {
+            self.persist_status();
         }
         changed
     }
@@ -719,6 +774,9 @@ impl NuCoderPanel {
         self.config = Arc::new(Config::load());
         self.models = self.config.curated_models();
         self.rebuild_model_rows();
+        self.dead = self.config.model_dead.iter().cloned().collect();
+        self.known_ok = self.config.model_ok.iter().cloned().collect();
+        self.pending_dead.clear();
         self.knowledge = Arc::new(Knowledge::discover(&self.config.knowledge));
         self.skills = Arc::new(Registry::discover(
             &self.cwd,
@@ -768,7 +826,57 @@ impl NuCoderPanel {
     pub fn toggle_free(&mut self) {
         self.free_only = !self.free_only;
         let estado = if self.free_only { "ON" } else { "OFF" };
-        self.info(format!("sólo gratis: {estado}"));
+        self.info(format!(
+            "sólo gratis: {estado} (filtra el listado y el router)"
+        ));
+        let mut cfg = Config::load();
+        cfg.free_only = self.free_only;
+        let _ = cfg.save_own();
+    }
+
+    /// Estado del filtro «solo ok».
+    pub fn model_only_ok(&self) -> bool {
+        self.model_only_ok
+    }
+
+    /// Prende/apaga el filtro «solo ok» del listado (no toca el ruteo).
+    pub fn toggle_model_only_ok(&mut self) {
+        self.model_only_ok = !self.model_only_ok;
+        let estado = if self.model_only_ok { "ON" } else { "OFF" };
+        self.info(format!("listado sólo con modelos que responden: {estado}"));
+    }
+
+    /// Borra el estado aprendido de modelos (muertos/ok) para volver a empezar.
+    pub fn clear_model_status(&mut self) {
+        self.dead.clear();
+        self.known_ok.clear();
+        self.pending_dead.clear();
+        self.ping.clear();
+        self.status_dirty = false;
+        let mut cfg = Config::load();
+        cfg.clear_status();
+        if cfg.save_own().is_ok() {
+            self.config = Arc::new(cfg);
+        }
+        self.models = self.config.curated_models();
+        self.info("estado de modelos reiniciado: el router vuelve a probar todos".to_string());
+    }
+
+    /// Persiste el estado aprendido (muertos/ok) en la config y recarga el ruteo.
+    fn persist_status(&mut self) {
+        self.pending_dead.clear();
+        self.status_dirty = false;
+        let mut dead: Vec<String> = self.dead.iter().cloned().collect();
+        let mut ok: Vec<String> = self.known_ok.iter().cloned().collect();
+        dead.sort();
+        ok.sort();
+        let mut cfg = Config::load();
+        cfg.model_dead = dead;
+        cfg.model_ok = ok;
+        if cfg.save_own().is_ok() {
+            self.config = Arc::new(cfg);
+            self.models = self.config.curated_models();
+        }
     }
 
     // ---------------------------------------------------------------- acciones
@@ -873,6 +981,9 @@ impl NuCoderPanel {
             self.on_event(ev);
             changed = true;
         }
+        if !self.pending_dead.is_empty() {
+            self.persist_status();
+        }
         changed
     }
 
@@ -971,6 +1082,12 @@ impl NuCoderPanel {
             AgentEvent::Error(m) => {
                 self.streaming = None;
                 self.push(4, "error", m);
+            }
+            AgentEvent::Dead(id) => {
+                // El modelo falló: se saca del ruteo (se persiste al final del drenado).
+                self.dead.insert(id.clone());
+                self.known_ok.remove(&id);
+                self.pending_dead.push(id);
             }
             AgentEvent::Confirm { name, args, reply } => {
                 self.streaming = None;

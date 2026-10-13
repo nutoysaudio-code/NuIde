@@ -50,6 +50,9 @@ pub enum AgentEvent {
     },
     /// Error fatal del turno.
     Error(String),
+    /// El modelo falló (404/timeout/5xx/respuesta vacía) y se **excluye**: la UI
+    /// lo persiste como «no funciona» para sacarlo del ruteo.
+    Dead(String),
     /// Fin del turno; devuelve la conversación actualizada.
     Done { conversation: Vec<Value> },
 }
@@ -233,6 +236,26 @@ impl Agent {
             ) {
                 Ok(res) => {
                     let calls = normalize_calls(&res.tool_calls);
+                    // Respuesta **vacía** (200 pero sin texto ni herramientas): el
+                    // proveedor no dio nada útil. Se trata como fallo y se rota,
+                    // en vez de cerrar el turno en silencio (lo que parecía un
+                    // "no responde").
+                    if res.content.trim().is_empty() && calls.is_empty() {
+                        if self.model_override.is_some() {
+                            let _ = tx.send(AgentEvent::Error(format!(
+                                "{}: respuesta vacía",
+                                cand.label
+                            )));
+                            break;
+                        }
+                        let _ = tx.send(AgentEvent::Notice(format!(
+                            "⟳ {} no respondió; rotando…",
+                            cand.label
+                        )));
+                        let _ = tx.send(AgentEvent::Dead(model.id.clone()));
+                        excluded.push(cand.flat);
+                        continue;
+                    }
                     conversation.push(assistant_message(&res.content, &calls));
                     if calls.is_empty() {
                         break;
@@ -351,46 +374,78 @@ impl Agent {
                     }
                 }
                 Err(e) => {
+                    // Cancelado por el usuario: no se rota, se corta.
+                    if self.cancel.load(Ordering::Relaxed) {
+                        let _ = tx.send(AgentEvent::Notice("cancelado".into()));
+                        break;
+                    }
                     // Modelo forzado: no se rota; se reporta y corta.
                     if self.model_override.is_some() {
                         let _ = tx.send(AgentEvent::Error(format!("{}: {e}", cand.label)));
                         break;
                     }
-                    match e {
-                        ClientError::Quota(m) => {
-                            let _ = tx.send(AgentEvent::Notice(format!(
-                                "⟳ {} sin cuota; rotando… ({m})",
+                    // (¿rota?, ¿marcar el modelo como «no funciona»?)
+                    let (nota, rotar, dead) = match &e {
+                        ClientError::Quota(m) => (
+                            format!("⟳ {} sin cuota; rotando… ({m})", cand.label),
+                            // La cuota suele ser transitoria (límite diario): no se
+                            // marca el modelo como roto.
+                            true,
+                            false,
+                        ),
+                        ClientError::Auth(m) => (
+                            format!("⟳ {} no autorizado; rotando… ({m})", cand.label),
+                            // Problema de key (del proveedor), no del modelo.
+                            true,
+                            false,
+                        ),
+                        ClientError::Server(m) => (
+                            format!("⟳ {} error del proveedor; rotando… ({m})", cand.label),
+                            // 5xx suele ser transitorio (sobrecarga): rotar sin
+                            // blacklistear el modelo.
+                            true,
+                            false,
+                        ),
+                        ClientError::Http(404, m) => (
+                            format!("⟳ {} no disponible; rotando… ({m})", cand.label),
+                            true,
+                            true,
+                        ),
+                        ClientError::Http(_, m) => (
+                            format!("⟳ {} error HTTP; rotando… ({m})", cand.label),
+                            // Otros 4xx pueden ser del pedido, no del modelo.
+                            true,
+                            false,
+                        ),
+                        ClientError::Network(m) if m.contains("no se pudo lanzar curl") => (
+                            format!("error local: {m}"),
+                            // No es culpa del modelo: cortar sin marcarlo.
+                            false,
+                            false,
+                        ),
+                        ClientError::Network(m) => (
+                            format!(
+                                "⟳ {} sin respuesta (timeout/trabado); rotando… ({m})",
                                 cand.label
-                            )));
-                            excluded.push(cand.flat);
-                        }
-                        ClientError::Auth(m) => {
-                            let _ = tx.send(AgentEvent::Notice(format!(
-                                "⟳ {} no autorizado; rotando… ({m})",
-                                cand.label
-                            )));
-                            excluded.push(cand.flat);
-                        }
-                        ClientError::Server(m) => {
-                            let _ = tx.send(AgentEvent::Notice(format!(
-                                "⟳ {} error del proveedor; rotando… ({m})",
-                                cand.label
-                            )));
-                            excluded.push(cand.flat);
-                        }
-                        // 404: modelo no disponible para esta cuenta/endpoint.
-                        ClientError::Http(404, m) => {
-                            let _ = tx.send(AgentEvent::Notice(format!(
-                                "⟳ {} no disponible; rotando… ({m})",
-                                cand.label
-                            )));
-                            excluded.push(cand.flat);
-                        }
-                        other => {
-                            let _ = tx.send(AgentEvent::Error(other.to_string()));
-                            break;
-                        }
+                            ),
+                            true,
+                            true,
+                        ),
+                        ClientError::Parse(m) => (
+                            format!("⟳ {} respuesta inválida; rotando… ({m})", cand.label),
+                            true,
+                            true,
+                        ),
+                    };
+                    let _ = tx.send(AgentEvent::Notice(nota));
+                    if dead {
+                        let _ = tx.send(AgentEvent::Dead(model.id.clone()));
                     }
+                    if !rotar {
+                        let _ = tx.send(AgentEvent::Error(e.to_string()));
+                        break;
+                    }
+                    excluded.push(cand.flat);
                 }
             }
         }

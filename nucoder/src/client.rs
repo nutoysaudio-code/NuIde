@@ -16,6 +16,13 @@ use serde_json::{json, Value};
 
 /// Tiempo máximo de un turno de chat (puede ser largo si el modelo "piensa").
 const CHAT_TIMEOUT_SECS: u64 = 600;
+/// **Watchdog de inactividad** del chat: si el proveedor deja de mandar bytes
+/// durante estos segundos, curl aborta (exit 28) y el agente **rota** a otro
+/// modelo en vez de quedarse colgado hasta el `max-time`.
+const CHAT_STALL_SECS: u64 = 60;
+/// Bytes/segundo mínimos para no considerar la transferencia "trabada". Con `1`
+/// alcanza: apenas llega un byte se reinicia el contador de `CHAT_STALL_SECS`.
+const CHAT_STALL_MIN_BYTES: u64 = 1;
 /// Tiempo máximo del `GET /models` (una lista pequeña; no debe colgar el arranque).
 const LIST_TIMEOUT_SECS: u64 = 30;
 
@@ -112,7 +119,14 @@ pub fn chat_stream(
         headers.push(("Authorization".into(), format!("Bearer {api_key}")));
     }
 
-    let cfg = curl_config("POST", &url, &headers, Some(&body_file), CHAT_TIMEOUT_SECS);
+    let cfg = curl_config(
+        "POST",
+        &url,
+        &headers,
+        Some(&body_file),
+        CHAT_TIMEOUT_SECS,
+        Some(CHAT_STALL_SECS),
+    );
     let cfg_file = write_temp("curlcfg", cfg.as_bytes());
 
     let result = run_stream(&cfg_file, cancel, on_event);
@@ -129,7 +143,7 @@ pub fn list_models(base_url: &str, api_key: &str) -> Result<Vec<ModelInfo>, Clie
     if !api_key.is_empty() {
         headers.push(("Authorization".into(), format!("Bearer {api_key}")));
     }
-    let cfg = curl_config("GET", &url, &headers, None, LIST_TIMEOUT_SECS);
+    let cfg = curl_config("GET", &url, &headers, None, LIST_TIMEOUT_SECS, None);
     let cfg_file = write_temp("curlcfg", cfg.as_bytes());
 
     let out = crate::proc::curl()
@@ -204,7 +218,7 @@ pub fn image_generate(
     if !api_key.is_empty() {
         headers.push(("Authorization".into(), format!("Bearer {api_key}")));
     }
-    let cfg = curl_config("POST", &url, &headers, Some(&body_file), 300);
+    let cfg = curl_config("POST", &url, &headers, Some(&body_file), 300, None);
     let cfg_file = write_temp("curlcfg", cfg.as_bytes());
     let out = crate::proc::curl()
         .arg("-K")
@@ -320,7 +334,7 @@ pub fn ping(base_url: &str, api_key: &str, model: &str) -> Result<u64, ClientErr
     if !api_key.is_empty() {
         headers.push(("Authorization".into(), format!("Bearer {api_key}")));
     }
-    let cfg = curl_config("POST", &url, &headers, Some(&body_file), 30);
+    let cfg = curl_config("POST", &url, &headers, Some(&body_file), 30, None);
     let cfg_file = write_temp("curlcfg", cfg.as_bytes());
     let start = std::time::Instant::now();
     let out = crate::proc::curl()
@@ -373,7 +387,7 @@ pub fn complete(
     if !api_key.is_empty() {
         headers.push(("Authorization".into(), format!("Bearer {api_key}")));
     }
-    let cfg = curl_config("POST", &url, &headers, Some(&body_file), 300);
+    let cfg = curl_config("POST", &url, &headers, Some(&body_file), 300, None);
     let cfg_file = write_temp("curlcfg", cfg.as_bytes());
     let out = crate::proc::curl()
         .arg("-K")
@@ -582,12 +596,14 @@ fn classify(status: u16, body: &str) -> ClientError {
 }
 
 /// Configuración de curl (`-K`). Sin `-i`; el código HTTP llega por `-w`.
+/// `stall_secs` (si viene) agrega el watchdog `speed-limit`/`speed-time`.
 fn curl_config(
     method: &str,
     url: &str,
     headers: &[(String, String)],
     body_file: Option<&PathBuf>,
     max_time_secs: u64,
+    stall_secs: Option<u64>,
 ) -> String {
     let mut s = String::new();
     s.push_str("silent\nshow-error\nlocation\nno-buffer\n");
@@ -601,6 +617,10 @@ fn curl_config(
         s.push_str(&format!("data-binary = {}\n", quote(&format!("@{fwd}"))));
     }
     s.push_str(&format!("max-time = {max_time_secs}\n"));
+    if let Some(secs) = stall_secs {
+        s.push_str(&format!("speed-limit = {CHAT_STALL_MIN_BYTES}\n"));
+        s.push_str(&format!("speed-time = {secs}\n"));
+    }
     // El código HTTP sale al final, en su propia línea.
     s.push_str("write-out = \"\\n@@HTTP%{http_code}@@\"\n");
     s
@@ -694,5 +714,23 @@ mod tests {
         assert_eq!(r.tool_calls[0].name, "read_file");
         assert_eq!(r.tool_calls[0].id, "c1");
         assert_eq!(r.tool_calls[0].arguments, r#"{"path":"a"}"#);
+    }
+
+    #[test]
+    fn el_chat_lleva_watchdog_de_inactividad() {
+        let cfg = curl_config(
+            "POST",
+            "https://x/v1/chat/completions",
+            &[],
+            None,
+            600,
+            Some(60),
+        );
+        assert!(cfg.contains("speed-time = 60"), "aborta si no llegan bytes");
+        assert!(cfg.contains("speed-limit = 1"));
+        assert!(cfg.contains("max-time = 600"));
+        // Sin watchdog (p. ej. `GET /models`) no se agrega.
+        let sin = curl_config("GET", "https://x/v1/models", &[], None, 30, None);
+        assert!(!sin.contains("speed-time"));
     }
 }

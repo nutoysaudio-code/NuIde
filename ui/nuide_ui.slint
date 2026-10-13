@@ -238,6 +238,7 @@ export component NuIdeWindow inherits Window {
     in-out property <[IdeModelRow]> nucoder-model-rows: [];
     in-out property <string> nucoder-model-filter: "";
     in-out property <string> nucoder-model-sort: "especialidad";
+    in-out property <bool> nucoder-model-only-ok: false;
     in-out property <[string]> nucoder-tasks: [];
     in-out property <int> nucoder-task-index: 0;
     in-out property <string> nucoder-context: "48k";
@@ -508,6 +509,8 @@ export component NuIdeWindow inherits Window {
     callback nucoder-model-filter-changed(string);
     callback nucoder-model-sort-cycle();
     callback nucoder-model-sync();
+    callback nucoder-model-only-ok-toggle();
+    callback nucoder-model-clear-status();
     callback nucoder-task-picked(int);
     callback nucoder-attach-image();
     callback nucoder-clear-images();
@@ -905,6 +908,7 @@ export component NuIdeWindow inherits Window {
             model-rows: root.nucoder-model-rows;
             model-filter <=> root.nucoder-model-filter;
             model-sort: root.nucoder-model-sort;
+            model-only-ok: root.nucoder-model-only-ok;
             tasks: root.nucoder-tasks;
             task-index: root.nucoder-task-index;
             context: root.nucoder-context;
@@ -934,6 +938,8 @@ export component NuIdeWindow inherits Window {
             model-filter-changed(v) => { root.nucoder-model-filter-changed(v); }
             model-sort-cycle => { root.nucoder-model-sort-cycle(); }
             model-sync => { root.nucoder-model-sync(); }
+            model-only-ok-toggle => { root.nucoder-model-only-ok-toggle(); }
+            model-clear-status => { root.nucoder-model-clear-status(); }
             task-picked(index) => { root.nucoder-task-picked(index); }
             attach-image => { root.nucoder-attach-image(); }
             clear-images => { root.nucoder-clear-images(); }

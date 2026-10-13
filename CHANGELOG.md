@@ -4,6 +4,28 @@ Todos los cambios relevantes de NuIde. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/) y el proyecto usa
 versionado semántico.
 
+## [No publicado]
+
+### Agregado
+
+- **Listado de modelos: filtros «solo gratis» y «solo ok»** en la pestaña modelos
+  (`solo ok` muestra únicamente los que respondieron al ping; `solo gratis` filtra
+  el listado además del ruteo) y botón **limpiar** para borrar el estado aprendido.
+- **Estado aprendido de modelos persistido**: los modelos que fallan (404, timeout,
+  error del proveedor, respuesta vacía) quedan marcados como «no funciona» y el
+  **router los saltea**; los que responden al ping quedan como OK. Todo vive en la
+  config de NuCoder (`model_dead` / `model_ok`).
+- **Gratis por defecto**: el router arranca considerando sólo modelos gratuitos
+  (la chip «gratis» ahora también **persiste** y filtra el listado).
+
+### Corregido
+
+- **NuCoder ya no se cuelga** cuando un modelo no responde: el chat de `curl` lleva
+  un **watchdog de inactividad** (60 s sin bytes ⇒ aborta) y el agente **rota** a
+  otro modelo en lugar de esperar hasta el `max-time` (600 s). También rota ante
+  errores de red/parseo y trata una respuesta **vacía** (200 sin texto ni
+  herramientas) como fallo, en vez de cerrar el turno en silencio.
+
 ## [0.3.2] — 2026-10-12
 
 ### Agregado

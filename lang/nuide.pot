@@ -298,7 +298,7 @@ msgstr ""
 msgid "gratis"
 msgstr ""
 
-msgid "Router sólo con modelos gratuitos"
+msgid "Router y listado sólo con modelos gratuitos"
 msgstr ""
 
 msgid "auto-aprobar"
@@ -404,6 +404,18 @@ msgid "probar todos"
 msgstr ""
 
 msgid "sincronizar"
+msgstr ""
+
+msgid "solo ok"
+msgstr ""
+
+msgid "Mostrar sólo los modelos que respondieron al ping"
+msgstr ""
+
+msgid "limpiar"
+msgstr ""
+
+msgid "Borrar el estado aprendido (modelos que fallaron) y volver a probar todos"
 msgstr ""
 
 msgid "sin modelos (configurá un proveedor y descubrí modelos: nucoder discover)"
