@@ -626,6 +626,54 @@ msgstr "Interface, editor, terminais e complementos (FTP, SSH, NuCoder, web, SQL
 msgid "Cerrar (Esc) — los cambios ya quedaron guardados"
 msgstr "Fechar (Esc) — as alterações já foram salvas"
 
+msgid "Skills"
+msgstr ""
+
+msgid "Instalar…"
+msgstr ""
+
+msgid "Cocinar"
+msgstr ""
+
+msgid "Anunciar"
+msgstr ""
+
+msgid "web ✓"
+msgstr ""
+
+msgid "web"
+msgstr ""
+
+msgid "Refrescar"
+msgstr "Atualizar"
+
+msgid "buscar:"
+msgstr ""
+
+msgid "(escribí para filtrar por id, nombre o descripción)"
+msgstr ""
+
+msgid "cocinando/instalando…"
+msgstr ""
+
+msgid "anunciado"
+msgstr ""
+
+msgid "oculto"
+msgstr "oculto"
+
+msgid "ask"
+msgstr ""
+
+msgid "deny"
+msgstr ""
+
+msgid "(sin skills: probá «Instalar…» o «Refrescar»)"
+msgstr ""
+
+msgid "Seleccioná un skill para ver su contenido"
+msgstr ""
+
 msgid "SQLite"
 msgstr "SQLite"
 
@@ -634,9 +682,6 @@ msgstr "Escolher base"
 
 msgid "Buscar un archivo .db / .sqlite del proyecto"
 msgstr "Buscar um arquivo .db / .sqlite do projeto"
-
-msgid "Refrescar"
-msgstr "Atualizar"
 
 msgid "Vuelve a leer tablas y filas de la base"
 msgstr "Relê as tabelas e linhas da base"
@@ -754,9 +799,6 @@ msgstr "direita"
 
 msgid "abajo"
 msgstr "abaixo"
-
-msgid "oculto"
-msgstr "oculto"
 
 msgid "Explorador"
 msgstr "Explorador"
@@ -959,6 +1001,12 @@ msgstr "Iniciar NuCoder (agente)"
 msgid "FTP: abrir cliente"
 msgstr ""
 
+msgid "Skills: abrir catálogo"
+msgstr ""
+
+msgid "NuCook: cocinar carpeta de docs…"
+msgstr ""
+
 msgid "Elegir carpeta del proyecto"
 msgstr "Escolher pasta do projeto"
 
@@ -983,6 +1031,9 @@ msgstr "Fechar todas"
 msgid "Salir"
 msgstr "Sair"
 
+msgid "Catálogo de skills…"
+msgstr ""
+
 msgid "Reiniciar la terminal"
 msgstr "Reiniciar o terminal"
 
@@ -1006,6 +1057,9 @@ msgstr "Ver repositório"
 
 msgid "Base de datos SQLite"
 msgstr "Base de dados SQLite"
+
+msgid "Cocinar carpeta de documentos (NuCook)"
+msgstr ""
 
 msgid "la operación falló"
 msgstr ""
@@ -1241,6 +1295,9 @@ msgstr "Nova branch"
 msgid "Argumentos para ejecutar"
 msgstr "Argumentos para executar"
 
+msgid "Instalar skill"
+msgstr ""
+
 msgid "Usuario del sitio"
 msgstr "Usuário do site"
 
@@ -1261,6 +1318,9 @@ msgstr "Substituir no projeto"
 
 msgid "Eliminar proveedor"
 msgstr "Excluir provedor"
+
+msgid "Eliminar skill"
+msgstr ""
 
 msgid "Comandos"
 msgstr "Comandos"

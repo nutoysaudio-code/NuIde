@@ -18,6 +18,8 @@ use crate::caps::{self, Cap};
 use crate::client;
 use crate::ffi;
 use crate::freefilter::{self, FreeFilter};
+use crate::mcp::McpServer;
+use crate::skills::{SkillEffect, SkillRule};
 
 /// Las tareas que entiende el router (prefijo `/tarea` en la TUI).
 pub const TASKS: [&str; 6] = [
@@ -117,6 +119,15 @@ pub struct Config {
     pub autopilot: bool,
     /// Rutas extra de la KB local (`read_docs`).
     pub knowledge: Vec<String>,
+    /// Rutas extra de **skills** (además de las de Claude/OpenCode/agentes).
+    pub skills: Vec<String>,
+    /// Reglas de permiso por skill (`skills_permissions`): id (glob) → efecto
+    /// (`allow`/`ask`/`deny`; la última que matchea gana).
+    pub skills_permissions: Vec<SkillRule>,
+    /// Si es `false`, no se anuncia ningún skill (igual se cargan por id).
+    pub skills_autoinvoke: bool,
+    /// Servidores **MCP** (Model Context Protocol) a exponer como herramientas.
+    pub mcp: Vec<McpServer>,
     /// Marca el system como cacheable (prompt caching del proveedor).
     pub prompt_cache: bool,
     /// Tope aproximado de contexto (caracteres) para la compactación.
@@ -141,6 +152,10 @@ impl Default for Config {
             perm_ftp: true,
             autopilot: false,
             knowledge: Vec::new(),
+            skills: Vec::new(),
+            skills_permissions: Vec::new(),
+            skills_autoinvoke: true,
+            mcp: Vec::new(),
             prompt_cache: false,
             context_chars: 48_000,
         }
@@ -200,6 +215,35 @@ impl Config {
                 .map(|a| {
                     a.iter()
                         .filter_map(|x| x.as_str().map(str::to_string))
+                        .collect()
+                })
+                .unwrap_or_default();
+            cfg.skills = v
+                .get("skills")
+                .and_then(Value::as_array)
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|x| x.as_str().map(str::to_string))
+                        .collect()
+                })
+                .unwrap_or_default();
+            cfg.skills_permissions = v
+                .get("skills_permissions")
+                .and_then(Value::as_array)
+                .map(|a| a.iter().filter_map(parse_skill_rule).collect())
+                .unwrap_or_default();
+            cfg.skills_autoinvoke = v
+                .get("skills_autoinvoke")
+                .and_then(Value::as_bool)
+                .unwrap_or(true);
+            cfg.mcp = v
+                .get("mcp")
+                .and_then(|m| m.get("servers"))
+                .and_then(Value::as_object)
+                .map(|servers| {
+                    servers
+                        .iter()
+                        .filter_map(|(id, sv)| McpServer::from_value(id, sv))
                         .collect()
                 })
                 .unwrap_or_default();
@@ -268,6 +312,21 @@ impl Config {
             },
             "autopilot": self.autopilot,
             "knowledge": self.knowledge,
+            "skills": self.skills,
+            "skills_autoinvoke": self.skills_autoinvoke,
+            "skills_permissions": self
+                .skills_permissions
+                .iter()
+                .map(|r| json!({ "id": r.id, "effect": r.effect.as_str() }))
+                .collect::<Vec<_>>(),
+            "mcp": {
+                "servers": Value::Object(
+                    self.mcp
+                        .iter()
+                        .map(|s| (s.id.clone(), s.to_value()))
+                        .collect(),
+                ),
+            },
             "prompt_cache": self.prompt_cache,
             "context_chars": self.context_chars,
             "providers": providers,
@@ -417,6 +476,21 @@ impl Config {
 /// proveedores: `provider add`). Misma lógica que la config en disco.
 pub fn own_provider_from_value(v: &Value) -> Option<Provider> {
     parse_own_provider(v)
+}
+
+/// Parsea una regla de permiso de skill (`{"id": glob, "effect": "..."}`).
+fn parse_skill_rule(v: &Value) -> Option<SkillRule> {
+    let id = v.get("id").and_then(Value::as_str)?.trim();
+    if id.is_empty() {
+        return None;
+    }
+    let effect = v
+        .get("effect")
+        .or_else(|| v.get("permission"))
+        .and_then(Value::as_str)
+        .map(SkillEffect::parse)
+        .unwrap_or(SkillEffect::Allow);
+    Some(SkillRule::new(id, effect))
 }
 
 fn parse_own_provider(v: &Value) -> Option<Provider> {

@@ -1,0 +1,43 @@
+programa "nucoder_cook"
+
+// NuCook — normalizador determinista en SpASM (dialecto AOT).
+//
+// La parte "estructural" de la cocción vive en SpASM (coherente con el
+// ecosistema: la decisión/binaria va al lenguaje; el texto pesado queda en Rust):
+//
+//   label_kind(s) -> índice de la etiqueta canónica (0..10) o -1 si no es una.
+//   is_rule(s)    -> 1 si `s` es una regla horizontal exacta (`---`, `***`, …).
+//
+// Los índices coinciden con `PartKind as usize` de `src/cook.rs`:
+//   0 when · 1 not · 2 want · 3 have · 4 do · 5 keep · 6 map · 7 prove
+//   8 eg · 9 risk · 10 rest
+//
+// Sólo usa builtins documentados (`str_equals`).
+
+func label_kind(s : string) -> int {
+    if (str_equals(s, "when") == 1) { return 0 }
+    if (str_equals(s, "not") == 1) { return 1 }
+    if (str_equals(s, "want") == 1) { return 2 }
+    if (str_equals(s, "have") == 1) { return 3 }
+    if (str_equals(s, "do") == 1) { return 4 }
+    if (str_equals(s, "keep") == 1) { return 5 }
+    if (str_equals(s, "map") == 1) { return 6 }
+    if (str_equals(s, "prove") == 1) { return 7 }
+    if (str_equals(s, "eg") == 1) { return 8 }
+    if (str_equals(s, "risk") == 1) { return 9 }
+    if (str_equals(s, "rest") == 1) { return 10 }
+    return 0 - 1
+}
+
+func is_rule(s : string) -> int {
+    if (str_equals(s, "---") == 1) { return 1 }
+    if (str_equals(s, "----") == 1) { return 1 }
+    if (str_equals(s, "***") == 1) { return 1 }
+    if (str_equals(s, "___") == 1) { return 1 }
+    if (str_equals(s, "===") == 1) { return 1 }
+    return 0
+}
+
+main {
+    let cook_ok = 0
+}

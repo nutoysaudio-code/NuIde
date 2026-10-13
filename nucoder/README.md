@@ -27,6 +27,8 @@ chat es un **panel nativo de NuIde** (Slint) y el binario `nucoder` queda como
 | Rotación por cuota/autenticación/servidor y modelo no disponible (404) | ✅ real |
 | Internet (`web_fetch`/`web_search` vía curl) | ✅ real |
 | KB local (`read_docs`) + *primer* de SpASM en el prompt de sistema | ✅ real |
+| Skills de **Claude / OpenCode / agentes / nativos** (`skill`, divulgación progresiva) | ✅ real |
+| Servidores **MCP** por stdio (REA y cualquier server → `server__tool`) | ✅ real |
 | Sandbox de archivos (confina al proyecto) | ✅ real |
 | Confirmación antes de borrar/mover/bash/terminal (**switch auto-aprobar**) | ✅ real |
 | Descubrimiento de modelos (`GET /models`), filtro de gratis y auto-descubrimiento | ✅ real |
@@ -72,6 +74,8 @@ nucoder --route refactor      # qué proveedor/modelo elegiría
 nucoder --providers           # lista proveedores y modelos
 nucoder config                # muestra la config (auto-aprobar, sandbox, gratis…)
 nucoder config auto-approve on   # no pedir confirmación (borrar/mover/bash/terminal)
+nucoder skills                # lista los skills (Claude/OpenCode/nativos)
+nucoder skill <id>            # imprime el cuerpo de un skill
 nucoder provider presets      # presets conocidos (openrouter, nvidia, groq, …)
 nucoder provider add openrouter --api-key sk-or-...   # alta por preset
 nucoder refresh openrouter    # re-baja y reclasifica (conserva los `free` manuales)
@@ -90,7 +94,7 @@ Sin argumentos, `nucoder` imprime la ayuda (el chat vive en NuIde).
 
 `read_file`, `write_file`, `edit_file`, `delete_path`, `move_file`, `list_dir`,
 `glob`, `grep`, `bash` (shell), `run_in_terminal`, `web_fetch`, `web_search`,
-`read_docs` (KB), `submit_plan` (plan), `ftp_*` (`ftp_open`/`ftp_list`/
+`read_docs` (KB), `skill` (skills), `submit_plan` (plan), `ftp_*` (`ftp_open`/`ftp_list`/
 `ftp_upload`/`ftp_download`/`ftp_delete`/`ftp_mkdir`), `image_generate` y
 `audio_transcribe`.
 
@@ -126,6 +130,129 @@ Sin argumentos, `nucoder` imprime la ayuda (el chat vive en NuIde).
   necesita, usa `bash`.
 - **Internet**: `web_fetch` baja una URL (texto limpio si es HTML) y `web_search`
   consulta DuckDuckGo. Usan `curl.exe` (`NUCODER_CURL` lo cambia).
+
+### Skills (Claude / OpenCode / nativos)
+
+El agente descubre **skills** —instrucciones reutilizables— de los tres
+ecosistemas y las expone con **divulgación progresiva**: al modelo sólo se le
+anuncia `id` + descripción (sección **SKILLS** del prompt de sistema); el cuerpo
+se carga **a demanda** con la herramienta `skill`.
+
+| Origen | Formato | Dónde |
+|---|---|---|
+| **Claude** | `SKILL.md` (frontmatter YAML) | `~/.claude/skills`, `.claude/skills` (y `$CLAUDE_CONFIG_DIR/skills`) |
+| **OpenCode** | `SKILL.md` o `<id>.md` | `~/.config/opencode/skills`, `.opencode/skills` |
+| **Agentes** (REA, Qwen…) | `SKILL.md` | `~/.agents/skills`, `.agents/skills` |
+| **Nativo SpASM** | `skill.toml` + `README.md` | `SPASM_HOME/skills`, `F:\SpAMS-Oficial\skills` |
+
+- **Precedencia** (menor → mayor; el de mayor pisa por id): nativo → `.claude` →
+  `.agents` → `opencode` global → `.opencode` (raíz → cwd) → rutas del config.
+- **Id** derivado de la ruta (sensible a mayúsculas): `<id>.md` → `id`;
+  `<id>/SKILL.md` → `id`. El `name` del frontmatter es sólo la etiqueta.
+- **`autoinvoke`/`disable-model-invocation`** ocultan del catálogo sin impedir
+  cargarlo por id. Sin `description` tampoco se anuncia.
+- **Recursos**: `load()` devuelve el cuerpo (sin frontmatter) + el directorio
+  base + hasta 10 archivos de apoyo (`references/`, `scripts/`…), que el modelo
+  lee con `read_file`; los directorios de skills se permiten en modo sandbox.
+- **Rutas extra**: config `skills` o `NUCODER_SKILLS` (separadas por `;`).
+- **Permisos**: `skills_permissions` (`[{ "id": glob, "effect": "allow|ask|deny" }]`;
+  la **última** regla que matchea gana) y el toggle global `skills_autoinvoke`.
+  `deny` oculta del catálogo y bloquea la carga; `ask` se anuncia pero cargarlo
+  pide confirmación (respeta `confirm`/auto-aprobar).
+- **Menciones `@id`**: escribir `@spasm-architect` en el chat (o en `ask`)
+  **precarga** ese skill en el turno sin esperar a la herramienta; las menciones
+  inexistentes o en `deny` se avisan y no se cargan.
+
+```powershell
+nucoder skills                 # lista los skills descubiertos
+nucoder skill spasm-architect  # imprime el cuerpo (sin frontmatter)
+nucoder ask "…" --skill spasm-architect   # precarga el skill en el system
+```
+
+> Parser propio y tolerante (frontmatter YAML mínimo y `skill.toml` mínimo), sin
+> crates nuevas. Ver `docs/SKILLS.md` para el plan completo.
+
+### Servidores MCP (REA y otros)
+
+NuCoder es un **cliente MCP** (Model Context Protocol, JSON-RPC sobre **stdio**).
+Lanza cada server configurado como proceso hijo, hace el *handshake*
+(`initialize` → `notifications/initialized` → `tools/list`) y **suma sus
+herramientas** al modelo con el prefijo `<id>__<tool>` (p. ej.
+`rea__open_binary`). Las llama por `tools/call` y devuelve el texto; el proceso
+se apaga al terminar el turno.
+
+```jsonc
+// ~/.config/nucoder/config.json
+"mcp": {
+  "servers": {
+    "rea": {
+      "command": "cmd",                              // en Windows: cmd /d /c npx …
+      "args": ["/d", "/c", "npx", "-y", "rea-agents@6.4.0", "mcp"],
+      "tools": ["open_binary", "analyze_*", "inspect_*"],   // filtro glob (vacío = todas)
+      "env": { "GHIDRA_INSTALL_DIR": "C:/tools/ghidra" },
+      "enabled": true,
+      "confirm": true                                // pedir confirmación por llamada
+    }
+  }
+}
+```
+
+- **`tools`** filtra qué exponer: REA publica **~170** tools y volcarlas todas
+  infla el prompt; listá las que uses (`open_binary`, `analyze_*`, …).
+- **`confirm`** (default `true`): cada llamada al server pasa por
+  *Aprobar/Rechazar* como las acciones sensibles (lo saltea auto-aprobar).
+- **`env`**: variables para el proceso (Ghidra/JDK, etc.).
+- **Conexión persistente**: `McpHub` mantiene los procesos vivos **entre turnos**
+  (sólo reconecta si cambia la config o al cambiar de proyecto) y los apaga al
+  cerrar el panel/app. Los servers se lanzan a demanda la primera vez.
+- CLI: `nucoder mcp list`, `nucoder mcp tools <id>`, `nucoder mcp call <id> <tool> [json]`.
+
+```powershell
+nucoder mcp list                 # servidores configurados
+nucoder mcp tools rea            # herramientas del server (con el filtro aplicado)
+nucoder mcp call rea open_binary '{"path":"C:/app.exe"}'
+```
+
+> **Límite honesto:** la conexión es persistente dentro de una sesión del panel,
+> pero se **reconecta al cambiar de proyecto** (cwd nuevo). En Windows los
+> motores nativos de REA son limitados (sin Hopper; Ghidra P0); el resto del
+> catálogo es estático.
+
+### NuCook (destilar una habilidad)
+
+`un skill es una habilidad`: NuCook lo convierte en su **forma enseñable**,
+quitando el **ruido humano** y sin perder nada en silencio. Determinista, sin
+modelo:
+
+```powershell
+nucoder cook reverse-engineer-anything --gourmet # pase semántico con el modelo
+nucoder cook ./SKILL.md                          # un archivo suelto
+
+# binario propio (la CLI de NuCook)
+cargo build --release --bin nucook
+nucook list                # recetas (skills) disponibles
+nucook <id> [--gourmet]    # cocina una
+nucook bake [--gourmet]    # cocina TODAS y guarda el recetario
+nucook cook-dir <dir>      # cocina todos los .md/.txt de un directorio (docs/datasets)
+nucook show <id>           # muestra una receta guardada
+nucook search <texto>      # busca skills locales
+nucook search <texto> --remote --catalog <url>   # + catálogo remoto (index.json)
+nucook install <owner/repo> [--skill <id>]   # instala en ~/.agents/skills
+nucook uninstall <id>      # borra un skill instalado
+```
+
+El **recetario** queda en `~/.config/nucoder/cookbook/<id>.cookie` (JSON).
+
+La parte **estructural** de la cocción (etiquetas canónicas `when/not/…` y las
+reglas horizontales) la decide **SpASM** (`spasm/cook.spasm`, dialecto AOT →
+C → FFI); el texto pesado queda en Rust. Regenerar el C: `tools/regen_spasm.ps1`.
+
+La forma son once relaciones, una por línea (`when`, `not`, `want`, `have`,
+`do`, `keep`, `map`, `prove`, `eg`, `risk`, `rest`). Dos **guardianes** (tests):
+**(1) no se pierde** —`unidades == conservadas + ruido + duplicados`— y **(2) no
+hay ruido** (sin reglas/encabezados/boilerplate/duplicados). El ruido *de más*
+(relleno, formato) se saca ahora; el *de menos* (supuestos implícitos, narrativa)
+queda para el pase **gourmet** con el modelo. Detalle: `docs/NUCOOK.md`.
 
 ### Conocimiento local (KB)
 
@@ -317,6 +444,12 @@ src/client.rs cliente HTTP (curl) con streaming SSE y clasificacion de errores
 src/caps.rs   capacidades del modelo (text/code/vision/image/audio/…)
 src/freefilter.rs filtro de gratis por proveedor + presets de alta
 src/knowledge.rs indice de la KB local (read_docs) y primer de SpASM
+src/skills.rs indice de skills (Claude/OpenCode/nativos) + permisos + menciones
+src/cook.rs   NuCook: destila un skill en su forma enseniable (sin ruido)
+src/hub.rs    buscar / instalar / desinstalar skills (~/.agents/skills)
+src/mcp.rs    cliente MCP por stdio (initialize/tools.list/tools.call)
+src/bin/mcp_stub.rs  servidor MCP minimo de prueba (fixture de tests)
+src/bin/nucook.rs    CLI de NuCook (cook/list/bake/show + recetario)
 src/agent.rs  bucle del agente + rotacion + confirmacion de acciones sensibles
 src/tools.rs  herramientas (read/write/edit/delete/move/web/read_docs/run_in_terminal)
 src/markdown.rs  segmenta Markdown en prosa + bloques de codigo tokenizados
@@ -332,6 +465,7 @@ atiende `run_in_terminal`.
 |---|---|
 | `spasm/router.spasm` | `nucoder_router_pick`, `nucoder_router_pick_ex`, `nucoder_router_is_power_task` |
 | `spasm/codeassist.spasm` | `nucoder_codeassist_keywords` (+ global `codeassist_out`) |
+| `spasm/cook.spasm` | `nucoder_cook_label_kind`, `nucoder_cook_is_rule` (NuCook) |
 
 Regenerar el C: `powershell -ExecutionPolicy Bypass -File tools/regen_spasm.ps1`
 (requiere Python + `spasmc.py`; rutas con `NUIDE_PYTHON` / `NUIDE_SPASMC`).

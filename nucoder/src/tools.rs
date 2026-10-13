@@ -10,9 +10,11 @@ use std::time::Duration;
 
 use serde_json::{json, Value};
 
-use crate::client;
 use crate::caps::Cap;
+use crate::client;
+use crate::cook;
 use crate::knowledge::Knowledge;
+use crate::skills::Registry;
 
 /// Pedido del agente al **host** (la IDE) para correr un comando en una
 /// **terminal real** —no capturada— para que quede visible y siga vivo (p. ej.
@@ -75,6 +77,8 @@ pub struct Ctx<'a> {
     pub sandbox: bool,
     /// KB local para `read_docs` (y permitida en modo sandbox).
     pub knowledge: Option<&'a Knowledge>,
+    /// Skills descubiertos (para la tool `skill` y su lectura en sandbox).
+    pub skills: Option<&'a Registry>,
     /// Host de terminales (la IDE). Si está, `run_in_terminal` escribe el
     /// comando en una terminal real; si falta (CLI), la tool no está disponible.
     pub terminal: Option<&'a Sender<TerminalJob>>,
@@ -100,6 +104,7 @@ impl<'a> Ctx<'a> {
             cwd,
             sandbox: false,
             knowledge: None,
+            skills: None,
             terminal: None,
             web: true,
             read_outside: false,
@@ -126,6 +131,13 @@ impl<'a> Ctx<'a> {
             }
             if let Some(kb) = self.knowledge {
                 if kb.roots().iter().any(|r| within(path, r)) {
+                    return true;
+                }
+            }
+            // Los skills viven fuera del proyecto (`~/.claude`, `.agents`, …):
+            // leerlos (cuerpo y recursos) es válido sin habilitar escritura.
+            if let Some(sk) = self.skills {
+                if sk.dirs().iter().any(|d| within(path, d)) {
                     return true;
                 }
             }
@@ -416,6 +428,20 @@ pub fn tool_specs() -> Vec<Value> {
                 }
             }
         }),
+        json!({
+            "type": "function",
+            "function": {
+                "name": "skill",
+                "description": "Cargar un SKILL por su id (los que figuran en el catálogo SKILLS del prompt: skills de Claude/OpenCode/nativos). Devuelve la forma enseñable (la receta cocida) si existe, o el cuerpo original, más sus archivos de apoyo. Cargalo antes de ejecutar una tarea que el skill cubra y seguí sus pasos. Sin `id`, lista los disponibles.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "id": { "type": "string", "description": "Id exacto del skill (ver el catálogo SKILLS)." },
+                        "format": { "type": "string", "description": "`auto` (default: receta cocida si existe, si no el original), `cooked` (forzar la receta) o `raw` (el cuerpo original)." }
+                    }
+                }
+            }
+        }),
     ]
 }
 
@@ -457,6 +483,7 @@ pub fn execute(name: &str, args: &Value, ctx: &Ctx) -> String {
         "image_generate" => image_generate(args, ctx),
         "audio_transcribe" => audio_transcribe(args, ctx),
         "read_docs" => read_docs(args, ctx),
+        "skill" => read_skill(args, ctx),
         other => Err(format!("herramienta desconocida: {other}")),
     };
     match res {
@@ -867,9 +894,7 @@ fn run_in_terminal(args: &Value, ctx: &Ctx) -> Result<String, String> {
         );
     };
     if !ctx.terminal_allowed {
-        return Err(
-            "permiso de terminales desactivado (Permisos → Terminales); usá `bash`".into(),
-        );
+        return Err("permiso de terminales desactivado (Permisos → Terminales); usá `bash`".into());
     }
     let (rtx, rrx) = channel::<String>();
     tx.send(TerminalJob {
@@ -940,6 +965,47 @@ fn read_docs(args: &Value, ctx: &Ctx) -> Result<String, String> {
                 "no existe el documento `{name}` (usá read_docs sin argumentos para listar)"
             )),
         },
+    }
+}
+
+/// Carga un skill por id (los del catálogo SKILLS del prompt). Sin `id`, lista.
+fn read_skill(args: &Value, ctx: &Ctx) -> Result<String, String> {
+    let Some(reg) = ctx.skills else {
+        return Ok("(no hay skills disponibles)\n".into());
+    };
+    match args
+        .get("id")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+    {
+        None => {
+            let mut out = String::from("skills disponibles:\n");
+            for sk in reg.advertised() {
+                out.push_str(&format!("  - {}\n", sk.line()));
+            }
+            if reg.is_empty() {
+                out.push_str("  (vacío)\n");
+            }
+            Ok(out)
+        }
+        Some(id) => {
+            // `auto`: receta cocida (del recetario) si existe; si no, el original.
+            let format = args.get("format").and_then(Value::as_str).unwrap_or("auto");
+            match format {
+                "raw" => reg.load(id),
+                "cooked" => match cook::load_cookie(id) {
+                    Some(t) => Ok(t.render_text()),
+                    None => match reg.by_id(id) {
+                        Some(sk) => cook::cook_skill(sk).map(|t| t.render_text()),
+                        None => reg.load(id),
+                    },
+                },
+                _ => match cook::load_cookie(id) {
+                    Some(t) => Ok(t.render_text()),
+                    None => reg.load(id),
+                },
+            }
+        }
     }
 }
 
@@ -1346,6 +1412,7 @@ mod tests {
             cwd: &dir,
             sandbox: true,
             knowledge: None,
+            skills: None,
             terminal: None,
             web: true,
             read_outside: false,
@@ -1384,6 +1451,7 @@ mod tests {
             cwd: &dir,
             sandbox: false,
             knowledge: None,
+            skills: None,
             terminal: Some(&tx),
             web: true,
             read_outside: false,
@@ -1395,7 +1463,8 @@ mod tests {
         let handle = std::thread::spawn(move || {
             let job = rx.recv().unwrap();
             assert_eq!(job.command, "npm run dev");
-            job.reply.send(format!("escrito en la terminal: {}", job.command))
+            job.reply
+                .send(format!("escrito en la terminal: {}", job.command))
                 .unwrap();
         });
         let out = run_in_terminal(&json!({"command": "npm run dev"}), &ctx).unwrap();
@@ -1432,6 +1501,7 @@ mod tests {
             cwd: &dir,
             sandbox: true,
             knowledge: None,
+            skills: None,
             terminal: None,
             web: true,
             read_outside: false,
@@ -1472,5 +1542,77 @@ mod tests {
         assert_eq!(hits[0].0, "Ejemplo Uno");
         assert_eq!(hits[0].1, "https://example.com/a");
         assert_eq!(hits[1].1, "https://otro.test/b");
+    }
+
+    #[test]
+    fn skill_tool_carga_por_id_y_lista_sin_id() {
+        use crate::skills::{Registry, SkillSource};
+        let dir = temp_dir("skill-tool");
+        let root = dir.join("skills");
+        let sk_dir = root.join("demo");
+        fs::create_dir_all(&sk_dir).unwrap();
+        fs::write(
+            sk_dir.join("SKILL.md"),
+            "---\nname: Demo\ndescription: sirve\n---\n\nPasos del demo.",
+        )
+        .unwrap();
+        let reg = Registry::from_sources(vec![(SkillSource::OpenCode, root)]);
+        let ctx = Ctx {
+            cwd: &dir,
+            sandbox: false,
+            knowledge: None,
+            skills: Some(&reg),
+            terminal: None,
+            web: true,
+            read_outside: false,
+            terminal_allowed: true,
+            ftp: None,
+            ftp_allowed: true,
+            config: None,
+        };
+        // Sin id: lista.
+        let list = execute("skill", &json!({}), &ctx);
+        assert!(list.contains("demo"), "listado: {list}");
+        // Con id: cuerpo sin frontmatter.
+        let body = execute("skill", &json!({"id": "demo"}), &ctx);
+        assert!(body.contains("Pasos del demo"));
+        assert!(!body.contains("name: Demo"));
+        // Id inexistente: error legible.
+        let bad = execute("skill", &json!({"id": "noexiste"}), &ctx);
+        assert!(bad.starts_with("error:"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn sandbox_permite_leer_recursos_del_skill() {
+        use crate::skills::{Registry, SkillSource};
+        let project = temp_dir("skill-sb");
+        // El skill vive fuera del proyecto.
+        let outside = temp_dir("skill-sb-out");
+        let root = outside.join("skills");
+        let sk_dir = root.join("demo");
+        fs::create_dir_all(&sk_dir).unwrap();
+        fs::write(sk_dir.join("SKILL.md"), "---\ndescription: x\n---\ncuerpo").unwrap();
+        fs::create_dir_all(sk_dir.join("references")).unwrap();
+        fs::write(sk_dir.join("references/ref.md"), "referencia").unwrap();
+        let reg = Registry::from_sources(vec![(SkillSource::Claude, root)]);
+        let ctx = Ctx {
+            cwd: &project,
+            sandbox: true,
+            knowledge: None,
+            skills: Some(&reg),
+            terminal: None,
+            web: true,
+            read_outside: false,
+            terminal_allowed: true,
+            ftp: None,
+            ftp_allowed: true,
+            config: None,
+        };
+        let ref_path = sk_dir.join("references/ref.md");
+        let out = read_file(&json!({ "path": ref_path.to_string_lossy() }), &ctx).unwrap();
+        assert!(out.contains("referencia"));
+        let _ = fs::remove_dir_all(&project);
+        let _ = fs::remove_dir_all(&outside);
     }
 }

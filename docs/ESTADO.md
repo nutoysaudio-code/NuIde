@@ -949,6 +949,207 @@ compresión; el visor muestra hasta 200 filas por tabla y no edita.
   no hay `git`. Con test del detector (`el_detector_reconoce_keys_y_ignora_ejemplos`).
 - `.gitignore`: bloque de seguridad (`.env*`, `*.pem`, `*.key`, `secrets*.json`).
 
+### 3.52 Skills de Claude/OpenCode/nativos en NuCoder (fases S0–S1)
+
+- **Núcleo** `nucoder/src/skills.rs`: `Registry` que descubre y normaliza los
+  tres formatos —**Claude** (`SKILL.md` con frontmatter YAML), **OpenCode**
+  (`SKILL.md` o `<id>.md`) y **nativo SpASM** (`skill.toml` + `README.md`)—
+  con **precedencia por id** (nativo → `.claude` → `.agents` → `opencode`
+  global → `.opencode` raíz→cwd → rutas del config/`NUCODER_SKILLS`).
+  Parsers propios y tolerantes (sin crates nuevas): frontmatter YAML mínimo
+  (`name`, `description`, `allowed-tools`, `disable-model-invocation`,
+  `metadata.opencode/autoinvoke`, `metadata.version`) y `skill.toml` mínimo
+  (`name`, `version`, `entrypoint_doc`, `capabilities`, `notes`).
+- **Divulgación progresiva**: al modelo sólo se le anuncia `id` + descripción
+  (sección **SKILLS** del prompt de sistema, vía `Registry::catalog_prompt`);
+  el cuerpo se carga **a demanda** con la nueva tool **`skill`** (por id), que
+  devuelve el cuerpo sin frontmatter + el directorio base + hasta 10 archivos de
+  apoyo. `autoinvoke: false`/sin descripción ⇒ no se anuncia; igual se carga.
+- **Sandbox**: los directorios de skills se suman como raíces de **lectura**
+  permitidas (`Ctx.allows`), así el modelo puede leer sus `references/` aunque
+  vivan fuera del proyecto (`~/.claude`, `.agents`, …), sin habilitar escritura.
+- **Config/CLI**: campo `skills` en la config propia; `nucoder skills` (lista
+  con origen y capacidades), `nucoder skill <id>` (imprime el cuerpo) y
+  `--skill <id>` (precarga el skill en el system del `ask`).
+- **Panel de NuIde**: el chat arma el `Registry` al abrir/cambiar de proyecto y
+  lo pasa al `Agent`; el catálogo entra al prompt de sistema.
+- **Permisos (S2)**: `skills_permissions` en la config (`[{id (glob), effect}]`,
+  la **última** regla que matchea gana; efectos `allow`/`ask`/`deny`) y el toggle
+  global `skills_autoinvoke`. `deny` oculta del catálogo **y** hace fallar
+  `load`; `ask` se anuncia pero **cargarlo pide confirmación** (lo trata como
+  acción sensible el bucle del agente, respetando `confirm`/auto-aprobar). CLI:
+  `nucoder config skills-autoinvoke on|off`, y `nucoder skills` muestra el efecto
+  de cada uno.
+- **Catálogo en la IDE (S3)**: modal `ui/ide_skills.slint` (lista con id, origen
+  y estado —anunciado/oculto/ask/deny—, panel de detalle con el cuerpo y botones
+  **Anunciar/ocultar** y **Refrescar**). Se abre con la paleta (*Skills: abrir
+  catálogo*) o el menú **Agente** (*Catálogo de skills…*); apagar prende/apaga el
+  anuncio del seleccionado (`allow` ↔ `deny`) y lo persiste en la config de
+  NuCoder. El struct `IdeSkillRow` vive en `ui/ide_types.slint`; el estado y el
+  `Registry` en `Ide` (`src/editor.rs`), que relee la config de NuCoder al abrir
+  y al cambiar de proyecto. Sólo se refresca si está abierto (refresco acotado).
+- **Menciones `@skill` (S4)**: `Registry::expand_mentions` detecta `@<id>` en el
+  turno, **saca la mención** del texto y adjunta el cuerpo del skill al mensaje
+  (sin esperar la tool). Un id inexistente o en `deny` no se carga (se avisa).
+  Funciona en el panel y en `nucoder ask`.
+- **REA (M0–M1)**: se verificó **REA 6.4.0** con Node 26; su skill
+  `reverse-engineer-anything` se instaló en `~/.agents/skills/` (con
+  `references/`) y NuCoder lo descubre y lo anuncia. Falta el cliente MCP (M2)
+  para sus herramientas.
+- Tests nuevos: **18** en `nucoder` (skills/tools) y **1** en `nuide` (comando
+  de paleta del catálogo).
+  (Plan completo: `docs/SKILLS.md`; MCP y REA: `docs/MCP.md`.)
+
+### 3.53 Cliente MCP en NuCoder (integración con REA)
+
+- **`nucoder/src/mcp.rs`**: cliente **MCP** (Model Context Protocol) — JSON-RPC
+  2.0 sobre **stdio**. Lanza el server como proceso hijo (sin consola), hace
+  `initialize` → `notifications/initialized` → `tools/list`, y llama por
+  `tools/call`. Hilo lector que manda los mensajes por canal; las peticiones
+  esperan el `id` que les corresponde (handshake 30 s, llamada 300 s).
+  `shutdown`/`Drop` matan el proceso. Sin crates nuevas.
+- **Config `mcp.servers`** en `~/.config/nucoder/config.json`: `command`, `args`,
+  `env`, **`tools`** (filtro glob de qué exponer; vacío = todas), `enabled` y
+  `confirm`. Se parsea/persiste con `McpServer::from_value`/`to_value`.
+- **Agente**: al empezar el turno lanza los servers habilitados, **suma sus
+  herramientas al modelo** como `<id>__<tool>` (p. ej. `rea__open_binary`),
+  enruta las llamadas a `tools/call`, las trata como **sensibles** si
+  `confirm` (Aprobar/Rechazar, lo saltea auto-aprobar) y **apaga** los procesos
+  al terminar. El **filtro `tools`** evita volcar cientos de specs al prompt.
+- **CLI**: `nucoder mcp list`, `nucoder mcp tools <id>`,
+  `nucoder mcp call <id> <tool> [json]`.
+- **Verificado con [REA](https://github.com/morluto/rea) 6.4.0**: se levantó su
+  MCP (`cmd /d /c npx -y rea-agents@6.4.0 mcp`) y NuCoder listó **170
+  herramientas**.
+- Tests nuevos (**6**): parseo/round-trip de la config MCP (2), separación del
+  prefijo `<id>__<tool>` (1) y e2e contra el fixture `src/bin/mcp_stub.rs` (3:
+  handshake+lista+llamada, `isError`, comando inexistente). El binario `mcp_stub`
+  es **sólo un fixture de tests** (`default-run = "nucoder"`).
+- **Pendiente (M2)**: UI **Preferencias → MCP** (CRUD, probar, ver tools). La
+  conexión ya es **persistente** (`McpHub`): los procesos siguen vivos entre
+  turnos, se reconectan si cambia la config o el proyecto, y se apagan al cerrar
+  el panel/app.
+
+### 3.54 NuCook: destilar una habilidad (sin ruido humano)
+
+- **`nucoder/src/cook.rs`**: convierte un skill (Claude/OpenCode/nativo) en su
+  **forma enseñable** —once relaciones, una por línea: `when`, `not`, `want`,
+  `have`, `do`, `keep`, `map`, `prove`, `eg`, `risk`, `rest`— con render **texto**
+  (para el modelo) y **JSON** (Rust/UI/caché). Determinista, sin modelo.
+- **Criterio**: "sin pérdida" no es igualdad de bytes (eso conservaría el ruido)
+  sino que **la habilidad siga siendo enseñable**. El ruido humano tiene dos
+  caras: **de más** (relleno/formato) y **de menos** (supuestos implícitos).
+- **Dos guardianes** (tests): **(1) no se pierde** (`unidades == conservadas +
+  ruido + duplicados`; lo dudoso va a `rest`, no a la basura) y **(2) no hay
+  ruido** (sin reglas, encabezados, boilerplate de licencia/versión ni
+  duplicados).
+- **CLI**: `nucoder cook <id|ruta> [--json] [--stats]`; `Skill::body()` y
+  `skills::strip_frontmatter` en el núcleo.
+- **Gourmet (C3)**: `nucoder cook <id> --gourmet [--model <id>] [--refresh]` hace
+  un pase **semántico** con el modelo (`client::complete`, una llamada one-shot)
+  para atacar el ruido *de menos* (supuestos, prosa). El prompt define cada
+  etiqueta y trae un *few-shot*; la salida se parsea a la misma forma. Caché en
+  `~/.config/nucoder/cookies/` con clave `hash` + modelo + **versión del prompt**
+  (si cambia el prompt, se invalida). Probado contra REA: pasó de fragmentos por
+  línea a `when/not/want/have/do/keep/map` correctos.
+- **Binario `nucook` + recetario**: la CLI de NuCook como ejecutable propio
+  (`nucoder/src/bin/nucook.rs`): `nucook <id>`, `nucook list`, `nucook bake`
+  (cocina **todas** y guarda el **recetario** en
+  `~/.config/nucoder/cookbook/<id>.cookie`, JSON) y `nucook show <id>`.
+  Probado: `nucook bake` cocinó las 10 recetas descubiertas.
+- **Cocinar docs/KB/datasets (C4 parcial)**: `nucook cook-dir <dir> [--gourmet]
+  [--out <dir>]` recorre los `.md`/`.markdown`/`.txt` (`cook::collect_docs`,
+  salteando generados/ocultos) y guarda una receta por documento; sirve para la
+  **KB**, docs y datasets. Probado: 2 docs → 2 cookies.
+- **Límite honesto**: el pase determinista fragmenta por línea en skills con
+  mucha prosa; el gourmet rinde ahí. Ver [`docs/NUCOOK.md`](../../docs/NUCOOK.md).
+
+### 3.55 C2: el agente come las galletitas (primer + receta)
+
+- **Catálogo enriquecido**: `cook::catalog_prompt(&Registry)` reemplaza al
+  catálogo por descripción: si hay una **receta** (`nucook bake`, en
+  `~/.config/nucoder/cookbook/`), anuncia su **primer** (`want … · when …`); si
+  no, cae a la descripción. Es lo que ve el prompt de sistema.
+- **Cargar la receta**: la tool `skill` gana `format` (`auto`/`cooked`/`raw`):
+  por defecto devuelve la **receta cocida** si existe (si no, el original);
+  `cooked` fuerza la cocción determinista; `raw` el cuerpo original.
+- `cook::load_cookie`/`teaching_from_json` reconstruyen la receta desde el JSON.
+
+### 3.56 Hub de skills: buscar / instalar / desinstalar
+
+- **`nucoder/src/hub.rs`**: `search` (filtra el catálogo por id/nombre/
+  descripción), `install_from_dir` (copia local) e `install_from_git`
+  (`owner/repo` o URL → `git clone --depth 1` → encuentra `<skill>/SKILL.md` →
+  copia) hacia el destino compartido **`~/.agents/skills`** (que `Registry` ya
+  escanea), y `uninstall` (borra sólo dentro del hub, id validado).
+- **CLI `nucook`**: `search`, `install <repo|ruta> [--skill <id>] [--force]`,
+  `uninstall <id>`, además de `list`/`catalog`/`bake`/`show`/`cook`.
+- **Búsqueda remota (catálogo)**: `hub::search_catalog(url, q)` baja un
+  `index.json` (`{ "skills": [ {name, description, source|repo, path|skill} ] }`)
+  con `curl`, lo parsea (tolerante a BOM) y filtra; CLI
+  `nucook search <t> --remote --catalog <url>` (o `NUCOOK_CATALOG`). La UI todavía
+  busca local; el toggle “buscar en la web” queda pendiente.
+- **Actualizar**: “Instalar…” del modal reemplaza (force) si ya existe; también
+  `nucook install … --force`.
+- **Seguridad**: instalar **no ejecuta** nada; al usar el agente el skill pasa por
+  confirmación y por `allow/ask/deny`.
+- **Interfaz** (buscar/descargar/administrar en la UI): diseñada en
+  [`docs/SKILLS_UI.md`](../../docs/SKILLS_UI.md) (fases U0–U3; U0 —el modal— hecha).
+- Tests nuevos (**6**, con el recetario): guardar/reconstruir receta, primer,
+  búsqueda y instalar/desinstalar en directorios temporales.
+
+### 3.57 UI de skills: buscar, instalar, cocinar y eliminar en el modal
+
+- **Modal `ui/ide_skills.slint` ampliado**: **buscador en vivo** (el teclado lo
+  maneja Rust, como los demás modales), barra de acciones **Instalar… · Cocinar ·
+  Eliminar · Anunciar · Refrescar**, indicador de **ocupado/último mensaje**, y
+  el **detalle** ahora muestra la **receta** cocida si existe (si no, el cuerpo).
+- **Cableado en `src/editor.rs`**: `skills_filter`/`skills_note`/`skills_busy`,
+  canal `skills_tx/rx` (operaciones en **hilo**), `skills_intercept` para el
+  buscador, y callbacks `skills-install/cook/delete`.
+- **Instalar** reusa el diálogo `IdePrompt` (`PromptKind::SkillInstall`):
+  `owner/repo`, URL o ruta, con `#skill` opcional → `hub::install_*` en hilo.
+- **Cocinar** corre el pase gourmet (cacheado) sobre el seleccionado y guarda la
+  receta. **Eliminar** pide confirmación (`Ask::UninstallSkill`) y usa
+  `hub::uninstall` (sólo si está dentro del hub).
+- **Buscar en la web (U4)**: toggle **`web`** en el modal; consulta el catálogo
+  remoto (`NUCOOK_CATALOG`) en un hilo y agrega las entradas como filas (estado
+  `web`); **Instalar** las baja de su repo/path.
+- i18n regenerado (`tools/i18n_extract.py` + `i18n_po.py`): 441 claves.
+- Diseño y fases: [`docs/SKILLS_UI.md`](../../docs/SKILLS_UI.md) (U0–U4 ✅).
+
+### 3.58 Empaquetado de `nucook.exe` (NuCook viaja con NuIde)
+
+- **`packaging/NuIde.iss`**: el instalador copia **`nucook.exe`** a `{app}` (bajo
+  la tarea `nucoder`, junto a `nucoder.exe`); el `-AddPath` de
+  `postinstall.ps1` ya deja `{app}` en el PATH del usuario, así `nucook` queda
+  disponible en cualquier terminal. Textos de tareas/mensajes actualizados.
+- **`packaging/make_installer.ps1`**: compila explícitamente `--bin nucook`
+  (release) además de NuCoder y verifica que exista `nucook.exe`.
+- **Probado**: `make_installer.ps1 -SkipBuild` generó
+  `releases/NuIde-0.3.2-setup.exe` (7,8 MB) **incluyendo `nucook.exe`**.
+
+### 3.59 Normalizador de NuCook en SpASM (AOT → C → FFI)
+
+- **`nucoder/spasm/cook.spasm`** (dialecto AOT) decide la parte **estructural**
+  de la cocción: `label_kind(s)` → índice de la etiqueta **canónica** (0..10) o
+  -1, y `is_rule(s)` → 1 si es regla horizontal exacta (`---`, `***`, …). Sólo
+  usa builtins documentados (`str_equals`).
+- **`nucoder/ffi/cook_ffi.c`**: exporta `nucoder_cook_label_kind` /
+  `nucoder_cook_is_rule`; el C generado se commitea (`spasm/generated/cook.c`,
+  regenerado con `tools/regen_spasm.ps1` — el toolchain reproduce `router.c`/
+  `codeassist.c` byte a byte).
+- **`src/ffi.rs`** suma los bindings (mutex + `CString`); **`src/cook.rs`** usa
+  SpASM para las etiquetas canónicas (los sinónimos quedan en Rust) y para
+  `is_rule` (con fallback). La lógica con *case folding* Unicode sigue en Rust
+  porque los builtins de string documentados no la ofrecen (regla de la KB: no
+  inventar builtins).
+- Test nuevo: SpASM resuelve `want`→2/`rest`→10; los sinónimos (`goal`) los cubre
+  Rust. Docs: `nucoder/README.md` (tabla FFI), `docs/NUCOOK.md`.
+- **Cocinar docs desde la UI**: comando de paleta *NuCook: cocinar carpeta de
+  docs…* (diálogo nativo, en hilo) que cocina los `.md`/`.txt` de una carpeta al
+  recetario; el resumen se ve en el modal de skills y en la terminal `build`.
+
 ## 4. Limitaciones conocidas
 - **Persistencia parcial.** Se recuerda el proyecto, el dock/visibilidad de los
   paneles, la geometría de la ventana, las pestañas abiertas, el filtro de

@@ -8,7 +8,7 @@
 //! vive en **NuIde** como panel nativo (Slint); el núcleo está en la librería
 //! `nucoder` (`src/lib.rs`).
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 use std::sync::mpsc::channel;
 use std::sync::Arc;
@@ -20,9 +20,12 @@ use nucoder::agent::{self, Agent, AgentEvent};
 use nucoder::caps::{self, Cap};
 use nucoder::client;
 use nucoder::config::{self, Config};
+use nucoder::cook;
 use nucoder::freefilter::{self, FreeFilter};
 use nucoder::image;
 use nucoder::knowledge::Knowledge;
+use nucoder::mcp::{McpClient, CALL_TIMEOUT};
+use nucoder::skills::{Registry, SkillEffect};
 use nucoder::{banner, ffi};
 
 fn main() -> Result<()> {
@@ -59,6 +62,10 @@ fn main() -> Result<()> {
         Some("refresh") => return subcommand_refresh(&args),
         Some("models") => return subcommand_models(&args),
         Some("config") | Some("cfg") => return subcommand_config(&args),
+        Some("skills") => return subcommand_skills(&args),
+        Some("skill") => return subcommand_skill(&args),
+        Some("cook") => return subcommand_cook(&args),
+        Some("mcp") => return subcommand_mcp(&args),
         Some("route") => {
             let t = args.get(1).cloned().unwrap_or(task);
             let cfg = load_config();
@@ -75,6 +82,7 @@ fn main() -> Result<()> {
             let model_override = cli_model.clone().or_else(|| cfg.default_model.clone());
             let prompt_cache = resolve_prompt_cache(&cfg, &args);
             let context_chars = resolve_context(&cfg, &args);
+            let skill_preload = flag("--skill");
             return run_ask(
                 cfg,
                 cwd,
@@ -87,6 +95,7 @@ fn main() -> Result<()> {
                 model_override,
                 prompt_cache,
                 context_chars,
+                skill_preload,
             );
         }
         _ => {}
@@ -108,6 +117,7 @@ fn main() -> Result<()> {
         let model_override = cli_model.clone().or_else(|| cfg.default_model.clone());
         let prompt_cache = resolve_prompt_cache(&cfg, &args);
         let context_chars = resolve_context(&cfg, &args);
+        let skill_preload = flag("--skill");
         return run_ask(
             cfg,
             cwd,
@@ -120,6 +130,7 @@ fn main() -> Result<()> {
             model_override,
             prompt_cache,
             context_chars,
+            skill_preload,
         );
     }
 
@@ -508,7 +519,7 @@ fn subcommand_config(args: &[String]) -> Result<()> {
         bail!(
             "uso: nucoder config <clave> <valor>\n\
              claves: auto-approve, autopilot, internet, leer-fuera, terminales, ftp, \
-             confirm, sandbox, free-only, context-chars, default-model"
+             confirm, sandbox, free-only, context-chars, default-model, skills-autoinvoke"
         );
     };
     match key.as_str() {
@@ -534,6 +545,7 @@ fn subcommand_config(args: &[String]) -> Result<()> {
         "terminal" | "terminales" => cfg.perm_terminal = parse_on_off(val)?,
         "ftp" | "cliente-ftp" => cfg.perm_ftp = parse_on_off(val)?,
         "autopilot" | "autopiloto" => cfg.autopilot = parse_on_off(val)?,
+        "skills-autoinvoke" | "skills" => cfg.skills_autoinvoke = parse_on_off(val)?,
         other => bail!("clave desconocida: {other}"),
     }
     let path = cfg.save_own()?;
@@ -542,8 +554,219 @@ fn subcommand_config(args: &[String]) -> Result<()> {
     Ok(())
 }
 
+/// `nucoder skills`: lista los skills descubiertos (Claude/OpenCode/nativos).
+fn subcommand_skills(_args: &[String]) -> Result<()> {
+    let cfg = Config::load();
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let reg = Registry::discover(
+        &cwd,
+        &cfg.skills,
+        &cfg.skills_permissions,
+        cfg.skills_autoinvoke,
+    );
+    if reg.is_empty() {
+        println!("no se encontraron skills.");
+        println!("Se buscan en: ~/.claude/skills, .claude/skills, ~/.agents/skills,");
+        println!("             .agents/skills, ~/.config/opencode/skills, .opencode/skills");
+        println!("             y SPASM_HOME/skills (nativos). Sumá rutas con la");
+        println!("             config `skills` o la variable `NUCODER_SKILLS`.");
+        return Ok(());
+    }
+    println!(
+        "{} skill(s) ({} se anuncian al modelo):",
+        reg.skills().len(),
+        reg.advertised().count()
+    );
+    for sk in reg.skills() {
+        let estado = match reg.effect(&sk.id) {
+            SkillEffect::Deny => "  (deny)",
+            SkillEffect::Ask => "  (ask: pide confirmación)",
+            SkillEffect::Allow if !reg.advertises(sk) => "  (oculto)",
+            SkillEffect::Allow => "",
+        };
+        println!("  {}{estado}", sk.line());
+        if let Some(v) = &sk.version {
+            print!("      v{v}");
+        }
+        if !sk.capabilities.is_empty() {
+            print!("  · {}", sk.capabilities.join(", "));
+        }
+        if sk.version.is_some() || !sk.capabilities.is_empty() {
+            println!();
+        }
+    }
+    println!("\ncargar/ver uno:  nucoder skill <id>");
+    Ok(())
+}
+
+/// `nucoder cook <skill-id|ruta> [--gourmet] [--model <id>] [--refresh]`: destila
+/// una **habilidad** (NuCook) quitando el ruido humano, sin perder nada en silencio.
+fn subcommand_cook(args: &[String]) -> Result<()> {
+    let json = args.iter().any(|a| a == "--json");
+    let stats = args.iter().any(|a| a == "--stats");
+    let gourmet = args.iter().any(|a| a == "--gourmet" || a == "--semantic");
+    let refresh = args.iter().any(|a| a == "--refresh");
+    let model = value_of(args, "--model");
+    let Some(arg) = args.get(1).filter(|a| !a.starts_with('-')) else {
+        bail!(
+            "uso: nucoder cook <skill-id|ruta> [--gourmet] [--model <id>] [--refresh] \
+             [--json] [--stats]"
+        );
+    };
+    let is_file = Path::new(arg).is_file();
+    let teaching = if gourmet {
+        let cfg = Config::load();
+        if is_file {
+            let p = Path::new(arg);
+            let text = std::fs::read_to_string(p).map_err(|e| anyhow::anyhow!("{arg}: {e}"))?;
+            let body = nucoder::skills::strip_frontmatter(&text);
+            let id = p
+                .file_stem()
+                .map(|s| s.to_string_lossy().to_string())
+                .unwrap_or_else(|| "skill".to_string());
+            cook::gourmet_body(&id, p, &body, &cfg, model.as_deref(), refresh)
+                .map_err(|e| anyhow::anyhow!("{e}"))?
+        } else {
+            let sk = find_skill(&cfg, arg)?;
+            cook::cook_skill_gourmet(&sk, &cfg, model.as_deref(), refresh)
+                .map_err(|e| anyhow::anyhow!("{e}"))?
+        }
+    } else if is_file {
+        cook::cook_path(Path::new(arg)).map_err(|e| anyhow::anyhow!("{e}"))?
+    } else {
+        let cfg = Config::load();
+        let sk = find_skill(&cfg, arg)?;
+        cook::cook_skill(&sk).map_err(|e| anyhow::anyhow!("{e}"))?
+    };
+    if stats {
+        eprintln!(
+            "· {} · {} unidad(es) · {} conservada(s) · {} ruido · {} duplicado(s)",
+            teaching.mode,
+            teaching.stats.units,
+            teaching.stats.kept,
+            teaching.stats.noise,
+            teaching.stats.dup
+        );
+    }
+    if json {
+        println!("{}", serde_json::to_string_pretty(&teaching.to_json())?);
+    } else {
+        print!("{}", teaching.render_text());
+    }
+    Ok(())
+}
+
+/// Resuelve un skill por id (copia propia: el `Registry` es local al proceso).
+fn find_skill(cfg: &Config, id: &str) -> Result<nucoder::skills::Skill> {
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let reg = Registry::discover(
+        &cwd,
+        &cfg.skills,
+        &cfg.skills_permissions,
+        cfg.skills_autoinvoke,
+    );
+    reg.by_id(id)
+        .cloned()
+        .ok_or_else(|| anyhow::anyhow!("no existe el skill `{id}` (ni un archivo con esa ruta)"))
+}
+
+/// `nucoder mcp list|tools <id>|call <id> <tool> [json]`: administra los
+/// servidores MCP configurados.
+fn subcommand_mcp(args: &[String]) -> Result<()> {
+    let cfg = Config::load();
+    match args.get(1).map(String::as_str) {
+        None | Some("list") => {
+            if cfg.mcp.is_empty() {
+                println!("no hay servidores MCP configurados (config `mcp.servers`).");
+                println!("Ejemplo: {{\"mcp\":{{\"servers\":{{\"rea\":{{\"command\":\"npx\",");
+                println!("  \"args\":[\"-y\",\"rea-agents@6.4.0\",\"mcp\"]}}}}}}}}");
+                return Ok(());
+            }
+            println!("{} servidor(es) MCP:", cfg.mcp.len());
+            for s in &cfg.mcp {
+                println!(
+                    "  {:<12} {:<3} {}{}",
+                    s.id,
+                    if s.enabled { "on" } else { "off" },
+                    s.command,
+                    if s.args.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" {}", s.args.join(" "))
+                    }
+                );
+            }
+            Ok(())
+        }
+        Some("tools") => {
+            let Some(id) = args.get(2).filter(|a| !a.starts_with('-')) else {
+                bail!("uso: nucoder mcp tools <server>");
+            };
+            let srv = find_mcp(&cfg, id)?;
+            let mut c = McpClient::spawn(srv).map_err(|e| anyhow::anyhow!("{e}"))?;
+            println!("{} · {} herramienta(s):", c.server_name, c.tools.len());
+            for t in &c.tools {
+                let d: String = t.description.chars().take(80).collect();
+                println!("  {:<34} {}", t.name, d);
+            }
+            c.shutdown();
+            Ok(())
+        }
+        Some("call") => {
+            let id = args.get(2).filter(|a| !a.starts_with('-'));
+            let tool = args.get(3).filter(|a| !a.starts_with('-'));
+            let (Some(id), Some(tool)) = (id, tool) else {
+                bail!("uso: nucoder mcp call <server> <tool> [json]");
+            };
+            let payload = match args.get(4) {
+                Some(j) => serde_json::from_str::<serde_json::Value>(j)
+                    .map_err(|e| anyhow::anyhow!("json inválido: {e}"))?,
+                None => serde_json::json!({}),
+            };
+            let srv = find_mcp(&cfg, id)?;
+            let mut c = McpClient::spawn(srv).map_err(|e| anyhow::anyhow!("{e}"))?;
+            let out = c
+                .call(tool, &payload, CALL_TIMEOUT)
+                .map_err(|e| anyhow::anyhow!("{e}"))?;
+            println!("{out}");
+            c.shutdown();
+            Ok(())
+        }
+        Some(other) => bail!("subcomando mcp desconocido: {other} (usá list|tools|call)"),
+    }
+}
+
+/// Busca un servidor MCP por id.
+fn find_mcp<'a>(cfg: &'a Config, id: &str) -> Result<&'a nucoder::mcp::McpServer> {
+    cfg.mcp
+        .iter()
+        .find(|s| s.id == id)
+        .ok_or_else(|| anyhow::anyhow!("no existe el servidor MCP `{id}`"))
+}
+
+/// `nucoder skill <id>`: imprime el cuerpo (sin frontmatter) del skill.
+fn subcommand_skill(args: &[String]) -> Result<()> {
+    let Some(id) = args.get(1).filter(|a| !a.starts_with('-')) else {
+        bail!("uso: nucoder skill <id>   (listá con `nucoder skills`)");
+    };
+    let cfg = Config::load();
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let reg = Registry::discover(
+        &cwd,
+        &cfg.skills,
+        &cfg.skills_permissions,
+        cfg.skills_autoinvoke,
+    );
+    let body = reg.load(id).map_err(|e| anyhow::anyhow!("{e}"))?;
+    println!("{body}");
+    Ok(())
+}
+
 fn print_config(cfg: &Config) -> Result<()> {
-    println!("Config de NuCoder ({}):", config::own_config_path().display());
+    println!(
+        "Config de NuCoder ({}):",
+        config::own_config_path().display()
+    );
     println!(
         "  auto-approve    {}   (no pedir confirmación para borrar/mover/bash)",
         on_off(cfg.auto_approve)
@@ -562,6 +785,11 @@ fn print_config(cfg: &Config) -> Result<()> {
     println!("    terminales    {}", on_off(cfg.perm_terminal));
     println!("    ftp           {}", on_off(cfg.perm_ftp));
     println!("    autopiloto    {}", on_off(cfg.autopilot));
+    println!("  skills:");
+    println!("    autoinvoke    {}", on_off(cfg.skills_autoinvoke));
+    for r in &cfg.skills_permissions {
+        println!("    {:<5}         {}", r.effect.as_str(), r.id);
+    }
     println!(
         "  efectivo: {}",
         if cfg.asks_confirmation() {
@@ -673,11 +901,19 @@ fn run_ask(
     model_override: Option<String>,
     prompt_cache: bool,
     context_chars: usize,
+    skill_preload: Option<String>,
 ) -> Result<()> {
     use std::io::Write;
     let (tx, rx) = channel::<AgentEvent>();
     let cancel = Arc::new(AtomicBool::new(false));
     let knowledge = Arc::new(Knowledge::discover(&cfg.knowledge));
+    let skills = Arc::new(Registry::discover(
+        &cwd,
+        &cfg.skills,
+        &cfg.skills_permissions,
+        cfg.skills_autoinvoke,
+    ));
+    let mcp_hub = Arc::new(std::sync::Mutex::new(nucoder::mcp::McpHub::default()));
     let vision = !images.is_empty();
     let (perm_web, perm_read_outside, perm_terminal, perm_ftp, autopilot) = (
         cfg.perm_web,
@@ -696,6 +932,7 @@ fn run_ask(
         confirm: false,
         sandbox,
         knowledge: knowledge.clone(),
+        skills: skills.clone(),
         cap,
         vision,
         model_override,
@@ -708,9 +945,32 @@ fn run_ask(
         terminal_allowed: perm_terminal,
         ftp: None,
         ftp_allowed: perm_ftp,
+        mcp_hub: mcp_hub.clone(),
     };
-    let user_msg = agent::user_message(&prompt, &images);
-    let system = agent::system_value(&agent::system_prompt(&cwd, &knowledge, false), prompt_cache);
+    let (prompt, mention_ctx, loaded, missing) = skills.expand_mentions(&prompt);
+    if !loaded.is_empty() {
+        eprintln!("· skills precargados: {}", loaded.join(", "));
+    }
+    if !missing.is_empty() {
+        eprintln!("· skills no encontrados: {}", missing.join(", "));
+    }
+    let full = if mention_ctx.is_empty() {
+        prompt.clone()
+    } else {
+        format!("{mention_ctx}\n\n---\n{prompt}")
+    };
+    let user_msg = agent::user_message(&full, &images);
+    let mut system = agent::system_prompt(&cwd, &knowledge, &skills, false);
+    if let Some(id) = &skill_preload {
+        match skills.load(id) {
+            Ok(body) => {
+                system.push_str("\n\n");
+                system.push_str(&body);
+            }
+            Err(e) => eprintln!("· --skill {id}: {e}"),
+        }
+    }
+    let system = agent::system_value(&system, prompt_cache);
     let conv = agent::new_conversation_with(system, user_msg);
     let handle = std::thread::spawn(move || agent.run(conv, tx));
 
@@ -840,6 +1100,14 @@ fn print_help() {
     println!("  nucoder config auto-approve on   No pedir confirmación (borrar/mover/bash)");
     println!("  nucoder config autopilot on      Tras aprobar el plan, ejecutar todo sin parar");
     println!("  nucoder config internet on|off · leer-fuera · terminales   Permisos del agente");
+    println!("  nucoder skills                   Lista los skills (Claude/OpenCode/nativos)");
+    println!("  nucoder skill <id>               Muestra el cuerpo de un skill");
+    println!(
+        "  nucoder cook <id|ruta> [--gourmet] [--json] [--stats]   Destila la habilidad (NuCook)"
+    );
+    println!("  nucoder mcp list                 Lista los servidores MCP configurados");
+    println!("  nucoder mcp tools <id>          Herramientas que expone un server MCP");
+    println!("  nucoder mcp call <id> <tool> [json]   Llama una herramienta MCP");
     println!("  nucoder provider add <id> [...]  Alta de proveedor (usa un preset)");
     println!("  nucoder provider presets         Presets conocidos (openrouter, nvidia, …)");
     println!("  nucoder provider remove <id>     Baja de proveedor propio");
@@ -856,6 +1124,7 @@ fn print_help() {
     println!("  --model <id>      Fuerza un modelo (ignora el router; sin rotación)");
     println!("  --prompt-cache    Marca el system como cacheable (prompt caching del proveedor)");
     println!("  --context-chars <n>  Tope de contexto para la compactación (default 48000)");
+    println!("  --skill <id>      Precarga un skill (ver `nucoder skills`) en el system");
     println!("  --task <t>        Tarea (complete|refactor|debug|explain|test|architect)");
     println!("  --cwd <path>      Raíz del proyecto (default: directorio actual)");
     println!("  --sandbox         Confina las tools de archivos al proyecto (default ON)");
@@ -865,6 +1134,7 @@ fn print_help() {
     println!();
     println!("Conocimiento local (KB) para `read_docs`: config `knowledge` o");
     println!("`NUCODER_KNOWLEDGE` (rutas separadas por ';'). SpASM se autodetecta.");
+    println!("Skills (Claude/OpenCode/nativos): config `skills` o `NUCODER_SKILLS`.");
     println!();
     println!("Ejemplo (OpenRouter gratis):");
     println!("  nucoder provider add openrouter --api-key sk-or-...");

@@ -20,6 +20,8 @@ extern "C" {
     fn nucoder_router_is_power_task(task: *const c_char) -> i64;
     fn nucoder_codeassist_keywords(lang: *const c_char) -> i64;
     fn nucoder_codeassist_out() -> *const c_char;
+    fn nucoder_cook_label_kind(s: *const c_char) -> i64;
+    fn nucoder_cook_is_rule(s: *const c_char) -> i64;
 }
 
 static FFI: Mutex<()> = Mutex::new(());
@@ -72,4 +74,22 @@ pub fn codeassist_keywords(lang: &str) -> Vec<String> {
             .map(|s| s.to_string())
             .collect()
     }
+}
+
+/// Índice de la etiqueta canónica de NuCook (0..10) o `None` si no es canónica.
+/// Lo decide **SpASM** (`spasm/cook.spasm`, dialecto AOT).
+pub fn cook_label_kind(s: &str) -> Option<usize> {
+    let s = CString::new(s).ok()?;
+    let _guard = FFI.lock().unwrap_or_else(|e| e.into_inner());
+    let r = unsafe { nucoder_cook_label_kind(s.as_ptr()) };
+    (r >= 0).then_some(r as usize)
+}
+
+/// `true` si `s` es una regla horizontal exacta (`---`, `***`, …). Lo decide SpASM.
+pub fn cook_is_rule(s: &str) -> bool {
+    let Ok(s) = CString::new(s) else {
+        return false;
+    };
+    let _guard = FFI.lock().unwrap_or_else(|e| e.into_inner());
+    unsafe { nucoder_cook_is_rule(s.as_ptr()) != 0 }
 }

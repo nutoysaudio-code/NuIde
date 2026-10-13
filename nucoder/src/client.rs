@@ -293,8 +293,8 @@ pub fn transcribe(
     if status >= 400 {
         return Err(classify(status, &body));
     }
-    let v: Value =
-        serde_json::from_str(&body).map_err(|e| ClientError::Parse(format!("transcripción: {e}")))?;
+    let v: Value = serde_json::from_str(&body)
+        .map_err(|e| ClientError::Parse(format!("transcripción: {e}")))?;
     v.get("text")
         .and_then(Value::as_str)
         .map(str::to_string)
@@ -340,6 +340,62 @@ pub fn ping(base_url: &str, api_key: &str, model: &str) -> Result<u64, ClientErr
         return Err(classify(status, &body));
     }
     Ok(elapsed)
+}
+
+/// Una respuesta **one-shot** del modelo (sin streaming ni herramientas).
+/// Devuelve el texto de `choices[0].message.content`.
+pub fn complete(
+    base_url: &str,
+    api_key: &str,
+    model: &str,
+    system: &str,
+    user: &str,
+    max_tokens: u32,
+) -> Result<String, ClientError> {
+    let url = endpoint(base_url, "chat/completions");
+    let mut messages = Vec::new();
+    if !system.is_empty() {
+        messages.push(json!({ "role": "system", "content": system }));
+    }
+    messages.push(json!({ "role": "user", "content": user }));
+    let body = json!({
+        "model": model,
+        "messages": messages,
+        "max_tokens": max_tokens,
+        "temperature": 0,
+        "stream": false,
+    });
+    let body_file = write_temp("body", body.to_string().as_bytes());
+    let mut headers = vec![
+        ("Content-Type".into(), "application/json".into()),
+        ("Accept".into(), "application/json".into()),
+    ];
+    if !api_key.is_empty() {
+        headers.push(("Authorization".into(), format!("Bearer {api_key}")));
+    }
+    let cfg = curl_config("POST", &url, &headers, Some(&body_file), 300);
+    let cfg_file = write_temp("curlcfg", cfg.as_bytes());
+    let out = crate::proc::curl()
+        .arg("-K")
+        .arg(&cfg_file)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output();
+    let _ = std::fs::remove_file(&body_file);
+    let _ = std::fs::remove_file(&cfg_file);
+    let out = out.map_err(|e| ClientError::Network(e.to_string()))?;
+    let text = String::from_utf8_lossy(&out.stdout);
+    let (status, body) = split_status(&text);
+    if status >= 400 {
+        return Err(classify(status, &body));
+    }
+    let v: Value =
+        serde_json::from_str(&body).map_err(|e| ClientError::Parse(format!("respuesta: {e}")))?;
+    v.pointer("/choices/0/message/content")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .ok_or_else(|| ClientError::Parse("la respuesta no trae texto".into()))
 }
 
 // ---------------------------------------------------------------------------

@@ -194,3 +194,13 @@ export struct IdeFtpEntry {
     dir: bool,
     size: string,
 }
+
+// Fila del catálogo de skills (Claude/OpenCode/nativos).
+// state: 0 anunciado · 1 oculto · 2 pide confirmación (ask) · 3 bloqueado (deny)
+export struct IdeSkillRow {
+    id: string,
+    name: string,
+    source: string,
+    detail: string,
+    state: int,
+}

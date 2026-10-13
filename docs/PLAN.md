@@ -244,16 +244,118 @@ i18n y reasignar todos los atajos.)
 
 ---
 
+## Fase 11 — Skills (Claude / OpenCode / nativos)  ·  M/L  ·  must  ·  ⚠️ parcial (S0–S3)
+
+**Objetivo:** que NuCoder (el agente de NuIde) **descubra y cargue** skills de
+los tres ecosistemas: Claude (`SKILL.md` + frontmatter), OpenCode
+(`SKILL.md`/`<id>.md`, `skill` tool) y los nativos de SpASM (`skill.toml` +
+`README.md`). Divulgación progresiva: el prompt sólo lleva el catálogo
+(id + descripción); el cuerpo se carga con la herramienta `skill`.
+
+**Detalle completo (arquitectura, fases S0–S7 y riesgos):**
+[`SKILLS.md`](SKILLS.md).
+
+- `M` `nucoder/src/skills.rs`: `Registry`, parseo de frontmatter YAML mínimo y
+  de `skill.toml`, descubrimiento con precedencia por id.
+- `S` Tool `skill` + sección **SKILLS** en el prompt de sistema + permisos
+  (`allow`/`ask`/`deny`) y sandbox de lectura.
+- `M` UI: modal `ui/ide_skills.slint` (catálogo, on/off, refrescar) y comando
+  de paleta *Skills: abrir catálogo*.
+- `nice` Menciones `@skill`, catálogos HTTP con `index.json` y shortlist de
+  relevancia en SpASM.
+
+**Archivos:** `nucoder/src/skills.rs` (nuevo), `nucoder/src/tools.rs`,
+`nucoder/src/agent.rs`, `nucoder/src/config.rs`, `ui/ide_skills.slint` (nuevo),
+`src/nucoder_ui.rs`, `src/editor.rs`.
+**Terminado:** `nucoder skills` lista los tres orígenes, el modelo carga un
+skill con la tool y el catálogo se ve en la IDE.
+
+> Caso guía a corto plazo: **usar [REA](https://github.com/morluto/rea)**. REA
+> trae un skill (`.agents/skills/reverse-engineer-anything`) **y** un MCP
+> server; los skills dan el procedimiento y [`docs/MCP.md`](MCP.md) cubre las
+> herramientas.
+
+---
+
+## Fase 12 — Cliente MCP (REA y cualquier server)  ·  L  ·  must  ·  ⚠️ parcial
+
+> **Cliente MCP hecho** (`nucoder/src/mcp.rs` + integración al agente + CLI +
+> conexión persistente `McpHub`), verificado contra **REA** (170 herramientas).
+> Falta la UI (Preferencias → MCP).
+>
+> **M0/M1 hechos** (fuera del cliente MCP): REA 6.4.0 verificado y su **skill**
+> instalado y descubierto por NuCoder (`~/.agents/skills/reverse-engineer-anything`).
+
+**Objetivo:** que NuCoder hable **MCP** (JSON-RPC sobre stdio) para exponer las
+herramientas de servers externos —empezando por **REA**— como tools nativas del
+agente, con permisos.
+
+- `M` `nucoder/src/mcp.rs`: cliente stdio (`initialize` → `tools/list` →
+  `tools/call`), con server MCP de prueba en `tests/`.
+- `M` Integración en `agent.rs`/`tools.rs`: inyección de tools con prefijo
+  (`rea.<tool>`), ejecución enrutada, `confirm`/`deny` y truncado de salida.
+- `S` Config `mcp.servers` (importando la de OpenCode/Claude) + CLI
+  `nucoder mcp list|tools|call`.
+- `M` UI: **Preferencias → MCP** (CRUD, probar, ver tools).
+- `nice` Transporte HTTP/SSE y ciclo de vida de servidores remotos.
+
+**Detalle completo y orden (M0–M3):** [`MCP.md`](MCP.md).
+**Archivos:** `nucoder/src/mcp.rs` (nuevo), `nucoder/src/agent.rs`,
+`nucoder/src/tools.rs`, `nucoder/src/config.rs`, `ui/ide_prefs.slint`,
+`src/editor.rs`.
+**Terminado:** `rea` como server MCP y el modelo llamando `rea.open_binary`
+como herramienta nativa.
+
+---
+
+## Fase 13 — NuCook (destilar una habilidad)  ·  M  ·  nice  ·  ⚠️ parcial (C0, C1, C3)
+
+**Objetivo:** usar **cualquier skill** (Claude/OpenCode/nativo) traduciéndolo a
+una forma **enseñable** y **sin ruido humano**, que cualquier IA digiera rápido.
+Un skill es una habilidad: si está bien enseñada, eso es todo lo que se necesita.
+
+- `M` **C0** ✅ `nucoder/src/cook.rs`: destilador determinista (once relaciones:
+  `when`, `not`, `want`, `have`, `do`, `keep`, `map`, `prove`, `eg`, `risk`,
+  `rest`), render texto + JSON, y **dos guardianes**: no se pierde (`unidades ==
+  conservadas + ruido + duplicados`) y no hay ruido.
+- `S` CLI `nucoder cook <id|ruta> [--json|--stats]`.
+- `M` **C1** ✅ caché por `hash` del origen (`~/.config/nucoder/cookies/`).
+- `M` **C2** ✅ el agente anuncia la **forma enseñable** (primer de la receta) en
+  vez de la descripción, y la tool `skill` devuelve la receta cocida
+  (`format`: `auto`/`cooked`/`raw`).
+- `M` **C3** ✅ gourmet: cocción semántica con el modelo (prompt con etiquetas +
+  few-shot) y caché por `hash` + modelo + versión del prompt.
+- `S` **Hub** ✅ `nucoder/src/hub.rs`: buscar (`search`), instalar
+  (`install_from_dir`/`install_from_git`) y desinstalar (`uninstall`) hacia
+  `~/.agents/skills`; CLI `nucook search|install|uninstall`.
+- `nice` **C4** ✅ cocinar docs/KB/datasets (`nucook cook-dir` + comando de paleta
+  *NuCook: cocinar carpeta de docs…*); normalizador estructural en **SpASM**
+  (`spasm/cook.spasm`).
+- **UI de skills** (buscar/descargar/administrar): **implementada** (U0–U4) en
+  `ui/ide_skills.slint` + `src/editor.rs`; detalle en [`SKILLS_UI.md`](SKILLS_UI.md).
+- `S` **Empaquetado** ✅: el instalador (`packaging/NuIde.iss`) copia
+  **`nucook.exe`** (tarea `nucoder`) y `make_installer.ps1` lo compila/verifica.
+
+**Detalle completo:** [`NUCOOK.md`](NUCOOK.md).
+**Archivos:** `nucoder/src/cook.rs` (nuevo), `nucoder/src/main.rs`,
+`nucoder/src/skills.rs`, `docs/NUCOOK.md`.
+**Terminado:** `nucoder cook <skill>` devuelve la habilidad enseñada, sin ruido
+y sin pérdida invisible.
+
+---
+
 ## Hitos
 
 | Hito | Fases incluidas | Resultado |
 |---|---|---|
 | **v0.9 — usable a diario** | 1, 2, 3 (regex/persistencia), 6 (mouse) | editar, administrar archivos, buscar y terminal con mouse |
 | **v1.0 — release** | 0, 4, 5, 7, 8, 9, 10 | + buscar en proyecto, Git completo, depurador SpASM, preferencias e instalador |
+| **v1.1 — agente** | 11 | + skills de Claude/OpenCode/nativos en NuCoder y la IDE |
+| **v1.2 — tools externas** | 12 | + cliente MCP (REA y cualquier server) |
 
 ## Orden recomendado
 
-Por dependencia e impacto: **0 → 1 → 2 → 3 → 6 → 4 → 5 → 7 → 8 → 9 → 10**.
+Por dependencia e impacto: **0 → 1 → 2 → 3 → 6 → 4 → 5 → 7 → 8 → 9 → 10 → 11 → 12**.
 Las fases 1 y 2 primero porque casi todo lo demás (menús, archivos) las usa; el
 mouse de la 6 porque mejora mucho la terminal ya existente; y el depurador (7)
 al final porque es lo más grande y se apoya en toolchain y editor ya pulidos.

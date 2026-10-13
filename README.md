@@ -69,6 +69,11 @@ abiertos es una **página de bienvenida** real (accesos y atajos).
 | 33 | guía de usuario (`docs/GUIA.md`) + pulido | ✅ |
 | 34 | lógica de la IDE en **SpASM** (FFI AOT): diagnósticos y config | ✅ |
 | 35 | proveedores de NuCoder: CRUD sobre la config del CLI | ✅ |
+| 36 | skills de Claude/OpenCode/nativos en NuCoder (catálogo + tool `skill`) | ✅ |
+| 37 | cliente **MCP** en NuCoder (REA y otros servers → `<id>__<tool>`) | ✅ |
+| 38 | **NuCook**: destilar un skill en su forma enseñable (sin ruido humano) | ✅ |
+| 39 | **Skills en la IDE**: buscar, instalar, cocinar y eliminar desde el modal | ✅ |
+| 40 | NuCook: normalizador estructural en **SpASM** (AOT→C→FFI) y `nucook.exe` en el instalador | ✅ |
 
 > El parte de estado detallado —qué se cambió en cada iteración, limitaciones y
 > pendientes con su enfoque— está en [`docs/ESTADO.md`](docs/ESTADO.md).
@@ -534,6 +539,7 @@ nuide/
     ide_palette.slint      paleta de comandos / buscador de archivos
     ide_search.slint       buscar/reemplazar en el proyecto
     ide_diff.slint         visor de diff de Git
+    ide_skills.slint       catálogo de skills (Claude/OpenCode/nativos)
     ide_prefs.slint        preferencias y atajos
     ide_about.slint        diálogo "Acerca de"
     ide_provider.slint     formulario de proveedor de NuCoder
@@ -548,6 +554,10 @@ nuide/
   docs/NUIDE_IDEA.md       especificación visual/funcional
   docs/ESTADO.md           parte de estado (hecho, limitaciones, pendientes)
   docs/PLAN.md             plan en fases para llegar a v1.0
+  docs/SKILLS.md           plan de compatibilidad con skills (Claude/OpenCode/nativos)
+  docs/MCP.md              plan de cliente MCP (caso guía: REA)
+  docs/NUCOOK.md           NuCook: destilar una habilidad sin ruido humano
+  docs/SKILLS_UI.md        interfaz de skills: buscar, descargar y administrar
   docs/GUIA.md             guía de usuario
 ```
 
@@ -580,10 +590,10 @@ slint-viewer --screenshot ui.png ui/nuide_ui.slint
 - El icono se regenera con:
   `powershell -ExecutionPolicy Bypass -File packaging/make_icon.ps1`.
 - **Instalador** (`packaging/NuIde.iss`, Inno Setup 6). Además de NuIde, **copia
-  `nucoder.exe`** a la carpeta de instalación (el router/agente de modelos
-  gratis) y, si se marca la tarea, agrega esa carpeta al **PATH del usuario**
-  (`packaging/postinstall.ps1 -AddPath`), así `nucoder` queda disponible en
-  cualquier terminal.
+  `nucoder.exe`** (el router/agente de modelos gratis) y **`nucook.exe`** (la CLI
+  de NuCook: cocina skills) a la carpeta de instalación y, si se marca la tarea,
+  agrega esa carpeta al **PATH del usuario** (`packaging/postinstall.ps1
+  -AddPath`), así `nucoder` y `nucook` quedan disponibles en cualquier terminal.
 
   ```sh
   cargo build --release

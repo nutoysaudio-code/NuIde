@@ -48,11 +48,14 @@ use crate::sysinfo;
 use crate::templates;
 use crate::ui::{
     DockDrag, IdeCodeLine, IdeDiffLine, IdeFtpEntry, IdeGitFile, IdeMenuEntry, IdeOutlineItem,
-    IdePaletteItem, IdePrefRow, IdeRecent, IdeSearchHit, IdeSetting, IdeTab, IdeToken, IdeTreeNode,
-    NuIdeWindow, TermLine, TermRun,
+    IdePaletteItem, IdePrefRow, IdeRecent, IdeSearchHit, IdeSetting, IdeSkillRow, IdeTab, IdeToken,
+    IdeTreeNode, NuIdeWindow, TermLine, TermRun,
 };
 use crate::vt::{Run, Screen, Selection};
 use crate::webserver::{Server as WebServer, WebConfig, WebEvent};
+
+use nucoder::config::Config as NuCoderConfig;
+use nucoder::skills::{Registry as SkillRegistry, SkillEffect, SkillRule};
 
 /// Tope de líneas que se abren de un archivo. Un archivo enorme no puede
 /// congelar la UI; lo que sobra no se muestra.
@@ -607,11 +610,13 @@ enum Command {
     RelaunchElevated,
     LaunchNuideCli,
     OpenFtp,
+    OpenSkills,
+    CookDocs,
 }
 
 impl Command {
     /// Todos, en el orden en que se muestran.
-    const ALL: [Command; 56] = [
+    const ALL: [Command; 58] = [
         Command::Run,
         Command::Build,
         Command::BuildAndRun,
@@ -668,6 +673,8 @@ impl Command {
         Command::RelaunchElevated,
         Command::LaunchNuideCli,
         Command::OpenFtp,
+        Command::OpenSkills,
+        Command::CookDocs,
     ];
 
     fn label(self) -> &'static str {
@@ -728,6 +735,8 @@ impl Command {
             Command::RelaunchElevated => crate::i18n::t("NuIde: reiniciar como administrador"),
             Command::LaunchNuideCli => crate::i18n::t("Lanzar NuCoder (agente)"),
             Command::OpenFtp => crate::i18n::t("FTP: abrir cliente"),
+            Command::OpenSkills => crate::i18n::t("Skills: abrir catálogo"),
+            Command::CookDocs => crate::i18n::t("NuCook: cocinar carpeta de docs…"),
         }
     }
 
@@ -779,6 +788,8 @@ impl Command {
             Command::Preferences => "Ctrl+,",
             Command::RelaunchElevated => "admin",
             Command::LaunchNuideCli => "nucoder",
+            Command::OpenSkills => "skills",
+            Command::CookDocs => "nucook",
             _ => "",
         }
     }
@@ -1023,6 +1034,16 @@ enum Ask {
     Discard { path: String, untracked: bool },
     /// Eliminar un proveedor de NuCoder.
     DeleteProvider(String),
+    /// Eliminar un skill instalado del hub.
+    UninstallSkill(String),
+}
+
+/// Mensajes de las operaciones de skills que corren en un hilo.
+enum SkillsMsg {
+    /// Resultado/aviso de instalar, cocinar o eliminar.
+    Note(String),
+    /// Resultados de una búsqueda remota (catálogo).
+    Remote(Vec<nucoder::hub::CatalogEntry>),
 }
 
 /// Borrador del proveedor de NuCoder que se edita en el formulario.
@@ -1119,6 +1140,8 @@ enum PromptKind {
     SiteField(&'static str),
     /// Editar un campo del módulo de servidor web ("port", "root", "cors").
     WebField(&'static str),
+    /// Instalar un skill (`owner/repo`, URL o ruta; `spec#skill` opcional).
+    SkillInstall,
 }
 
 /// Diálogo de entrada de texto pendiente.
@@ -1299,6 +1322,29 @@ pub struct Ide {
     sqlite_rx: Receiver<sqlite::Loaded>,
     /// Época de la última lectura de SQLite (descarta resultados viejos).
     sqlite_gen: u64,
+    /// --- catálogo de skills (Claude/OpenCode/nativos) ---
+    skills_open: bool,
+    skills_registry: SkillRegistry,
+    skills_ids: Vec<String>,
+    skills_rows: Vec<IdeSkillRow>,
+    skills_detail: Vec<String>,
+    skills_selected: usize,
+    skills_dir: String,
+    skills_header: String,
+    /// Filtro del buscador del catálogo (lo maneja Rust, como los modales).
+    skills_filter: String,
+    /// Último mensaje de una operación (instalar/cocinar/eliminar).
+    skills_note: String,
+    /// Hay una operación de skills en curso (instalar/cocinar/eliminar).
+    skills_busy: bool,
+    /// ¿Mostrar resultados del catálogo remoto? (`NUCOOK_CATALOG`).
+    skills_web: bool,
+    /// Entradas del catálogo remoto de la última búsqueda.
+    skills_remote: Vec<nucoder::hub::CatalogEntry>,
+    /// Cuántas filas de la lista son locales (las de después son remotas).
+    skills_local_len: usize,
+    skills_tx: Sender<SkillsMsg>,
+    skills_rx: Receiver<SkillsMsg>,
     /// --- módulo: cliente FTP ---
     ftp_enabled: bool,
     ftp_open: bool,
@@ -1449,6 +1495,7 @@ impl Ide {
         // Módulos: servidor web y visor de SQLite.
         let (web_tx, web_rx) = mpsc::channel();
         let (sqlite_tx, sqlite_rx) = mpsc::channel();
+        let (skills_tx, skills_rx) = mpsc::channel();
         let (ftp_tx, ftp_rx) = mpsc::channel();
         let (explorer_tx, explorer_rx) = mpsc::channel();
         // En las pruebas no se consulta Git (mantiene los tests rápidos y ajenos
@@ -1569,6 +1616,22 @@ impl Ide {
             sqlite_tx,
             sqlite_rx,
             sqlite_gen: 0,
+            skills_open: false,
+            skills_registry: SkillRegistry::default(),
+            skills_ids: Vec::new(),
+            skills_rows: Vec::new(),
+            skills_detail: Vec::new(),
+            skills_selected: 0,
+            skills_dir: String::new(),
+            skills_header: String::new(),
+            skills_filter: String::new(),
+            skills_note: String::new(),
+            skills_busy: false,
+            skills_web: false,
+            skills_remote: Vec::new(),
+            skills_local_len: 0,
+            skills_tx,
+            skills_rx,
             ftp_enabled,
             ftp_open: false,
             ftp_transport: Transport::Ftp,
@@ -2076,6 +2139,10 @@ impl Ide {
         self.retarget_agent(&dir);
         // Las migas de pan dependen de la raíz; se rehace el editor.
         self.editor_full = true;
+        // El catálogo de skills incluye los del proyecto: se relee si está abierto.
+        if self.skills_open {
+            self.skills_reload();
+        }
     }
 
     /// Reinicia la terminal del panel derecho en la carpeta nueva: la shell
@@ -2239,6 +2306,9 @@ impl Ide {
             return true;
         }
         if self.search_intercept(text, control, shift) {
+            return true;
+        }
+        if self.skills_intercept(text, control) {
             return true;
         }
         if self.capture_key(text, control, shift, alt) {
@@ -3168,6 +3238,8 @@ impl Ide {
             Command::RelaunchElevated => self.request_relaunch_elevated(),
             Command::LaunchNuideCli => self.launch_nucoder(),
             Command::OpenFtp => self.ftp_open_panel(),
+            Command::OpenSkills => self.skills_open_catalog(),
+            Command::CookDocs => self.cook_docs(),
         }
     }
 
@@ -3422,6 +3494,7 @@ impl Ide {
                 self.start_agent();
             }
             "agent.show" => self.toggle_panel(1),
+            "agent.skills" => self.skills_open_catalog(),
             "help.about" => self.about_show(),
             "help.syntax" => self.spasm_help(),
             "help.keys" => self.prefs_toggle(),
@@ -3510,6 +3583,12 @@ impl Ide {
                 "agent.nucoder",
                 crate::i18n::t("Lanzar NuCoder (agente)"),
                 "router",
+                true,
+            ),
+            menu_entry(
+                "agent.skills",
+                crate::i18n::t("Catálogo de skills…"),
+                "skills",
                 true,
             ),
             menu_sep(),
@@ -3778,7 +3857,11 @@ impl Ide {
         if name.is_empty() && !site_field {
             return;
         }
-        if !site_field && p.kind != PromptKind::SessionName && !valid_name(&name) {
+        if !site_field
+            && p.kind != PromptKind::SessionName
+            && p.kind != PromptKind::SkillInstall
+            && !valid_name(&name)
+        {
             return;
         }
         match p.kind {
@@ -3824,6 +3907,7 @@ impl Ide {
             }
             PromptKind::SiteField(field) => self.site_field_set(field, p.text.clone()),
             PromptKind::WebField(field) => self.web_field_set(field, p.text.clone()),
+            PromptKind::SkillInstall => self.skills_spawn_install(name),
         }
     }
 
@@ -3840,6 +3924,7 @@ impl Ide {
                 self.git_spawn(git::Op::Discard { path, untracked });
             }
             Ask::DeleteProvider(id) => self.provider_do_delete(&id),
+            Ask::UninstallSkill(id) => self.skills_spawn_uninstall(id),
         }
     }
 
@@ -4490,6 +4575,371 @@ impl Ide {
         self.sqlite_header = msg.header;
         self.sqlite_lines = msg.lines;
         self.sqlite_note = msg.note;
+    }
+
+    // --- catálogo de skills (Claude/OpenCode/nativos) ---
+
+    /// Abre el catálogo: descubre los skills y selecciona el primero.
+    fn skills_open_catalog(&mut self) {
+        self.skills_selected = 0;
+        self.skills_reload();
+        self.skills_open = true;
+    }
+
+    fn skills_close(&mut self) {
+        self.skills_open = false;
+    }
+
+    /// Vuelve a descubrir los skills (relee la config de NuCoder).
+    fn skills_reload(&mut self) {
+        let root = self.explorer.root().to_path_buf();
+        let cfg = NuCoderConfig::load();
+        self.skills_registry = SkillRegistry::discover(
+            &root,
+            &cfg.skills,
+            &cfg.skills_permissions,
+            cfg.skills_autoinvoke,
+        );
+        self.skills_rebuild_rows();
+    }
+
+    /// Reconstruye las filas y el encabezado a partir del `Registry`, aplicando
+    /// el filtro del buscador.
+    fn skills_rebuild_rows(&mut self) {
+        let reg = &self.skills_registry;
+        let q = self.skills_filter.trim().to_lowercase();
+        let list: Vec<&nucoder::skills::Skill> = reg
+            .skills()
+            .iter()
+            .filter(|s| {
+                q.is_empty()
+                    || s.id.to_lowercase().contains(&q)
+                    || s.name.to_lowercase().contains(&q)
+                    || s.description.to_lowercase().contains(&q)
+            })
+            .collect();
+        self.skills_ids = list.iter().map(|s| s.id.clone()).collect();
+        self.skills_rows = list
+            .iter()
+            .map(|s| {
+                let state = match reg.effect(&s.id) {
+                    SkillEffect::Deny => 3,
+                    SkillEffect::Ask => 2,
+                    SkillEffect::Allow if reg.advertises(s) => 0,
+                    SkillEffect::Allow => 1,
+                };
+                IdeSkillRow {
+                    id: s.id.clone().into(),
+                    name: s.name.clone().into(),
+                    source: s.source.badge().into(),
+                    detail: s.description.clone().into(),
+                    state,
+                }
+            })
+            .collect();
+        self.skills_local_len = self.skills_rows.len();
+        // Filas del catálogo remoto (marca `web`), filtradas igual que las locales.
+        for e in &self.skills_remote {
+            if !(q.is_empty()
+                || e.name.to_lowercase().contains(&q)
+                || e.description.to_lowercase().contains(&q))
+            {
+                continue;
+            }
+            self.skills_ids.push(e.name.clone());
+            self.skills_rows.push(IdeSkillRow {
+                id: e.name.clone().into(),
+                name: e.source.clone().unwrap_or_default().into(),
+                source: "web".into(),
+                detail: e.description.clone().into(),
+                state: 4,
+            });
+        }
+        let local = self.skills_local_len;
+        let remote = self.skills_rows.len() - local;
+        let on = self.skills_rows.iter().filter(|r| r.state == 0).count();
+        self.skills_header = if remote > 0 {
+            format!("{local} local(es) · {on} anunciado(s) · {remote} web")
+        } else {
+            format!("{local} skill(s) · {on} anunciado(s)")
+        };
+        if self.skills_selected >= self.skills_rows.len() {
+            self.skills_selected = self.skills_rows.len().saturating_sub(1);
+        }
+        self.skills_load_detail();
+    }
+
+    /// Carga el detalle del skill seleccionado: la **receta** cocida si existe
+    /// (NuCook), si no el cuerpo original.
+    fn skills_load_detail(&mut self) {
+        self.skills_detail.clear();
+        self.skills_dir = String::new();
+        let Some(id) = self.skills_ids.get(self.skills_selected).cloned() else {
+            return;
+        };
+        if let Some(sk) = self.skills_registry.by_id(&id) {
+            self.skills_dir = sk.dir.display().to_string();
+        }
+        if let Some(t) = nucoder::cook::load_cookie(&id) {
+            self.skills_detail = t.render_text().lines().map(str::to_string).collect();
+            return;
+        }
+        match self.skills_registry.load(&id) {
+            Ok(body) => self.skills_detail = body.lines().map(str::to_string).collect(),
+            Err(e) => self.skills_detail = vec![format!("(no se pudo cargar: {e})")],
+        }
+    }
+
+    fn skills_select(&mut self, i: usize) {
+        if i < self.skills_ids.len() {
+            self.skills_selected = i;
+            self.skills_load_detail();
+        }
+    }
+
+    /// Refresca sin perder la selección.
+    fn skills_refresh(&mut self) {
+        let sel = self.skills_selected;
+        self.skills_reload();
+        self.skills_selected = sel.min(self.skills_ids.len().saturating_sub(1));
+        self.skills_load_detail();
+    }
+
+    /// Prende/apaga el anuncio del skill seleccionado (allow ↔ deny) y lo
+    /// persiste en la config de NuCoder.
+    fn skills_toggle(&mut self) {
+        let Some(id) = self.skills_ids.get(self.skills_selected).cloned() else {
+            return;
+        };
+        let mut cfg = NuCoderConfig::load();
+        let current = cfg
+            .skills_permissions
+            .iter()
+            .rev()
+            .find(|r| r.id == id)
+            .map(|r| r.effect)
+            .unwrap_or(SkillEffect::Allow);
+        let next = if current == SkillEffect::Deny {
+            SkillEffect::Allow
+        } else {
+            SkillEffect::Deny
+        };
+        cfg.skills_permissions.push(SkillRule::new(id, next));
+        let _ = cfg.save_own();
+        self.skills_refresh();
+    }
+
+    /// Abre el diálogo para instalar un skill (`owner/repo`, ruta o `spec#skill`).
+    /// Si la fila seleccionada es del **catálogo remoto**, instala desde su repo.
+    fn skills_install(&mut self) {
+        if self.skills_selected >= self.skills_local_len {
+            let i = self.skills_selected - self.skills_local_len;
+            if let Some(e) = self.skills_remote.get(i).cloned() {
+                let Some(src) = e.source.clone() else {
+                    self.skills_note = format!("«{}» no trae repo para instalar", e.name);
+                    return;
+                };
+                let spec = match &e.path {
+                    Some(p) if !p.is_empty() => format!("{src}#{p}"),
+                    _ => src,
+                };
+                self.skills_spawn_install(spec);
+                return;
+            }
+        }
+        self.prompt = Some(Prompt {
+            kind: PromptKind::SkillInstall,
+            target: PathBuf::new(),
+            text: String::new(),
+        });
+    }
+
+    /// Instala (en un hilo) desde un repo git o una ruta local.
+    fn skills_spawn_install(&mut self, spec: String) {
+        self.skills_busy = true;
+        self.skills_note = format!("instalando {spec}…");
+        let tx = self.skills_tx.clone();
+        std::thread::spawn(move || {
+            let root = nucoder::hub::installed_root();
+            let (src, skill) = match spec.split_once('#') {
+                Some((r, s)) => (r.trim().to_string(), Some(s.trim().to_string())),
+                None => (spec.trim().to_string(), None),
+            };
+            let res = if Path::new(&src).exists() {
+                nucoder::hub::install_from_dir(Path::new(&src), &root, true)
+            } else {
+                nucoder::hub::install_from_git(&src, skill.as_deref(), &root, true)
+            };
+            let msg = match res {
+                Ok(id) => format!("skill «{id}» instalado/actualizado"),
+                Err(e) => format!("no se pudo instalar: {e}"),
+            };
+            let _ = tx.send(SkillsMsg::Note(msg));
+        });
+    }
+
+    /// Cocina (gourmet, con caché) el skill seleccionado y guarda la receta.
+    fn skills_cook(&mut self) {
+        let Some(id) = self.skills_ids.get(self.skills_selected).cloned() else {
+            self.skills_note = "elegí un skill primero".to_string();
+            return;
+        };
+        let sk = self.skills_registry.by_id(&id).cloned();
+        self.skills_busy = true;
+        self.skills_note = format!("cocinando «{id}»…");
+        let tx = self.skills_tx.clone();
+        std::thread::spawn(move || {
+            let msg = match sk {
+                Some(sk) => {
+                    let cfg = NuCoderConfig::load();
+                    match nucoder::cook::cook_skill_gourmet(&sk, &cfg, None, false) {
+                        Ok(t) => match nucoder::cook::save_cookie(&t) {
+                            Ok(_) => format!("receta «{id}» guardada ({})", t.mode),
+                            Err(e) => format!("error guardando la receta: {e}"),
+                        },
+                        Err(e) => format!("no se pudo cocinar «{id}»: {e}"),
+                    }
+                }
+                None => format!("no existe el skill «{id}»"),
+            };
+            let _ = tx.send(SkillsMsg::Note(msg));
+        });
+    }
+
+    /// Pide confirmación para **eliminar** el skill seleccionado del hub.
+    fn skills_delete(&mut self) {
+        let Some(id) = self.skills_ids.get(self.skills_selected).cloned() else {
+            return;
+        };
+        let root = nucoder::hub::installed_root();
+        let installed = self
+            .skills_registry
+            .by_id(&id)
+            .map(|s| s.dir.starts_with(&root))
+            .unwrap_or(false);
+        if !installed {
+            self.skills_note = format!("«{id}» no está instalado en el hub");
+            return;
+        }
+        self.ask = Some(Ask::UninstallSkill(id));
+    }
+
+    /// Elimina (en un hilo) un skill instalado.
+    fn skills_spawn_uninstall(&mut self, id: String) {
+        self.skills_busy = true;
+        self.skills_note = format!("eliminando «{id}»…");
+        let tx = self.skills_tx.clone();
+        std::thread::spawn(move || {
+            let root = nucoder::hub::installed_root();
+            let msg = match nucoder::hub::uninstall(&id, &root) {
+                Ok(()) => format!("skill «{id}» eliminado"),
+                Err(e) => format!("no se pudo eliminar: {e}"),
+            };
+            let _ = tx.send(SkillsMsg::Note(msg));
+        });
+    }
+
+    /// Prende/apaga la búsqueda en el **catálogo remoto** (`NUCOOK_CATALOG`).
+    fn skills_web_toggle(&mut self) {
+        self.skills_web = !self.skills_web;
+        if self.skills_web {
+            self.skills_fetch_remote();
+        } else {
+            self.skills_remote.clear();
+            self.skills_rebuild_rows();
+        }
+    }
+
+    /// Consulta el catálogo remoto (en un hilo) con el filtro actual.
+    fn skills_fetch_remote(&mut self) {
+        let catalog = std::env::var("NUCOOK_CATALOG").unwrap_or_default();
+        if catalog.trim().is_empty() {
+            self.skills_web = false;
+            self.skills_note =
+                "seteá NUCOOK_CATALOG (url del index.json) para buscar en la web".to_string();
+            return;
+        }
+        self.skills_busy = true;
+        self.skills_note = format!("buscando en {catalog}…");
+        let query = self.skills_filter.clone();
+        let tx = self.skills_tx.clone();
+        std::thread::spawn(move || {
+            let msg = match nucoder::hub::search_catalog(&catalog, &query) {
+                Ok(entries) => SkillsMsg::Remote(entries),
+                Err(e) => SkillsMsg::Note(format!("catálogo: {e}")),
+            };
+            let _ = tx.send(msg);
+        });
+    }
+
+    /// `NuCook: cocinar carpeta de docs…`: elige una carpeta nativa y cocina
+    /// todos los `.md`/`.txt` al recetario (en un hilo), como `nucook cook-dir`.
+    fn cook_docs(&mut self) {
+        let Some(dir) = rfd::FileDialog::new()
+            .set_title(crate::i18n::t("Cocinar carpeta de documentos (NuCook)"))
+            .pick_folder()
+        else {
+            return;
+        };
+        let docs = nucoder::cook::collect_docs(&dir, 500);
+        if docs.is_empty() {
+            self.skills_note = format!("(sin .md/.txt en {})", dir.display());
+            return;
+        }
+        self.write_build_output(&format!(
+            "nucook: cocinando {} documento(s) de {}…\n",
+            docs.len(),
+            dir.display()
+        ));
+        self.skills_busy = true;
+        self.skills_note = format!("cocinando {} doc(s)…", docs.len());
+        let tx = self.skills_tx.clone();
+        std::thread::spawn(move || {
+            let out = nucoder::cook::cookbook_dir();
+            let mut ok = 0usize;
+            let mut fail = 0usize;
+            for p in &docs {
+                match nucoder::cook::cook_path(p) {
+                    Ok(t) => match nucoder::cook::save_cookie_to(&out, &t) {
+                        Ok(_) => ok += 1,
+                        Err(_) => fail += 1,
+                    },
+                    Err(_) => fail += 1,
+                }
+            }
+            let _ = tx.send(SkillsMsg::Note(format!(
+                "nucook: {ok} receta(s) de docs guardada(s){}",
+                if fail > 0 {
+                    format!(" · {fail} con error")
+                } else {
+                    String::new()
+                }
+            )));
+        });
+    }
+
+    /// Teclado del **buscador** del catálogo (modal): filtra en vivo.
+    fn skills_intercept(&mut self, text: &str, control: bool) -> bool {
+        if !self.skills_open {
+            return false;
+        }
+        match text {
+            "\u{1b}" => self.skills_close(),
+            "\u{8}" => {
+                self.skills_filter.pop();
+                self.skills_selected = 0;
+                self.skills_rebuild_rows();
+            }
+            "\n" | "\r" => {}
+            _ => {
+                if !control && !text.is_empty() && !text.starts_with('\u{F7}') {
+                    self.skills_filter.push_str(text);
+                    self.skills_selected = 0;
+                    self.skills_rebuild_rows();
+                }
+            }
+        }
+        true
     }
 
     // --- cliente FTP ---
@@ -5711,6 +6161,7 @@ impl Ide {
             || self.prompt.is_some()
             || self.palette.open
             || self.search.open
+            || self.skills_open
             || self.capturing_key.is_some()
     }
 
@@ -5721,6 +6172,7 @@ impl Ide {
             || self.prompt_intercept(text, control)
             || self.palette_intercept(text, control, shift)
             || self.search_intercept(text, control, shift)
+            || self.skills_intercept(text, control)
             || self.capture_key(text, control, shift, alt)
         {
             return;
@@ -6107,6 +6559,9 @@ impl Ide {
             return;
         }
         if self.search_intercept(text, control, shift) {
+            return;
+        }
+        if self.skills_intercept(text, control) {
             return;
         }
         if self.capture_key(text, control, shift, false) {
@@ -8080,6 +8535,10 @@ impl Ide {
                 PromptKind::SessionName => (crate::i18n::t("Renombrar terminal"), "sesión"),
                 PromptKind::NewBranch => (crate::i18n::t("Nueva rama"), "nombre-rama"),
                 PromptKind::RunArgs => (crate::i18n::t("Argumentos para ejecutar"), "--flag valor"),
+                PromptKind::SkillInstall => (
+                    crate::i18n::t("Instalar skill"),
+                    "owner/repo  ó  /ruta/al/skill  (opcional: #skill)",
+                ),
                 PromptKind::SiteField(field) => match field {
                     "user" => (crate::i18n::t("Usuario del sitio"), "ftp-usuario"),
                     "pass" => (
@@ -8152,6 +8611,18 @@ impl Ide {
                 w.set_ask_message(
                     crate::i18n::tf(
                         "¿Eliminar el proveedor «{}» de la config de NuCoder?",
+                        &[id.as_str()],
+                    )
+                    .into(),
+                );
+                w.set_ask_accept_label(crate::i18n::t("Eliminar").into());
+                w.set_ask_danger(true);
+            }
+            Some(Ask::UninstallSkill(id)) => {
+                w.set_ask_title(crate::i18n::t("Eliminar skill").into());
+                w.set_ask_message(
+                    crate::i18n::tf(
+                        "¿Eliminar el skill «{}» del hub (~/.agents/skills)?",
                         &[id.as_str()],
                     )
                     .into(),
@@ -8257,6 +8728,31 @@ impl Ide {
         );
         w.set_sqlite_note(self.sqlite_note.clone().into());
         w.set_sqlite_busy(self.sqlite_busy);
+        // Catálogo de skills (sólo si está abierto; ver refresco acotado).
+        if self.skills_open {
+            w.set_skills_open(true);
+            w.set_skills_rows(ModelRc::from(Rc::new(VecModel::from(
+                self.skills_rows.clone(),
+            ))));
+            w.set_skills_selected(self.skills_selected as i32);
+            w.set_skills_detail(
+                self.skills_detail
+                    .iter()
+                    .cloned()
+                    .map(slint::SharedString::from)
+                    .collect::<Vec<_>>()
+                    .as_slice()
+                    .into(),
+            );
+            w.set_skills_dir(self.skills_dir.clone().into());
+            w.set_skills_header(self.skills_header.clone().into());
+            w.set_skills_filter(self.skills_filter.clone().into());
+            w.set_skills_note(self.skills_note.clone().into());
+            w.set_skills_busy(self.skills_busy);
+            w.set_skills_web(self.skills_web);
+        } else {
+            w.set_skills_open(false);
+        }
         // Cliente FTP.
         w.set_ftp_open(self.ftp_open);
         w.set_ftp_transport(self.ftp_transport.label().into());
@@ -8654,6 +9150,24 @@ impl Ide {
         }
         while let Ok(msg) = self.ftp_rx.try_recv() {
             self.ftp_on_msg(msg);
+            got = true;
+        }
+        // Operaciones de skills (instalar/cocinar/eliminar/buscar web) en hilo.
+        while let Ok(msg) = self.skills_rx.try_recv() {
+            self.skills_busy = false;
+            match msg {
+                SkillsMsg::Note(note) => {
+                    self.write_build_output(&format!("{note}\n"));
+                    self.skills_note = note;
+                    self.skills_refresh();
+                }
+                SkillsMsg::Remote(entries) => {
+                    let n = entries.len();
+                    self.skills_remote = entries;
+                    self.skills_note = format!("{n} resultado(s) web");
+                    self.skills_rebuild_rows();
+                }
+            }
             got = true;
         }
         while let Ok((gen, nodes)) = self.explorer_rx.try_recv() {
@@ -10088,6 +10602,95 @@ pub fn attach(window: &NuIdeWindow, ide: Rc<RefCell<Ide>>) {
             if let Some(w) = weak.upgrade() {
                 let mut e = ide.borrow_mut();
                 e.sqlite_close();
+                e.sync(&w);
+            }
+        });
+    }
+    // Catálogo de skills.
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_skills_dismiss(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.skills_close();
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_skills_refresh(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.skills_refresh();
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_skills_pick(move |i| {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.skills_select(i.max(0) as usize);
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_skills_toggle(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.skills_toggle();
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_skills_install(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.skills_install();
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_skills_cook(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.skills_cook();
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_skills_delete(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.skills_delete();
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_skills_web_toggle(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.skills_web_toggle();
                 e.sync(&w);
             }
         });
@@ -12244,6 +12847,15 @@ mod tests {
         // El atajo también cuenta como match.
         assert!(filter_commands("F5").contains(&Command::Run));
         assert!(filter_commands("zzz").is_empty());
+    }
+
+    #[test]
+    fn el_comando_de_skills_esta_en_la_paleta() {
+        assert!(Command::ALL.contains(&Command::OpenSkills));
+        assert!(filter_commands("skills").contains(&Command::OpenSkills));
+        assert_eq!(Command::OpenSkills.hint(), "skills");
+        assert!(Command::ALL.contains(&Command::CookDocs));
+        assert!(filter_commands("nucook").contains(&Command::CookDocs));
     }
 
     #[test]

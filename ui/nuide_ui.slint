@@ -1,6 +1,6 @@
 import { IdeTheme } from "ide_theme.slint";
 export { IdeTheme, DockDrag }
-import { IdeTreeNode, IdeTab, IdeCodeLine, TermLine, IdeOutlineItem, IdeRecent, IdeGitFile, IdePaletteItem, IdeMenuEntry, IdeSearchHit, IdeDiffLine, IdePrefRow, IdeSetting, IdeChatMsg, IdeChatModel, IdeFtpEntry, IdeModelRow } from "ide_types.slint";
+import { IdeTreeNode, IdeTab, IdeCodeLine, TermLine, IdeOutlineItem, IdeRecent, IdeGitFile, IdePaletteItem, IdeMenuEntry, IdeSearchHit, IdeDiffLine, IdePrefRow, IdeSetting, IdeChatMsg, IdeChatModel, IdeFtpEntry, IdeModelRow, IdeSkillRow } from "ide_types.slint";
 import { IdeTopBar } from "ide_topbar.slint";
 import { IdeStatusBar } from "ide_statusbar.slint";
 import { IdeExplorer } from "ide_explorer.slint";
@@ -22,6 +22,7 @@ import { IdeSettings } from "ide_settings.slint";
 import { IdeProvider } from "ide_provider.slint";
 import { IdeSqlite } from "ide_sqlite.slint";
 import { IdeFtp } from "ide_ftp.slint";
+import { IdeSkills } from "ide_skills.slint";
 import { IdeAbout } from "ide_about.slint";
 
 // ---------------------------------------------------------------------------
@@ -315,6 +316,18 @@ export component NuIdeWindow inherits Window {
     in-out property <string> sqlite-note: "";
     in-out property <bool> sqlite-busy: false;
 
+    // Catálogo de skills (Claude/OpenCode/nativos).
+    in-out property <bool> skills-open: false;
+    in-out property <[IdeSkillRow]> skills-rows: [];
+    in-out property <int> skills-selected: 0;
+    in-out property <[string]> skills-detail: [];
+    in-out property <string> skills-dir: "";
+    in-out property <string> skills-header: "";
+    in-out property <string> skills-filter: "";
+    in-out property <string> skills-note: "";
+    in-out property <bool> skills-busy: false;
+    in-out property <bool> skills-web: false;
+
     // Cliente FTP (módulo modal).
     in-out property <bool> ftp-open: false;
     in-out property <string> ftp-transport: "FTP";
@@ -377,6 +390,14 @@ export component NuIdeWindow inherits Window {
     callback sqlite-pick-db();
     callback sqlite-refresh();
     callback sqlite-table-selected(int);
+    callback skills-dismiss();
+    callback skills-refresh();
+    callback skills-pick(int);
+    callback skills-toggle();
+    callback skills-install();
+    callback skills-cook();
+    callback skills-delete();
+    callback skills-web-toggle();
     callback prefs-font-smaller();
     callback prefs-font-bigger();
     callback prefs-cycle-accent();
@@ -1270,6 +1291,31 @@ export component NuIdeWindow inherits Window {
         pick-db => { root.sqlite-pick-db(); }
         refresh => { root.sqlite-refresh(); }
         dismiss => { root.sqlite-dismiss(); }
+    }
+
+    // --- catálogo de skills (Claude/OpenCode/nativos) ---
+    if root.skills-open: IdeSkills {
+        x: 0;
+        y: 0;
+        width: parent.width;
+        height: parent.height;
+        rows: root.skills-rows;
+        selected: root.skills-selected;
+        detail: root.skills-detail;
+        dir: root.skills-dir;
+        header: root.skills-header;
+        filter: root.skills-filter;
+        note: root.skills-note;
+        busy: root.skills-busy;
+        web: root.skills-web;
+        skill-selected(i) => { root.skills-pick(i); }
+        toggle => { root.skills-toggle(); }
+        refresh => { root.skills-refresh(); }
+        install-requested => { root.skills-install(); }
+        cook-requested => { root.skills-cook(); }
+        delete-requested => { root.skills-delete(); }
+        web-toggle => { root.skills-web-toggle(); }
+        dismiss => { root.skills-dismiss(); }
     }
 
     // --- módulo: cliente FTP ---

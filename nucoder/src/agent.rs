@@ -7,7 +7,7 @@
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{channel, Sender};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use serde_json::{json, Value};
 
@@ -16,6 +16,8 @@ use crate::client::{self, ClientError, StreamEvent};
 use crate::config::Config;
 use crate::image::Image;
 use crate::knowledge::Knowledge;
+use crate::mcp::McpHub;
+use crate::skills::Registry;
 use crate::tools::{self, Ctx};
 
 /// Eventos que el agente manda a la UI.
@@ -65,6 +67,8 @@ pub struct Agent {
     pub sandbox: bool,
     /// KB local para el prompt de sistema y `read_docs`.
     pub knowledge: Arc<Knowledge>,
+    /// Skills descubiertos (catálogo en el prompt + tool `skill`).
+    pub skills: Arc<Registry>,
     /// Restringe el router a modelos con esta capacidad (si hay).
     pub cap: Option<Cap>,
     /// El turno lleva imágenes: exige un modelo con visión.
@@ -90,6 +94,8 @@ pub struct Agent {
     pub ftp: Option<Sender<crate::tools::FtpJob>>,
     /// Permiso del cliente FTP.
     pub ftp_allowed: bool,
+    /// Conexiones MCP **persistentes** entre turnos.
+    pub mcp_hub: Arc<Mutex<McpHub>>,
 }
 
 /// Herramientas que piden confirmación (destructivas o que ejecutan shell).
@@ -98,6 +104,19 @@ fn is_sensitive(name: &str) -> bool {
         name,
         "delete_path" | "move_file" | "bash" | "run_in_terminal" | "ftp_delete" | "ftp_upload"
     )
+}
+
+/// Separa una herramienta MCP `<id>__<tool>` → `(id, tool)`.
+fn split_mcp(name: &str, ids: &[String]) -> Option<(String, String)> {
+    for id in ids {
+        if let Some(tool) = name
+            .strip_prefix(id.as_str())
+            .and_then(|rest| rest.strip_prefix("__"))
+        {
+            return Some((id.clone(), tool.to_string()));
+        }
+    }
+    None
 }
 
 /// Describe el criterio de ruteo para los mensajes de error.
@@ -122,11 +141,24 @@ fn route_criteria(free_only: bool, cap: Option<Cap>, vision: bool) -> String {
 impl Agent {
     /// Corre hasta que el modelo deja de pedir herramientas (o falla).
     pub fn run(&self, mut conversation: Vec<Value>, tx: Sender<AgentEvent>) {
-        let tools_spec = tools::tool_specs();
+        let mut tools_spec = tools::tool_specs();
+        // Servidores MCP: se (re)conectan por el **hub persistente** (no se
+        // relanzan en cada turno) y sus herramientas se suman al modelo con
+        // prefijo `<id>__<tool>`.
+        let mcp_ids: Vec<String>;
+        {
+            let mut hub = self.mcp_hub.lock().unwrap_or_else(|e| e.into_inner());
+            for n in hub.ensure(&self.config.mcp) {
+                let _ = tx.send(AgentEvent::Notice(n));
+            }
+            mcp_ids = hub.ids();
+            tools_spec.extend(hub.specs(&self.config.mcp));
+        }
         let ctx = Ctx {
             cwd: &self.cwd,
             sandbox: self.sandbox,
             knowledge: Some(self.knowledge.as_ref()),
+            skills: Some(self.skills.as_ref()),
             terminal: self.terminal.as_ref(),
             web: self.web,
             read_outside: self.read_outside,
@@ -261,7 +293,20 @@ impl Agent {
                         }
 
                         // Acciones sensibles: pedir aprobación a la UI y esperar.
-                        if !auto && self.confirm && is_sensitive(name) {
+                        // Cargar un skill con permiso `ask` también lo es, y las
+                        // herramientas de un server MCP con `confirm`.
+                        let sensitive = is_sensitive(name)
+                            || (name == "skill"
+                                && args
+                                    .get("id")
+                                    .and_then(Value::as_str)
+                                    .is_some_and(|id| self.skills.needs_confirmation(id)))
+                            || self
+                                .config
+                                .mcp
+                                .iter()
+                                .any(|s| s.confirm && name.starts_with(&format!("{}__", s.id)));
+                        if !auto && self.confirm && sensitive {
                             let (rtx, rrx) = channel::<bool>();
                             let _ = tx.send(AgentEvent::Confirm {
                                 name: name.clone(),
@@ -282,7 +327,18 @@ impl Agent {
                             name: name.clone(),
                             args: arguments.clone(),
                         });
-                        let out = tools::execute(name, &args, &ctx);
+                        // ¿Es una herramienta de un server MCP? (`<id>__<tool>`)
+                        let out = match split_mcp(name, &mcp_ids) {
+                            Some((sid, tool)) => {
+                                let mut hub =
+                                    self.mcp_hub.lock().unwrap_or_else(|e| e.into_inner());
+                                match hub.call(&sid, &tool, &args) {
+                                    Ok(t) => t,
+                                    Err(e) => format!("error: {e}"),
+                                }
+                            }
+                            None => tools::execute(name, &args, &ctx),
+                        };
                         let _ = tx.send(AgentEvent::ToolResult {
                             name: name.clone(),
                             text: out.clone(),
@@ -339,7 +395,8 @@ impl Agent {
             }
         }
 
-        // El turno terminó: liberar las imágenes (no se reenvían nunca más).
+        // El turno terminó: los servidores MCP siguen vivos (hub persistente);
+        // sólo se liberan las imágenes (no se reenvían nunca más).
         downgrade_images(&mut conversation);
         let _ = tx.send(AgentEvent::Done { conversation });
     }
@@ -522,8 +579,14 @@ pub fn user_message(prompt: &str, images: &[Image]) -> Value {
     json!({ "role": "user", "content": parts })
 }
 
-/// Prompt de sistema del coder. Incluye el *primer* de la KB local (si hay).
-pub fn system_prompt(cwd: &std::path::Path, knowledge: &Knowledge, autopilot: bool) -> String {
+/// Prompt de sistema del coder. Incluye el *primer* de la KB local y el
+/// catálogo de **skills** (si los hay).
+pub fn system_prompt(
+    cwd: &std::path::Path,
+    knowledge: &Knowledge,
+    skills: &Registry,
+    autopilot: bool,
+) -> String {
     let platform = if cfg!(windows) {
         "Windows"
     } else {
@@ -549,6 +612,7 @@ pub fn system_prompt(cwd: &std::path::Path, knowledge: &Knowledge, autopilot: bo
         );
     }
     s.push_str(&knowledge.primer());
+    s.push_str(&crate::cook::catalog_prompt(skills));
     s
 }
 
@@ -655,5 +719,26 @@ mod tests {
         }];
         let n = normalize_calls(&calls);
         assert_eq!(n[0].0, "call_0");
+    }
+
+    #[test]
+    fn separa_herramientas_mcp_por_prefijo() {
+        let ids = vec!["rea".to_string(), "otro".to_string()];
+        assert_eq!(
+            split_mcp("rea__open_binary", &ids),
+            Some(("rea".to_string(), "open_binary".to_string()))
+        );
+        assert_eq!(
+            split_mcp("otro__x_y", &ids),
+            Some(("otro".to_string(), "x_y".to_string()))
+        );
+        // Una herramienta propia no es MCP.
+        assert!(split_mcp("read_file", &ids).is_none());
+        // El orden de los ids no cambia el resultado aunque uno sea prefijo de otro.
+        let ids = vec!["a".to_string(), "a_b".to_string()];
+        assert_eq!(
+            split_mcp("a_b__t", &ids),
+            Some(("a_b".to_string(), "t".to_string()))
+        );
     }
 }

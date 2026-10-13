@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
+use std::sync::Mutex;
 
 use serde_json::Value;
 use slint::{ModelRc, SharedString, StyledText, VecModel};
@@ -20,7 +21,9 @@ use nucoder::config::{Config, CuratedModel, TASKS};
 use nucoder::image::Image;
 use nucoder::knowledge::Knowledge;
 use nucoder::markdown::{self, Segment, TokenKind};
+use nucoder::mcp::McpHub;
 use nucoder::session;
+use nucoder::skills::Registry;
 use nucoder::tools::{FtpJob, TerminalJob};
 
 use crate::ui::{IdeChatCodeLine, IdeChatModel, IdeChatMsg, IdeChatSeg, IdeModelRow, IdeToken};
@@ -88,6 +91,9 @@ pub struct NuCoderPanel {
     cwd: PathBuf,
     config: Arc<Config>,
     knowledge: Arc<Knowledge>,
+    skills: Arc<Registry>,
+    /// Conexiones MCP persistentes entre turnos del agente.
+    mcp_hub: Arc<Mutex<McpHub>>,
     task: String,
     free_only: bool,
     cap: Option<Cap>,
@@ -147,6 +153,13 @@ impl NuCoderPanel {
     pub fn new(cwd: PathBuf) -> Self {
         let config = Config::load();
         let knowledge = Arc::new(Knowledge::discover(&config.knowledge));
+        let skills = Arc::new(Registry::discover(
+            &cwd,
+            &config.skills,
+            &config.skills_permissions,
+            config.skills_autoinvoke,
+        ));
+        let mcp_hub = Arc::new(Mutex::new(McpHub::default()));
         let (tx, rx) = channel();
         let (terminal_tx, terminal_rx) = channel();
         let (ftp_tx, ftp_rx) = channel();
@@ -171,6 +184,8 @@ impl NuCoderPanel {
             cap: None,
             model_override: config.default_model.clone(),
             knowledge,
+            skills,
+            mcp_hub,
             config: Arc::new(config),
             conversation: Vec::new(),
             images: Vec::new(),
@@ -705,6 +720,14 @@ impl NuCoderPanel {
         self.models = self.config.curated_models();
         self.rebuild_model_rows();
         self.knowledge = Arc::new(Knowledge::discover(&self.config.knowledge));
+        self.skills = Arc::new(Registry::discover(
+            &self.cwd,
+            &self.config.skills,
+            &self.config.skills_permissions,
+            self.config.skills_autoinvoke,
+        ));
+        // Cambia el proyecto: se reconectan los servers MCP (cwd nuevo).
+        self.mcp_hub = Arc::new(Mutex::new(McpHub::default()));
         self.confirm = self.config.confirm;
         self.auto_approve = self.config.auto_approve;
         self.perm_web = self.config.perm_web;
@@ -781,13 +804,29 @@ impl NuCoderPanel {
         if prompt.is_empty() || self.running {
             return;
         }
+        // Menciones `@skill`: se cargan en el turno (sin esperar la herramienta).
+        let (prompt, mention_ctx, loaded, missing) = self.skills.expand_mentions(&prompt);
+        if prompt.is_empty() && mention_ctx.is_empty() {
+            return;
+        }
+        if !loaded.is_empty() {
+            self.info(format!("skills precargados: {}", loaded.join(", ")));
+        }
+        if !missing.is_empty() {
+            self.info(format!("skills no encontrados: {}", missing.join(", ")));
+        }
         self.push(0, "vos".to_string(), prompt.clone());
-        let user_msg = agent::user_message(&prompt, &self.images);
+        let full = if mention_ctx.is_empty() {
+            prompt.clone()
+        } else {
+            format!("{mention_ctx}\n\n---\n{prompt}")
+        };
+        let user_msg = agent::user_message(&full, &self.images);
         let vision = !self.images.is_empty();
         self.images.clear();
         if self.conversation.is_empty() {
             let system = agent::system_value(
-                &agent::system_prompt(&self.cwd, &self.knowledge, self.autopilot),
+                &agent::system_prompt(&self.cwd, &self.knowledge, &self.skills, self.autopilot),
                 self.prompt_cache,
             );
             self.conversation = agent::new_conversation_with(system, user_msg);
@@ -806,6 +845,8 @@ impl NuCoderPanel {
             confirm: self.confirm,
             sandbox: self.sandbox,
             knowledge: self.knowledge.clone(),
+            skills: self.skills.clone(),
+            mcp_hub: self.mcp_hub.clone(),
             cap: self.cap,
             vision,
             model_override: self.model_override.clone(),

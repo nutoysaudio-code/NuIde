@@ -1,9 +1,9 @@
 # Postinstalación de NuIde (lo corre el instalador Inno Setup).
 #
-# -AddPath: agrega la carpeta de NuIde (con `nuide.exe` y, si se instaló,
-# `nucoder.exe`) a la variable PATH del usuario, de forma idempotente.
+# -AddPath: agrega la carpeta de NuIde (con `nuide.exe` y, si se instalaron,
+# `nucoder.exe` y `nucook.exe`) a la variable PATH del usuario, idempotente.
 #
-# NuCoder es un binario propio (no de npm): no necesita Node.js.
+# NuCoder y NuCook son binarios propios (no de npm): no necesitan Node.js.
 param([switch]$AddPath)
 
 $ErrorActionPreference = "Continue"

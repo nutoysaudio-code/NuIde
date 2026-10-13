@@ -3,6 +3,8 @@ name = "nucoder"
 version = "0.3.2"
 edition = "2021"
 description = "NuCoder - agente de codigo con router de modelos (SpASM)"
+# Hay dos binarios (`nucoder` y el fixture de tests `mcp_stub`): fijamos el default.
+default-run = "nucoder"
 
 # Proyecto independiente: no forma parte del workspace de NuIde
 [workspace]

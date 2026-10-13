@@ -43,12 +43,13 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 [Tasks]
 Name: "desktopicon"; Description: "Crear un acceso directo en el escritorio"; GroupDescription: "Accesos directos:"
 Name: "associate"; Description: "Asociar los archivos .spasm con NuIde"; GroupDescription: "Integración:"; Flags: unchecked
-Name: "path"; Description: "Agregar NuIde y NuCoder a la variable PATH"; GroupDescription: "Integración:"; Flags: checkedonce
-Name: "nucoder"; Description: "Instalar NuCoder (agente de código con router de modelos)"; GroupDescription: "Componentes:"; Flags: checkedonce
+Name: "path"; Description: "Agregar NuIde, NuCoder y NuCook a la variable PATH"; GroupDescription: "Integración:"; Flags: checkedonce
+Name: "nucoder"; Description: "Instalar NuCoder (agente) y NuCook (cocina de skills)"; GroupDescription: "Componentes:"; Flags: checkedonce
 
 [Files]
 Source: "..\target\release\{#AppExe}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\nucoder\target\release\nucoder.exe"; DestDir: "{app}"; Flags: ignoreversion; Tasks: nucoder
+Source: "..\nucoder\target\release\nucook.exe"; DestDir: "{app}"; Flags: ignoreversion; Tasks: nucoder
 Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\docs\*"; DestDir: "{app}\docs"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "postinstall.ps1"; DestDir: "{app}"; Flags: ignoreversion
@@ -64,7 +65,7 @@ Root: HKCU; Subkey: "Software\Classes\NuIde.Spasm\DefaultIcon"; ValueType: strin
 Root: HKCU; Subkey: "Software\Classes\NuIde.Spasm\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#AppExe}"" ""%1"""; Tasks: associate
 
 [Run]
-Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\postinstall.ps1"" -AddPath"; StatusMsg: "Agregando NuIde y NuCoder al PATH..."; Flags: runhidden waituntilterminated; Tasks: path
+Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\postinstall.ps1"" -AddPath"; StatusMsg: "Agregando NuIde, NuCoder y NuCook al PATH..."; Flags: runhidden waituntilterminated; Tasks: path
 Filename: "{app}\{#AppExe}"; Description: "Ejecutar {#AppName}"; Flags: nowait postinstall skipifsilent
 
 [UninstallDelete]

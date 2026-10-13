@@ -4,8 +4,9 @@
 //! keys (`config`), el router (SpASM AOT vía `ffi`), el cliente HTTP con
 //! streaming (`client`), el bucle del agente (`agent`), las herramientas
 //! (`tools`), las capacidades de los modelos (`caps`), el filtro de gratis
-//! (`freefilter`), la KB (`knowledge`), las imágenes (`image`) y la
-//! persistencia de sesiones (`session`).
+//! (`freefilter`), la KB (`knowledge`), los skills (`skills`), los servidores
+//! **MCP** (`mcp`), las imágenes (`image`) y la persistencia de sesiones
+//! (`session`).
 //!
 //! Lo consumen dos frontends:
 //!
@@ -21,11 +22,15 @@ pub mod banner;
 pub mod caps;
 pub mod client;
 pub mod config;
+pub mod cook;
 pub mod ffi;
 pub mod freefilter;
+pub mod hub;
 pub mod image;
 pub mod knowledge;
 pub mod markdown;
+pub mod mcp;
 pub mod proc;
 pub mod session;
+pub mod skills;
 pub mod tools;
