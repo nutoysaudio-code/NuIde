@@ -4,7 +4,7 @@ Todos los cambios relevantes de NuIde. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/) y el proyecto usa
 versionado semántico.
 
-## [No publicado]
+## [0.3.3] — 2026-10-13
 
 ### Agregado
 
@@ -25,6 +25,14 @@ versionado semántico.
   otro modelo en lugar de esperar hasta el `max-time` (600 s). También rota ante
   errores de red/parseo y trata una respuesta **vacía** (200 sin texto ni
   herramientas) como fallo, en vez de cerrar el turno en silencio.
+
+### Cambiado
+
+- **Barra de NuCoder con íconos**: los ítems del encabezado y de la barra
+  (modelos, permisos, tarea, imagen, contexto, gratis, auto-aprobar, nueva,
+  orden, probar, sincronizar, solo ok, limpiar) pasan a **botones de ícono** con
+  **tooltip** de ayuda, para que entren en paneles angostos (el estado —activo,
+  imágenes adjuntas— se ve por el resaltado y el contador).
 
 ## [0.3.2] — 2026-10-12
 

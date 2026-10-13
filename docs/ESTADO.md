@@ -1186,7 +1186,14 @@ compresión; el visor muestra hasta 200 filas por tabla y no edita.
   `unwrap_or(true)`.
 - Tests nuevos (4): `candidates` saltea muertos, `mark_dead`/`mark_ok`/`clear`
   se excluyen, gratis por defecto, y el watchdog en la config de `curl`.
-  i18n regenerado (447 claves).
+- **Barra con íconos** (`ui/ide_nucoder.slint`): nuevo componente `NIcon`
+  (glifo + tooltip + estado activo). El encabezado y la barra pasan a íconos
+  (📋 modelos · 🔒 permisos · 🎯 tarea · 📎/✖ imagen · 📏 contexto · 🆓 gratis ·
+  ⚡ auto-aprobar · ➕ nueva; en la pestaña modelos: ⇅ orden · 📡 probar ·
+  🔄 sincronizar · ✓ solo ok · 🧹 limpiar), cada uno con tooltip; los que ya no
+  se usaban como texto liberan ancho en paneles angostos. Glifos verificados con
+  `slint-viewer --screenshot` (se descartaron ✕/⟳/↻ por no renderizar).
+  i18n regenerado (440 claves: se van los rótulos de texto que pasaron a ícono).
 
 ## 4. Limitaciones conocidas
 - **Persistencia parcial.** Se recuerda el proyecto, el dock/visibilidad de los

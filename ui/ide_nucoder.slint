@@ -123,6 +123,52 @@ component NChip inherits Rectangle {
     }
 }
 
+// Botón de **icono** (glifo centrado) con tooltip y estado activo. Sintetiza los
+// ítems de la barra cuando el panel es angosto.
+component NIcon inherits Rectangle {
+    in property <string> glyph: "";
+    in property <string> tip: "";
+    in property <bool> active: false;
+    in property <bool> accent: false;
+    in property <string> badge: "";
+    callback activated();
+
+    width: 26px;
+    height: 24px;
+    border-radius: IdeTheme.radius-sm;
+    background: root.active ? IdeTheme.selection : (ihit.has-hover ? IdeTheme.control : transparent);
+    border-width: 1px;
+    border-color: root.active ? IdeTheme.mint : transparent;
+
+    if root.tip != "": Tooltip {
+        TipContent { text: root.tip; }
+    }
+
+    Text {
+        width: parent.width - (root.badge == "" ? 0px : 9px);
+        height: parent.height;
+        text: root.glyph;
+        color: root.accent ? IdeTheme.amber : (root.active ? IdeTheme.mint : IdeTheme.text-soft);
+        font-family: IdeTheme.sans;
+        font-size: 13px;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    if root.badge != "": Text {
+        x: parent.width - 12px;
+        y: 0px;
+        text: root.badge;
+        color: IdeTheme.amber;
+        font-family: IdeTheme.mono;
+        font-size: 8px;
+        horizontal-alignment: center;
+    }
+    ihit := TouchArea {
+        mouse-cursor: MouseCursor.pointer;
+        clicked => { root.activated(); }
+    }
+}
+
 // Fila de permiso: etiqueta + ayuda + interruptor.
 component PermRow inherits Rectangle {
     in property <string> label: "";
@@ -426,18 +472,16 @@ export component IdeNucoder inherits FocusScope {
 
             Rectangle { horizontal-stretch: 1; background: transparent; }
 
-            NChip {
-                label: @tr("modelos");
-                tint: root.view == 2 ? IdeTheme.mint : IdeTheme.text-soft;
+            NIcon {
+                glyph: "📋";
                 active: root.view == 2;
-                tip: @tr("Listado de modelos: especialidad, gratis/poder y probar (ping)");
+                tip: @tr("Modelos: listado, filtros (gratis/ok) y probar (ping)");
                 activated => { root.view = root.view == 2 ? 0 : 2; }
             }
-            NChip {
-                label: @tr("permisos");
-                tint: root.view == 1 ? IdeTheme.mint : IdeTheme.text-soft;
+            NIcon {
+                glyph: "🔒";
                 active: root.view == 1;
-                tip: @tr("Permisos del agente: internet, leer fuera del proyecto, terminales, autopiloto");
+                tip: @tr("Permisos del agente: internet, leer fuera del proyecto, terminales, FTP, autopiloto");
                 activated => { root.view = root.view == 1 ? 0 : 1; }
             }
 
@@ -509,48 +553,50 @@ export component IdeNucoder inherits FocusScope {
             cross-axis-alignment: center;
 
             // Tarea (clic: cicla).
-            NChip {
-                label: "tarea: " + root.task;
-                tip: @tr("Cambiar la tarea del router (complete/refactor/debug/…)");
+            NIcon {
+                glyph: "🎯";
+                tip: @tr("Tarea del router") + ": " + root.task + @tr(" (clic para cambiar)");
                 activated => { root.task-picked(mod(root.task-index + 1, max(1, root.tasks.length))); }
             }
 
-            // Imagen (visión).
-            NChip {
-                label: @tr("imagen");
+            // Imagen (visión): adjuntar; si hay alguna, el mismo botón las quita.
+            if root.image-count == 0: NIcon {
+                glyph: "📎";
                 tip: @tr("Adjuntar una imagen al próximo mensaje (modelos con visión)");
                 activated => { root.attach-image(); }
             }
-            if root.image-count > 0: NChip {
-                label: root.image-count + @tr(" img ✕");
-                tint: IdeTheme.amber;
-                tip: @tr("Quitar la imagen adjunta");
+            if root.image-count > 0: NIcon {
+                glyph: "✖";
+                accent: true;
+                badge: "" + root.image-count;
+                tip: @tr("Quitar las imágenes adjuntas") + " (" + root.image-count + ")";
                 activated => { root.clear-images(); }
             }
 
             // Contexto (clic: cicla).
-            NChip {
-                label: "ctx " + root.context;
-                tip: @tr("Tope de contexto para la compactación");
+            NIcon {
+                glyph: "📏";
+                tip: @tr("Tope de contexto") + ": " + root.context + @tr(" (clic para cambiar)");
                 activated => { root.cycle-context(); }
             }
 
             Rectangle { horizontal-stretch: 1; background: transparent; }
 
-            NToggle {
-                label: @tr("gratis");
+            NIcon {
+                glyph: "🆓";
                 active: root.free-only;
                 tip: @tr("Router y listado sólo con modelos gratuitos");
-                toggled => { root.toggle-free(); }
+                activated => { root.toggle-free(); }
             }
-            NToggle {
-                label: @tr("auto-aprobar");
+            NIcon {
+                glyph: "⚡";
                 active: root.auto-approve;
-                tip: @tr("No pedir confirmación para borrar/mover/bash/terminal");
-                toggled => { root.toggle-auto-approve(); }
+                tip: @tr("Auto-aprobar: no pedir confirmación para borrar/mover/bash/terminal");
+                activated => { root.toggle-auto-approve(); }
             }
-            NButton {
-                label: @tr("nueva");
+            NIcon {
+                glyph: "➕";
+                tip: @tr("Nueva conversación (borra el historial)");
                 activated => { root.clear(); }
             }
         }
@@ -1012,7 +1058,7 @@ export component IdeNucoder inherits FocusScope {
                 cross-axis-alignment: center;
 
                 Rectangle {
-                    width: max(parent.width - 500px, 80px);
+                    width: max(parent.width - 210px, 80px);
                     height: 28px;
                     border-radius: IdeTheme.radius-sm;
                     background: IdeTheme.bg;
@@ -1041,27 +1087,29 @@ export component IdeNucoder inherits FocusScope {
                         vertical-alignment: center;
                     }
                 }
-                NChip {
-                    label: "orden: " + root.model-sort;
-                    tip: @tr("Cambiar el orden del listado (especialidad / ping / nombre / gratis)");
+                NIcon {
+                    glyph: "⇅";
+                    tip: @tr("Orden del listado") + ": " + root.model-sort + @tr(" (clic para cambiar)");
                     activated => { root.model-sort-cycle(); }
                 }
-                NButton {
-                    label: @tr("probar todos");
+                NIcon {
+                    glyph: "📡";
+                    tip: @tr("Probar (ping) todos los modelos visibles");
                     activated => { root.model-ping-all(); }
                 }
-                NButton {
-                    label: @tr("sincronizar");
+                NIcon {
+                    glyph: "🔄";
+                    tip: @tr("Volver a bajar el catálogo de modelos");
                     activated => { root.model-sync(); }
                 }
-                NToggle {
-                    label: @tr("solo ok");
+                NIcon {
+                    glyph: "✓";
                     active: root.model-only-ok;
                     tip: @tr("Mostrar sólo los modelos que respondieron al ping");
-                    toggled => { root.model-only-ok-toggle(); }
+                    activated => { root.model-only-ok-toggle(); }
                 }
-                NButton {
-                    label: @tr("limpiar");
+                NIcon {
+                    glyph: "🧹";
                     tip: @tr("Borrar el estado aprendido (modelos que fallaron) y volver a probar todos");
                     activated => { root.model-clear-status(); }
                 }

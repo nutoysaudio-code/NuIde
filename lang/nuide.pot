@@ -256,16 +256,10 @@ msgstr ""
 msgid "Elegir el modelo del agente"
 msgstr ""
 
-msgid "modelos"
+msgid "Modelos: listado, filtros (gratis/ok) y probar (ping)"
 msgstr ""
 
-msgid "Listado de modelos: especialidad, gratis/poder y probar (ping)"
-msgstr ""
-
-msgid "permisos"
-msgstr ""
-
-msgid "Permisos del agente: internet, leer fuera del proyecto, terminales, autopiloto"
+msgid "Permisos del agente: internet, leer fuera del proyecto, terminales, FTP, autopiloto"
 msgstr ""
 
 msgid "Ver u ocultar el proceso (herramientas y avisos del agente)"
@@ -277,37 +271,28 @@ msgstr ""
 msgid "desconectado"
 msgstr ""
 
-msgid "Cambiar la tarea del router (complete/refactor/debug/…)"
+msgid "Tarea del router"
 msgstr ""
 
-msgid "imagen"
+msgid " (clic para cambiar)"
 msgstr ""
 
 msgid "Adjuntar una imagen al próximo mensaje (modelos con visión)"
 msgstr ""
 
-msgid " img ✕"
+msgid "Quitar las imágenes adjuntas"
 msgstr ""
 
-msgid "Quitar la imagen adjunta"
-msgstr ""
-
-msgid "Tope de contexto para la compactación"
-msgstr ""
-
-msgid "gratis"
+msgid "Tope de contexto"
 msgstr ""
 
 msgid "Router y listado sólo con modelos gratuitos"
 msgstr ""
 
-msgid "auto-aprobar"
+msgid "Auto-aprobar: no pedir confirmación para borrar/mover/bash/terminal"
 msgstr ""
 
-msgid "No pedir confirmación para borrar/mover/bash/terminal"
-msgstr ""
-
-msgid "nueva"
+msgid "Nueva conversación (borra el historial)"
 msgstr ""
 
 msgid "Aprobar"
@@ -397,22 +382,16 @@ msgstr ""
 msgid "filtrar por nombre o especialidad…"
 msgstr ""
 
-msgid "Cambiar el orden del listado (especialidad / ping / nombre / gratis)"
+msgid "Orden del listado"
 msgstr ""
 
-msgid "probar todos"
+msgid "Probar (ping) todos los modelos visibles"
 msgstr ""
 
-msgid "sincronizar"
-msgstr ""
-
-msgid "solo ok"
+msgid "Volver a bajar el catálogo de modelos"
 msgstr ""
 
 msgid "Mostrar sólo los modelos que respondieron al ping"
-msgstr ""
-
-msgid "limpiar"
 msgstr ""
 
 msgid "Borrar el estado aprendido (modelos que fallaron) y volver a probar todos"
