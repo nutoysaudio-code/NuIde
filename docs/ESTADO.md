@@ -1200,6 +1200,24 @@ compresión; el visor muestra hasta 200 filas por tabla y no edita.
   `take_block` + `fold_block` (sirve para `description` y cualquier clave), con
   test. Con eso `caveman` y `ponytail` (de GitHub) se descubren y anuncian bien.
 
+### 3.61 Gestor de skills: actualizar y configurar
+
+- **Origen recordado** (`nucoder/src/hub.rs`): al instalar se escribe
+  `.nucook-origin` dentro del skill con el `spec` (`owner/repo#skill`, URL o ruta
+  local) — el de git guarda el `spec` del usuario, no el clon temporal. Nuevo
+  `hub::origin`/`hub::save_origin` y **`hub::update(id, root)`** que re-instala
+  desde el origen con `force`. Test: `recuerda_el_origen_y_actualiza`.
+- **UI** (`ui/ide_skills.slint` + `src/editor.rs`): el modal suma una **fila de
+  acciones** (Instalar… · **Actualizar** · Eliminar · **Permiso: …** · Cocinar ·
+  web · **Catálogo…** · Refrescar). **Actualizar** re-instala el seleccionado;
+  **Permiso** cicla `allow → ask → deny` (`skills_cycle_perm`, persistido en
+  `skills_permissions`); **Catálogo…** abre el prompt para la URL del `index.json`
+  y la guarda en el config de la IDE (`nucoder.catalog-url`, con
+  `NUCOOK_CATALOG` de respaldo). El **detalle** muestra la ruta, la **versión** y
+  el **origen**; la lista agrega `· vX` al nombre.
+- Callbacks nuevos en `nuide_ui.slint` y cableado en `editor::attach`.
+- i18n regenerado (446 claves).
+
 ## 4. Limitaciones conocidas
 - **Persistencia parcial.** Se recuerda el proyecto, el dock/visibilidad de los
   paneles, la geometría de la ventana, las pestañas abiertas, el filtro de

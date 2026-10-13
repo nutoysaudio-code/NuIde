@@ -1142,6 +1142,8 @@ enum PromptKind {
     WebField(&'static str),
     /// Instalar un skill (`owner/repo`, URL o ruta; `spec#skill` opcional).
     SkillInstall,
+    /// URL del **catálogo** de skills (`index.json`) para el buscador web.
+    SkillCatalog,
 }
 
 /// Diálogo de entrada de texto pendiente.
@@ -3860,6 +3862,7 @@ impl Ide {
         if !site_field
             && p.kind != PromptKind::SessionName
             && p.kind != PromptKind::SkillInstall
+            && p.kind != PromptKind::SkillCatalog
             && !valid_name(&name)
         {
             return;
@@ -3908,6 +3911,7 @@ impl Ide {
             PromptKind::SiteField(field) => self.site_field_set(field, p.text.clone()),
             PromptKind::WebField(field) => self.web_field_set(field, p.text.clone()),
             PromptKind::SkillInstall => self.skills_spawn_install(name),
+            PromptKind::SkillCatalog => self.skills_set_catalog(name),
         }
     }
 
@@ -4628,9 +4632,13 @@ impl Ide {
                     SkillEffect::Allow if reg.advertises(s) => 0,
                     SkillEffect::Allow => 1,
                 };
+                let name = match s.version.as_deref().filter(|v| !v.is_empty()) {
+                    Some(v) => format!("{} · v{}", s.name, v),
+                    None => s.name.clone(),
+                };
                 IdeSkillRow {
                     id: s.id.clone().into(),
-                    name: s.name.clone().into(),
+                    name: name.into(),
                     source: s.source.badge().into(),
                     detail: s.description.clone().into(),
                     state,
@@ -4678,7 +4686,14 @@ impl Ide {
             return;
         };
         if let Some(sk) = self.skills_registry.by_id(&id) {
-            self.skills_dir = sk.dir.display().to_string();
+            let mut line = sk.dir.display().to_string();
+            if let Some(v) = sk.version.as_deref().filter(|v| !v.is_empty()) {
+                line.push_str(&format!("  ·  v{v}"));
+            }
+            if let Some(o) = nucoder::hub::origin(&id, &nucoder::hub::installed_root()) {
+                line.push_str(&format!("  ·  origen: {o}"));
+            }
+            self.skills_dir = line;
         }
         if let Some(t) = nucoder::cook::load_cookie(&id) {
             self.skills_detail = t.render_text().lines().map(str::to_string).collect();
@@ -4852,11 +4867,11 @@ impl Ide {
 
     /// Consulta el catálogo remoto (en un hilo) con el filtro actual.
     fn skills_fetch_remote(&mut self) {
-        let catalog = std::env::var("NUCOOK_CATALOG").unwrap_or_default();
+        let catalog = self.skills_catalog_url();
         if catalog.trim().is_empty() {
             self.skills_web = false;
             self.skills_note =
-                "seteá NUCOOK_CATALOG (url del index.json) para buscar en la web".to_string();
+                "configurá el catálogo (botón «Catálogo…») o NUCOOK_CATALOG".to_string();
             return;
         }
         self.skills_busy = true;
@@ -4870,6 +4885,102 @@ impl Ide {
             };
             let _ = tx.send(msg);
         });
+    }
+
+    /// URL del catálogo remoto: lo seteado en el panel, o `NUCOOK_CATALOG`.
+    fn skills_catalog_url(&self) -> String {
+        if let Some(u) = self.config.get("nucoder.catalog-url") {
+            if !u.trim().is_empty() {
+                return u.trim().to_string();
+            }
+        }
+        std::env::var("NUCOOK_CATALOG").unwrap_or_default()
+    }
+
+    /// Abre el diálogo para setear la URL del catálogo de skills.
+    fn skills_edit_catalog(&mut self) {
+        self.prompt = Some(Prompt {
+            kind: PromptKind::SkillCatalog,
+            target: PathBuf::new(),
+            text: self.skills_catalog_url(),
+        });
+    }
+
+    /// Guarda la URL del catálogo (vacío = borrar) y refresca la búsqueda web.
+    fn skills_set_catalog(&mut self, url: String) {
+        self.config.set("nucoder.catalog-url", &url);
+        self.config.save();
+        if url.trim().is_empty() {
+            self.skills_note = "catálogo de skills borrado".to_string();
+            self.skills_web = false;
+            self.skills_remote.clear();
+            self.skills_rebuild_rows();
+        } else {
+            self.skills_note = format!("catálogo: {url}");
+            self.skills_web = true;
+            self.skills_fetch_remote();
+        }
+    }
+
+    /// **Actualiza** el skill seleccionado desde su origen guardado (en un hilo).
+    fn skills_update(&mut self) {
+        let Some(id) = self.skills_ids.get(self.skills_selected).cloned() else {
+            self.skills_note = "elegí un skill primero".to_string();
+            return;
+        };
+        let root = nucoder::hub::installed_root();
+        if self
+            .skills_registry
+            .by_id(&id)
+            .map(|s| !s.dir.starts_with(&root))
+            .unwrap_or(true)
+        {
+            self.skills_note = format!("«{id}» no está instalado en el hub");
+            return;
+        }
+        self.skills_spawn_update(id);
+    }
+
+    /// Actualiza (en un hilo) re-instalando desde el origen guardado.
+    fn skills_spawn_update(&mut self, id: String) {
+        self.skills_busy = true;
+        self.skills_note = format!("actualizando «{id}»…");
+        let tx = self.skills_tx.clone();
+        std::thread::spawn(move || {
+            let root = nucoder::hub::installed_root();
+            let msg = match nucoder::hub::update(&id, &root) {
+                Ok(updated) => format!("skill «{updated}» actualizado"),
+                Err(e) => format!("no se pudo actualizar: {e}"),
+            };
+            let _ = tx.send(SkillsMsg::Note(msg));
+        });
+    }
+
+    /// Cicla el permiso del skill seleccionado: allow → ask → deny → allow.
+    fn skills_cycle_perm(&mut self) {
+        if self.skills_selected >= self.skills_local_len {
+            self.skills_note = "el permiso se aplica a skills instalados".to_string();
+            return;
+        }
+        let Some(id) = self.skills_ids.get(self.skills_selected).cloned() else {
+            return;
+        };
+        let mut cfg = NuCoderConfig::load();
+        let current = cfg
+            .skills_permissions
+            .iter()
+            .rev()
+            .find(|r| r.id == id)
+            .map(|r| r.effect)
+            .unwrap_or(SkillEffect::Allow);
+        let next = match current {
+            SkillEffect::Allow => SkillEffect::Ask,
+            SkillEffect::Ask => SkillEffect::Deny,
+            SkillEffect::Deny => SkillEffect::Allow,
+        };
+        cfg.skills_permissions.push(SkillRule::new(id, next));
+        let _ = cfg.save_own();
+        self.skills_refresh();
     }
 
     /// `NuCook: cocinar carpeta de docs…`: elige una carpeta nativa y cocina
@@ -8540,6 +8651,10 @@ impl Ide {
                     crate::i18n::t("Instalar skill"),
                     "owner/repo  ó  /ruta/al/skill  (opcional: #skill)",
                 ),
+                PromptKind::SkillCatalog => (
+                    crate::i18n::t("Catálogo de skills (URL del index.json)"),
+                    "https://…/index.json",
+                ),
                 PromptKind::SiteField(field) => match field {
                     "user" => (crate::i18n::t("Usuario del sitio"), "ftp-usuario"),
                     "pass" => (
@@ -10692,6 +10807,39 @@ pub fn attach(window: &NuIdeWindow, ide: Rc<RefCell<Ide>>) {
             if let Some(w) = weak.upgrade() {
                 let mut e = ide.borrow_mut();
                 e.skills_web_toggle();
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_skills_update(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.skills_update();
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_skills_perm_cycle(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.skills_cycle_perm();
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_skills_catalog(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.skills_edit_catalog();
                 e.sync(&w);
             }
         });

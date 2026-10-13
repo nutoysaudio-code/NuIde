@@ -52,10 +52,22 @@ export component IdeSkills inherits Rectangle {
     callback toggle();
     callback refresh();
     callback install-requested();
+    callback update-requested();
     callback cook-requested();
     callback delete-requested();
+    callback perm-cycle();
+    callback catalog-requested();
     callback web-toggle();
     callback dismiss();
+
+    // Etiqueta del permiso del skill seleccionado (state de `IdeSkillRow`).
+    function perm-label(s: int) -> string {
+        s == 0 ? @tr("anunciar")
+            : s == 1 ? @tr("oculto")
+            : s == 2 ? @tr("preguntar")
+            : s == 3 ? @tr("bloquear")
+            : @tr("web");
+    }
 
     // Fondo que cierra al clic fuera.
     Rectangle {
@@ -111,23 +123,6 @@ export component IdeSkills inherits Rectangle {
                 overflow: elide;
             }
 
-            HorizontalLayout {
-                x: parent.width - 530px;
-                y: 7px;
-                width: 520px;
-                height: 26px;
-                spacing: 6px;
-                alignment: end;
-                cross-axis-alignment: center;
-
-                SButton { label: @tr("Instalar…"); activated => { root.install-requested(); } }
-                SButton { label: @tr("Cocinar"); activated => { root.cook-requested(); } }
-                SButton { label: @tr("Eliminar"); activated => { root.delete-requested(); } }
-                SButton { label: @tr("Anunciar"); activated => { root.toggle(); } }
-                SButton { label: root.web ? @tr("web ✓") : @tr("web"); activated => { root.web-toggle(); } }
-                SButton { label: @tr("Refrescar"); activated => { root.refresh(); } }
-            }
-
             Rectangle {
                 y: parent.height - IdeTheme.hairline;
                 width: parent.width;
@@ -136,10 +131,48 @@ export component IdeSkills inherits Rectangle {
             }
         }
 
-        // --- buscador ---
+        // --- acciones ---
         Rectangle {
             x: 0;
             y: 40px;
+            width: parent.width;
+            height: 34px;
+            background: IdeTheme.bg;
+
+            HorizontalLayout {
+                x: 12px;
+                y: 4px;
+                width: parent.width - 24px;
+                height: 26px;
+                spacing: 6px;
+                alignment: start;
+                cross-axis-alignment: center;
+
+                SButton { label: @tr("Instalar…"); activated => { root.install-requested(); } }
+                SButton { label: @tr("Actualizar"); activated => { root.update-requested(); } }
+                SButton { label: @tr("Eliminar"); activated => { root.delete-requested(); } }
+                SButton {
+                    label: @tr("Permiso") + ": " + (root.selected < root.rows.length ? root.perm-label(root.rows[root.selected].state) : "—");
+                    activated => { root.perm-cycle(); }
+                }
+                SButton { label: @tr("Cocinar"); activated => { root.cook-requested(); } }
+                SButton { label: root.web ? @tr("web ✓") : @tr("web"); activated => { root.web-toggle(); } }
+                SButton { label: @tr("Catálogo…"); activated => { root.catalog-requested(); } }
+                SButton { label: @tr("Refrescar"); activated => { root.refresh(); } }
+            }
+
+            Rectangle {
+                y: parent.height - IdeTheme.hairline;
+                width: parent.width;
+                height: IdeTheme.hairline;
+                background: IdeTheme.border-faint;
+            }
+        }
+
+        // --- buscador ---
+        Rectangle {
+            x: 0;
+            y: 74px;
             width: parent.width;
             height: 28px;
             background: IdeTheme.bg;
@@ -189,9 +222,9 @@ export component IdeSkills inherits Rectangle {
         // --- lista ---
         Rectangle {
             x: 0;
-            y: 68px;
+            y: 102px;
             width: 380px;
-            height: parent.height - 68px;
+            height: parent.height - 102px;
             background: transparent;
 
             Flickable {
@@ -275,9 +308,9 @@ export component IdeSkills inherits Rectangle {
         // --- detalle ---
         Rectangle {
             x: 380px;
-            y: 68px;
+            y: 102px;
             width: parent.width - 380px;
-            height: parent.height - 68px;
+            height: parent.height - 102px;
             background: transparent;
 
             Text {

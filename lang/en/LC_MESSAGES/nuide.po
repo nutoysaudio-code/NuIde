@@ -617,22 +617,40 @@ msgstr "Interface, editor, terminals and add-ons (FTP, SSH, NuCoder, web, SQLite
 msgid "Cerrar (Esc) — los cambios ya quedaron guardados"
 msgstr "Close (Esc) — changes are already saved"
 
+msgid "anunciar"
+msgstr ""
+
+msgid "oculto"
+msgstr "hidden"
+
+msgid "preguntar"
+msgstr ""
+
+msgid "bloquear"
+msgstr ""
+
+msgid "web"
+msgstr ""
+
 msgid "Skills"
 msgstr ""
 
 msgid "Instalar…"
 msgstr ""
 
-msgid "Cocinar"
+msgid "Actualizar"
 msgstr ""
 
-msgid "Anunciar"
+msgid "Permiso"
+msgstr ""
+
+msgid "Cocinar"
 msgstr ""
 
 msgid "web ✓"
 msgstr ""
 
-msgid "web"
+msgid "Catálogo…"
 msgstr ""
 
 msgid "Refrescar"
@@ -649,9 +667,6 @@ msgstr ""
 
 msgid "anunciado"
 msgstr ""
-
-msgid "oculto"
-msgstr "hidden"
 
 msgid "ask"
 msgstr ""
@@ -1287,6 +1302,9 @@ msgid "Argumentos para ejecutar"
 msgstr "Arguments to run"
 
 msgid "Instalar skill"
+msgstr ""
+
+msgid "Catálogo de skills (URL del index.json)"
 msgstr ""
 
 msgid "Usuario del sitio"

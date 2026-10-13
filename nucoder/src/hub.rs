@@ -139,6 +139,7 @@ pub fn install_from_dir(src: &Path, dest_root: &Path, force: bool) -> Result<Str
     } else {
         copy_tree(src, &dest)?;
     }
+    let _ = save_origin(&dest, &src.display().to_string());
     Ok(id)
 }
 
@@ -166,7 +167,19 @@ pub fn install_from_git(
     }
     let found = find_skill_dir(&tmp, skill);
     let result = match found {
-        Some(dir) => install_from_dir(&dir, dest_root, force),
+        Some(dir) => match install_from_dir(&dir, dest_root, force) {
+            Ok(id) => {
+                // El origen se recuerda como el `spec` del usuario (no el clon
+                // temporal), así `update` puede volver a bajarlo.
+                let saved = match skill {
+                    Some(s) => format!("{spec}#{s}"),
+                    None => spec.to_string(),
+                };
+                let _ = save_origin(&dest_root.join(&id), &saved);
+                Ok(id)
+            }
+            Err(e) => Err(e),
+        },
         None => Err(match skill {
             Some(s) => format!("no se encontró el skill `{s}` en {url}"),
             None => format!("no se encontró ningún SKILL.md en {url}"),
@@ -189,6 +202,39 @@ pub fn uninstall(id: &str, dest_root: &Path) -> Result<(), String> {
         ));
     }
     fs::remove_dir_all(&dest).map_err(|e| format!("{}: {e}", dest.display()))
+}
+
+/// Archivo (dentro del skill instalado) donde se recuerda **de dónde vino**,
+/// para poder **actualizarlo** después.
+const ORIGIN_FILE: &str = ".nucook-origin";
+
+/// Guarda el origen de un skill instalado (`owner/repo#skill`, URL o ruta local).
+pub fn save_origin(dest: &Path, spec: &str) -> std::io::Result<()> {
+    fs::write(dest.join(ORIGIN_FILE), spec.trim())
+}
+
+/// Lee el origen guardado de un skill instalado.
+pub fn origin(id: &str, dest_root: &Path) -> Option<String> {
+    fs::read_to_string(dest_root.join(id).join(ORIGIN_FILE))
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
+/// **Actualiza** un skill instalado re-instalándolo desde su origen guardado.
+pub fn update(id: &str, dest_root: &Path) -> Result<String, String> {
+    let spec = origin(id, dest_root).ok_or_else(|| {
+        format!("«{id}» no tiene origen guardado; reinstalalo desde «Instalar…»")
+    })?;
+    let (src, skill) = match spec.split_once('#') {
+        Some((r, s)) => (r.trim().to_string(), Some(s.trim().to_string())),
+        None => (spec.trim().to_string(), None),
+    };
+    if Path::new(&src).exists() {
+        install_from_dir(Path::new(&src), dest_root, true)
+    } else {
+        install_from_git(&src, skill.as_deref(), dest_root, true)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -374,8 +420,29 @@ mod tests {
     }
 
     #[test]
-    fn no_permite_desinstalar_ids_peligrosos() {
-        let dest = temp_dir("safe");
+    fn recuerda_el_origen_y_actualiza() {
+        let src = temp_dir("upd-src");
+        let sk = src.join("demo");
+        escribe(&sk.join("SKILL.md"), "---\ndescription: demo\n---\nv1");
+        let dest = temp_dir("upd-dest");
+        let id = install_from_dir(&sk, &dest, false).unwrap();
+        // Se recordó el origen (ruta local).
+        assert_eq!(origin(&id, &dest).unwrap(), sk.display().to_string());
+        // Se edita la fuente y `update` re-instala (force) con el contenido nuevo.
+        escribe(&sk.join("SKILL.md"), "---\ndescription: demo\n---\nv2");
+        assert_eq!(update(&id, &dest).unwrap(), "demo");
+        let body = fs::read_to_string(dest.join("demo/SKILL.md")).unwrap();
+        assert!(body.contains("v2"), "update no trajo el contenido nuevo");
+        // Sin origen guardado, `update` falla con un mensaje claro.
+        let vacio = temp_dir("upd-none");
+        assert!(update("nope", &vacio).is_err());
+        let _ = fs::remove_dir_all(&src);
+        let _ = fs::remove_dir_all(&dest);
+        let _ = fs::remove_dir_all(&vacio);
+    }
+
+    #[test]
+    fn no_permite_desinstalar_ids_peligrosos() {        let dest = temp_dir("safe");
         assert!(uninstall("../x", &dest).is_err());
         assert!(uninstall("a/b", &dest).is_err());
         let _ = fs::remove_dir_all(&dest);

@@ -4,6 +4,24 @@ Todos los cambios relevantes de NuIde. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/) y el proyecto usa
 versionado semántico.
 
+## [0.3.4] — 2026-10-13
+
+### Agregado
+
+- **Gestor de skills** (modal *Skills*): fila de acciones nueva con **Actualizar**
+  (re-instala desde el origen que se recuerda al instalar), **Permiso** (cicla
+  allow → ask → deny por skill, persistido) y **Catálogo…** (URL del `index.json`
+  para el buscador web, persistida). El **origen** y la **versión** del skill se
+  muestran en el detalle, y la versión también en la lista.
+
+### Cambiado
+
+- `nucoder/src/hub.rs`: al instalar se recuerda el origen (`.nucook-origin`);
+  nuevo `hub::update` que re-instala desde ahí.
+- El buscador web usa la URL de catálogo configurada en el panel
+  (`nucoder.catalog-url`), con `NUCOOK_CATALOG` como respaldo (antes sólo esa
+  variable).
+
 ## [0.3.3] — 2026-10-13
 
 ### Agregado

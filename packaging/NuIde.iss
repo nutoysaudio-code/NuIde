@@ -7,7 +7,7 @@
 ; modelos gratis primero + coder).
 
 #define AppName "NuIde"
-#define AppVersion "0.3.3"
+#define AppVersion "0.3.4"
 #define AppPublisher "NuToys"
 #define AppURL "https://github.com/nutoysaudio-code/NuIde"
 #define AppExe "nuide.exe"
@@ -17,7 +17,7 @@ AppId={{6F0B2E3A-9C1D-4E2A-8B7C-3D5A1F0E9C42}
 AppName={#AppName}
 AppVerName={#AppName} {#AppVersion}
 AppVersion={#AppVersion}
-VersionInfoVersion=0.3.3.0
+VersionInfoVersion=0.3.4.0
 AppPublisher={#AppPublisher}
 AppPublisherURL={#AppURL}
 AppSupportURL={#AppURL}

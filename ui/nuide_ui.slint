@@ -398,6 +398,9 @@ export component NuIdeWindow inherits Window {
     callback skills-install();
     callback skills-cook();
     callback skills-delete();
+    callback skills-update();
+    callback skills-perm-cycle();
+    callback skills-catalog();
     callback skills-web-toggle();
     callback prefs-font-smaller();
     callback prefs-font-bigger();
@@ -1320,6 +1323,9 @@ export component NuIdeWindow inherits Window {
         install-requested => { root.skills-install(); }
         cook-requested => { root.skills-cook(); }
         delete-requested => { root.skills-delete(); }
+        update-requested => { root.skills-update(); }
+        perm-cycle => { root.skills-perm-cycle(); }
+        catalog-requested => { root.skills-catalog(); }
         web-toggle => { root.skills-web-toggle(); }
         dismiss => { root.skills-dismiss(); }
     }

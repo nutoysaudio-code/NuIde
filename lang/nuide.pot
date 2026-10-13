@@ -616,22 +616,40 @@ msgstr ""
 msgid "Cerrar (Esc) — los cambios ya quedaron guardados"
 msgstr ""
 
+msgid "anunciar"
+msgstr ""
+
+msgid "oculto"
+msgstr ""
+
+msgid "preguntar"
+msgstr ""
+
+msgid "bloquear"
+msgstr ""
+
+msgid "web"
+msgstr ""
+
 msgid "Skills"
 msgstr ""
 
 msgid "Instalar…"
 msgstr ""
 
-msgid "Cocinar"
+msgid "Actualizar"
 msgstr ""
 
-msgid "Anunciar"
+msgid "Permiso"
+msgstr ""
+
+msgid "Cocinar"
 msgstr ""
 
 msgid "web ✓"
 msgstr ""
 
-msgid "web"
+msgid "Catálogo…"
 msgstr ""
 
 msgid "Refrescar"
@@ -647,9 +665,6 @@ msgid "cocinando/instalando…"
 msgstr ""
 
 msgid "anunciado"
-msgstr ""
-
-msgid "oculto"
 msgstr ""
 
 msgid "ask"
@@ -1286,6 +1301,9 @@ msgid "Argumentos para ejecutar"
 msgstr ""
 
 msgid "Instalar skill"
+msgstr ""
+
+msgid "Catálogo de skills (URL del index.json)"
 msgstr ""
 
 msgid "Usuario del sitio"

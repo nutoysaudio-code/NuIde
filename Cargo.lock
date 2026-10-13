@@ -2821,7 +2821,7 @@ dependencies = [
 
 [[package]]
 name = "nucoder"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "anyhow",
  "cc",
@@ -2832,7 +2832,7 @@ dependencies = [
 
 [[package]]
 name = "nuide"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "arboard",
  "cc",
