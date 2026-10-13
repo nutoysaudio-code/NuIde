@@ -1,10 +1,17 @@
 # NuIde — estado y pendientes
 
-**Actualizado:** 2026-10-06.
+**Actualizado:** 2026-10-13.
 Este es el *parte de estado*: qué está hecho, qué se cambió en la última
 iteración, qué limitaciones quedan y qué falta. El [README](../README.md) es la
 guía de uso; la especificación visual/funcional es
 [`NUIDE_IDEA.md`](NUIDE_IDEA.md).
+
+> **Novedades (2026-10-13)**: el agente suma **skills** de Claude/OpenCode/
+> nativos/`.agents` (con permisos y `@id`), **NuCook** (cocina un skill en su
+> forma enseñable —determinista + gourmet cacheado— con **recetario**, CLI
+> **`nucook`** y cocina de docs/KB/datasets), **cliente MCP** (REA: 170 tools,
+> conexión persistente) y el **catálogo de skills en la IDE** (buscar local/web,
+> instalar, cocinar, eliminar). Ver §3.52–3.59.
 
 ---
 

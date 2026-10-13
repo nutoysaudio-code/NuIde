@@ -375,6 +375,29 @@ la terminal.
 > `discover`, `route`, `config`); su antigua TUI (`ratatui`) se reemplazó por el
 > panel nativo.
 
+### Skills, NuCook y MCP (el agente)
+
+NuCoder (el agente del panel derecho) **descubre skills** de los tres ecosistemas
+—Claude (`~/.claude/skills`), OpenCode (`.opencode/skills`) y los nativos de
+SpASM (`skill.toml`)— más `.agents/skills`, con **permisos** `allow/ask/deny` y
+menciones `@id` en el chat.
+
+- **Catálogo**: *Skills: abrir catálogo* (paleta o menú **Agente**) abre un modal
+  para **buscar** (local y, con `NUCOOK_CATALOG`, en la web),
+  **instalar/actualizar** (`owner/repo` o ruta), **cocinar**, **eliminar** y
+  **anunciar/ocultar**. Detalle en [`docs/SKILLS_UI.md`](docs/SKILLS_UI.md).
+- **NuCook**: destila un skill en su **forma enseñable** (sin ruido humano) con
+  los pases **determinista** y **gourmet** (modelo, cacheado); guarda el
+  **recetario** en `~/.config/nucoder/cookbook/`. La CLI propia es **`nucook`** y
+  también cocina **docs/KB/datasets** (*NuCook: cocinar carpeta de docs…*). Ver
+  [`docs/NUCOOK.md`](docs/NUCOOK.md).
+- **MCP**: NuCoder es cliente **MCP** por stdio; configurá `mcp.servers` y sus
+  herramientas aparecen como `<servidor>__<tool>` (p. ej. REA:
+  `rea__open_binary`). Ver [`docs/MCP.md`](docs/MCP.md).
+
+> El **descubrimiento de skills** (qué formatos y de dónde) está en
+> [`docs/SKILLS.md`](docs/SKILLS.md).
+
 ### El control de código (Git)
 
 Panel **real** de Git por la línea de comandos (sin dependencias): al abrir un
@@ -741,10 +764,10 @@ Ordenados por impacto para usar el IDE día a día; el **plan en fases** complet
 3. **Persistencia ampliada y búsqueda avanzada.** Recordar también las sesiones
    de terminal, y sumar *fuzzy*/regex y acotar la búsqueda a la selección.
 
-### Estado al 2026-10-08
+### Estado al 2026-10-13
 
-Compilado y publicado: `github.com/nutoysaudio-code/NuIde` (`main`). 159 tests OK;
-clon limpio genera `nuide.exe`. Las dos terminales son PTY reales (shell local y
+Compilado y publicado: `github.com/nutoysaudio-code/NuIde` (`main`). **177 tests**
+en NuIde + **100** en NuCoder; clon limpio genera `nuide.exe`. Las dos terminales son PTY reales (shell local y
 TUI de `nucoder`) con **mouse reporting**, el proyecto se elige con diálogo
 nativo y se recuerda, el editor tiene buscar/reemplazar (con **regex**, **en
 selección** e historial), autocierre/autoindentación, resaltados, **resaltado
@@ -754,3 +777,13 @@ el parser de SpASM**, **control de código (Git)** con **diff, ramas, pull y ahe
 con guardar como y cierre confirmado, **explorador con operaciones de archivos**
 y un **CRUD de proveedores de NuCoder**; los paneles se acoplan/apilan por lado.
 Falta local: los ítems de arriba.
+
+**Agente (2026-10-13).** NuCoder **descubre skills** de Claude/OpenCode/nativos/
+`.agents` (con permisos `allow/ask/deny` y menciones `@id`), **NuCook** los cocina
+en su forma **enseñable** (determinista + gourmet cacheado) con **recetario** y la
+CLI **`nucook`** (que también cocina docs/KB/datasets; incluye un normalizador en
+**SpASM**), hay **cliente MCP** (REA: 170 herramientas, conexión persistente) y el
+**catálogo de skills en la IDE** (buscar local/web, instalar/actualizar, cocinar,
+eliminar, anunciar). Ver [`docs/SKILLS.md`](docs/SKILLS.md),
+[`docs/SKILLS_UI.md`](docs/SKILLS_UI.md), [`docs/NUCOOK.md`](docs/NUCOOK.md) y
+[`docs/MCP.md`](docs/MCP.md).

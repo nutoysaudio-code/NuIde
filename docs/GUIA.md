@@ -191,7 +191,25 @@ confirmación y **Cancelar** / **Esc** cierran sin guardar.
 > Conviene tener un respaldo de `~/.config/nucoder` antes de editar: los
 > archivos contienen credenciales.
 
-## 13. Problemas frecuentes
+## 13. Agente: skills, NuCook y MCP
+
+El panel derecho corre **NuCoder** (el agente). Tres capacidades nuevas:
+
+- **Skills** (*Skills: abrir catálogo*, paleta o menú **Agente**): lista los
+  skills de Claude, OpenCode, `.agents` y los **nativos** de SpASM. Se puede
+  **buscar** (local y, con `NUCOOK_CATALOG`, en la web), **instalar/actualizar**
+  (`owner/repo` o una ruta), **cocinar**, **eliminar** y **anunciar/ocultar**
+  (permisos `allow/ask/deny`). En el chat, `@id` precarga un skill.
+- **NuCook**: destila la **habilidad** de un skill (sin ruido humano) en su forma
+  enseñable; el agente la usa si está en el **recetario**. La paleta tiene
+  *NuCook: cocinar carpeta de docs…* para KB/docs/datasets. La CLI es `nucook`
+  (`nucook list|search|install|cook-dir|bake`), instalada con NuIde.
+- **MCP**: configurá `mcp.servers` en `~/.config/nucoder/config.json` (p. ej.
+  REA) y sus herramientas aparecen como `<servidor>__<tool>`. Guías:
+  [`SKILLS_UI.md`](SKILLS_UI.md), [`NUCOOK.md`](NUCOOK.md) y
+  [`MCP.md`](MCP.md).
+
+## 14. Problemas frecuentes
 
 - **«no se encontró spasmc.py»**: definí `NUIDE_SPASMC`/`NUIDE_PYTHON` o instalá
   el toolchain de SpASM.
