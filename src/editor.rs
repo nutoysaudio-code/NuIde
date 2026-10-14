@@ -4535,13 +4535,13 @@ impl Ide {
             self.sqlite_open = true;
             return;
         };
-        let Some(tool) = sqlite::Tool::discover().or_else(|| self.sqlite_tool.clone()) else {
+        let Some(tool) = sqlite::Tool::discover().or(self.sqlite_tool) else {
             self.sqlite_note = "no se encontró sqlite3.exe ni python para leer la base".to_string();
             self.sqlite_open = true;
             self.sqlite_busy = false;
             return;
         };
-        self.sqlite_tool = Some(tool.clone());
+        self.sqlite_tool = Some(tool);
         self.sqlite_busy = true;
         self.sqlite_note = String::new();
         let table = self

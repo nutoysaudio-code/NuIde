@@ -2856,7 +2856,7 @@ dependencies = [
 
 [[package]]
 name = "nucoder"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "anyhow",
  "cc",
@@ -2868,7 +2868,7 @@ dependencies = [
 
 [[package]]
 name = "nuide"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "arboard",
  "cc",
@@ -2876,6 +2876,7 @@ dependencies = [
  "portable-pty",
  "regex-lite",
  "rfd",
+ "rusqlite",
  "serde_json",
  "slint",
  "slint-build",

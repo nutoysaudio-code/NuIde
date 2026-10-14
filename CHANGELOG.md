@@ -4,6 +4,16 @@ Todos los cambios relevantes de NuIde. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/) y el proyecto usa
 versionado semántico.
 
+## [0.3.6] — 2026-10-13
+
+### Cambiado
+
+- **Visor de SQLite nativo**: `src/sqlite.rs` ya no llama a `sqlite3.exe`/`python`
+  y les lee TSV — lee la base **directo** con `rusqlite` (misma API pública, el
+  panel no cambió). Funciona sin depender de binarios externos. `nuide` suma
+  `rusqlite` (misma versión que `nucoder`). Tests del visor reescritos + uno que
+  crea y lee una base real.
+
 ## [0.3.5] — 2026-10-13
 
 ### Agregado

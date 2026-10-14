@@ -1,23 +1,13 @@
-//! Visor de bases de datos SQLite, sin crates.
+//! Visor de bases de datos SQLite, **nativo** (rusqlite).
 //!
-//! NuIde no implementa el formato de SQLite (son páginas B-tree, freeblocks y
-//! codificación variable: un proyecto en sí mismo). Lo que sí puede hacer —y es
-//! lo que necesita un IDE— es **preguntarle** a un binario que ya existe en el
-//! sistema y leerle la salida tabulada:
-//!
-//! 1. `sqlite3.exe` (viene, por ejemplo, con el SDK de Android) con
-//!    `-separator "\t"` y cabeceras activas.
-//! 2. Si no está, `python.exe` con el módulo `sqlite3` de su biblioteca estándar.
-//!
-//! Ambos devuelven **TSV**, que es el mismo estilo de contrato por líneas que usa
-//! el despliegue ([`crate::deploy`]) y el host de SpASM. Todo lo público de este
-//! módulo **bloquea** (levanta el proceso y espera): la IDE lo llama en un hilo,
-//! nunca en el de la UI.
+//! Antes este módulo le preguntaba a `sqlite3.exe` o a `python -m sqlite3` y les
+//! leía TSV. Ahora que NuIde ya enlaza SQLite (para la persistencia de NuCoder),
+//! lee la base **directo**, sin depender de binarios externos. La API pública es
+//! la misma: todo lo que expone este módulo **bloquea** (abre y consulta), así la
+//! IDE lo llama en un hilo, nunca en el de la UI.
 
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::Sender;
-
-use crate::pty;
 
 /// Filas de un resultado: cabecera + celdas ya separadas.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -37,80 +27,23 @@ impl Table {
     pub const DEFAULT_LIMIT: usize = 200;
 }
 
-/// Qué binario se va a usar para leer la base.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// Motor de lectura. Hoy siempre es el nativo; se mantiene el tipo para no tocar
+/// el panel ni las firmas (y por si mañana se quiere un fallback).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tool {
-    Sqlite3(PathBuf),
-    Python(PathBuf),
+    Native,
 }
 
 impl Tool {
-    /// `sqlite3.exe` en el PATH o en las ubicaciones típicas del SDK; si no,
-    /// `python`/`py` (el módulo `sqlite3` viene en la biblioteca estándar).
+    /// El motor nativo siempre está disponible.
     pub fn discover() -> Option<Tool> {
-        #[cfg(windows)]
-        let names = ["sqlite3.exe", "sqlite3"];
-        #[cfg(not(windows))]
-        let names = ["sqlite3"];
-        if let Some(p) = pty::on_path(&names) {
-            return Some(Tool::Sqlite3(PathBuf::from(p)));
-        }
-        // Rutas conocidas sin ensuciar el PATH del usuario.
-        for extra in sqlite3_extra_paths() {
-            if Path::new(&extra).is_file() {
-                return Some(Tool::Sqlite3(PathBuf::from(extra)));
-            }
-        }
-        // Python: el mismo descubrimiento del toolchain SpASM (respeta
-        // NUIDE_PYTHON y el PATH).
-        if let Some(py) = crate::spasm::Toolchain::discover().python {
-            if py.is_file() {
-                return Some(Tool::Python(py));
-            }
-        }
-        None
+        Some(Tool::Native)
     }
 
     pub fn label(&self) -> &'static str {
-        match self {
-            Tool::Sqlite3(_) => "sqlite3",
-            Tool::Python(_) => "python/sqlite3",
-        }
+        "nativo (rusqlite)"
     }
 }
-
-/// Ubicaciones donde suele haber un `sqlite3.exe` sin estar en el PATH.
-fn sqlite3_extra_paths() -> Vec<String> {
-    let mut out = Vec::new();
-    if let Some(local) = std::env::var_os("LOCALAPPDATA") {
-        let base = Path::new(&local);
-        out.push(
-            base.join("Android")
-                .join("Sdk")
-                .join("platform-tools")
-                .join("sqlite3.exe")
-                .display()
-                .to_string(),
-        );
-    }
-    out
-}
-
-/// Script de Python que imprime TSV (cabecera + filas) para una consulta.
-const PY_TSV: &str = r#"
-import sqlite3, sys
-db, sql, limit = sys.argv[1], sys.argv[2], int(sys.argv[3])
-con = sqlite3.connect(db)
-con.text_factory = str
-cur = con.execute(sql)
-cols = [d[0] for d in (cur.description or [])]
-print("\t".join(cols))
-n = 0
-for row in cur:
-    if n >= limit: break
-    print("\t".join("" if v is None else str(v).replace("\t", " ").replace("\n", " ") for v in row))
-    n += 1
-"#;
 
 /// Resultado de una lectura pedida desde la UI (llega por canal, desde el hilo).
 #[derive(Debug, Clone)]
@@ -173,47 +106,69 @@ pub fn spawn_load(tool: Tool, db: PathBuf, table: Option<String>, gen: u64, tx: 
     });
 }
 
-/// Ejecuta `sql` sobre `db` y devuelve el resultado tabulado.
-pub fn query(tool: &Tool, db: &Path, sql: &str, limit: usize) -> Table {
+/// Ejecuta `sql` sobre `db` (sólo lectura) y devuelve el resultado tabulado.
+pub fn query(_tool: &Tool, db: &Path, sql: &str, limit: usize) -> Table {
     let mut table = Table::default();
-    let out = match tool {
-        Tool::Sqlite3(exe) => crate::proc::hidden(exe)
-            .arg("-separator")
-            .arg("\t")
-            .arg("-header")
-            .arg(db)
-            .arg(sql)
-            .output(),
-        Tool::Python(exe) => crate::proc::hidden(exe)
-            .arg("-c")
-            .arg(PY_TSV)
-            .arg(db)
-            .arg(sql)
-            .arg(limit.to_string())
-            .output(),
-    };
-    match out {
-        Ok(o) => {
-            if !o.status.success() {
-                table.error = String::from_utf8_lossy(&o.stderr).trim().to_string();
-                return table;
-            }
-            let text = String::from_utf8_lossy(&o.stdout).replace("\r\n", "\n");
-            let mut lines = text.lines().filter(|l| !l.is_empty());
-            if let Some(header) = lines.next() {
-                table.columns = header.split('\t').map(str::to_string).collect();
-            }
-            for line in lines.take(limit) {
-                table
-                    .rows
-                    .push(line.split('\t').map(str::to_string).collect());
-            }
-            table
-        }
+    let conn = match rusqlite::Connection::open_with_flags(
+        db,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+    ) {
+        Ok(c) => c,
         Err(e) => {
-            table.error = format!("no se pudo correr {}: {e}", tool.label());
-            table
+            table.error = e.to_string();
+            return table;
         }
+    };
+    let mut stmt = match conn.prepare(sql) {
+        Ok(s) => s,
+        Err(e) => {
+            table.error = e.to_string();
+            return table;
+        }
+    };
+    let ncols = stmt.column_count();
+    table.columns = stmt.column_names().iter().map(|s| s.to_string()).collect();
+    let mut rows = match stmt.query([]) {
+        Ok(r) => r,
+        Err(e) => {
+            table.error = e.to_string();
+            return table;
+        }
+    };
+    loop {
+        match rows.next() {
+            Ok(Some(row)) => {
+                let mut out = Vec::with_capacity(ncols);
+                for i in 0..ncols {
+                    let v: rusqlite::types::Value = row
+                        .get(i)
+                        .unwrap_or(rusqlite::types::Value::Null);
+                    out.push(value_to_string(&v));
+                }
+                table.rows.push(out);
+                if table.rows.len() >= limit {
+                    break;
+                }
+            }
+            Ok(None) => break,
+            Err(e) => {
+                table.error = e.to_string();
+                break;
+            }
+        }
+    }
+    table
+}
+
+/// Texto de una celda (NULL → vacío, BLOB → resumen de tamaño).
+fn value_to_string(v: &rusqlite::types::Value) -> String {
+    use rusqlite::types::Value;
+    match v {
+        Value::Null => String::new(),
+        Value::Integer(i) => i.to_string(),
+        Value::Real(f) => f.to_string(),
+        Value::Text(s) => s.clone(),
+        Value::Blob(b) => format!("<blob {} bytes>", b.len()),
     }
 }
 
@@ -298,29 +253,44 @@ mod tests {
     }
 
     #[test]
-    fn el_descubrimiento_devuelve_un_binario_real_o_nada() {
-        // No se puede exigir cuál: depende de la máquina. Lo que sí vale es que
-        // si encuentra algo, el archivo existe.
-        if let Some(tool) = Tool::discover() {
-            let path = match &tool {
-                Tool::Sqlite3(p) | Tool::Python(p) => p.clone(),
-            };
-            assert!(path.is_file(), "{} no existe", path.display());
-            assert!(!tool.label().is_empty());
+    fn el_motor_nativo_esta_siempre() {
+        let tool = Tool::discover().expect("nativo");
+        assert!(!tool.label().is_empty());
+    }
+
+    #[test]
+    fn lee_una_base_real_creada_con_rusqlite() {
+        let dir = std::env::temp_dir().join(format!("nuide-sqlite-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let db = dir.join("demo.db");
+        {
+            let c = rusqlite::Connection::open(&db).unwrap();
+            c.execute_batch(
+                "CREATE TABLE clientes(id INTEGER PRIMARY KEY, nombre TEXT);
+                 INSERT INTO clientes(nombre) VALUES ('Ana'), ('Beto');",
+            )
+            .unwrap();
         }
+        assert!(probe(&db));
+        let tool = Tool::discover().unwrap();
+        assert_eq!(tables(&tool, &db), vec!["clientes".to_string()]);
+        let t = rows(&tool, &db, "clientes", 200);
+        assert!(t.error.is_empty(), "{}", t.error);
+        assert_eq!(t.columns, vec!["id".to_string(), "nombre".to_string()]);
+        assert_eq!(t.rows.len(), 2);
+        assert_eq!(t.rows[0][1], "Ana");
+        let cols = columns(&tool, &db, "clientes");
+        assert_eq!(cols[0].0, "id");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn una_consulta_sobre_una_base_rota_devuelve_error_sin_panic() {
-        let dir = std::env::temp_dir().join(format!("nuide-sqlite-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("nuide-sqlite-broken-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let db = dir.join("no-es-sqlite.db");
         std::fs::write(&db, b"esto no es una base").unwrap();
-        // Sin binario disponible, no hay nada que probar.
-        let Some(tool) = Tool::discover() else {
-            let _ = std::fs::remove_dir_all(&dir);
-            return;
-        };
+        let tool = Tool::discover().unwrap();
         let t = query(&tool, &db, "SELECT 1", 10);
         // O devuelve algo o explica por qué no; nunca se queda mudo y vacío.
         assert!(!t.rows.is_empty() || !t.error.is_empty(), "{t:?}");

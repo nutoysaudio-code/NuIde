@@ -1,6 +1,6 @@
 [package]
 name = "nuide"
-version = "0.3.5"
+version = "0.3.6"
 edition = "2021"
 description = "NuIde — IDE multi-lenguaje"
 
@@ -37,6 +37,9 @@ slint = "1.0"
 # Núcleo de NuCoder (router + config + agente + herramientas), compartido con el
 # CLI `nucoder`. UI-agnóstico: el panel de chat se dibuja acá, en Slint.
 nucoder = { path = "nucoder" }
+# SQLite nativo para el visor de bases (y el mismo motor que usa NuCoder para
+# persistir). `bundled` compila SQLite en C: sin depender del sistema.
+rusqlite = { version = "0.32", features = ["bundled"] }
 
 [build-dependencies]
 slint-build = "1.0"

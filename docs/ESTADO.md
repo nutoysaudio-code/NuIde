@@ -1241,8 +1241,9 @@ compresión; el visor muestra hasta 200 filas por tabla y no edita.
   dependencia pesada del proyecto; se justifica porque implementar el formato de
   SQLite a mano no es razonable (el visor `sqlite.rs` ya evitaba eso).
 - Tests nuevos (3) en `db.rs`: settings, sesiones y recetas; total **102**.
-  (Pendiente opcional: el visor de SQLite podría leer nativo con `rusqlite` en vez
-  de `sqlite3.exe`/python.)
+  El **visor de SQLite** (`src/sqlite.rs`) pasó a leer **nativo** con `rusqlite`
+  (antes `sqlite3.exe`/python por TSV): misma API, sin binarios externos; `nuide`
+  suma `rusqlite`. Tests del visor reescritos (178 OK).
 
 ## 4. Limitaciones conocidas
 - **Persistencia.** La persistencia de NuCoder (config, **chats**, recetario)
