@@ -241,7 +241,8 @@ nucook install <owner/repo> [--skill <id>]   # instala en ~/.agents/skills
 nucook uninstall <id>      # borra un skill instalado
 ```
 
-El **recetario** queda en `~/.config/nucoder/cookbook/<id>.cookie` (JSON).
+El **recetario** queda en la base `~/.config/nucoder/nucoder.db` (tabla
+`cookbook`).
 
 La parte **estructural** de la cocción (etiquetas canónicas `when/not/…` y las
 reglas horizontales) la decide **SpASM** (`spasm/cook.spasm`, dialecto AOT →
@@ -313,8 +314,8 @@ turno no encuentra modelo.
   `"context_chars"` en la config, `--context-chars <n>` o `NUCODER_CONTEXT_CHARS`
   (en ese orden de prioridad); en la TUI, `/context` lo muestra y `/context <n>`
   lo cambia (y lo persiste).
-- **Persistencia por proyecto**: el historial se guarda en
-  `~/.config/nucoder/sessions/` (clave por `--cwd`) y se **recarga al arrancar**;
+- **Persistencia por proyecto**: el historial se guarda en la base
+  `~/.config/nucoder/nucoder.db` (tabla `sessions`, clave por `--cwd`) y se **recarga al arrancar**;
   `/save` y `/load` son manuales, y al salir se guarda solo. `/clear` borra la
   sesión guardada.
 - **Caché de render**: la TUI memoiza el Markdown por texto+ancho y sólo
@@ -383,7 +384,8 @@ nucoder --cap code ask "refactorizá esto"  # router sólo con modelos de códig
 > el catálogo (sus endpoints son otros).
 
 La lista de proveedores se guarda en la **config propia** del CLI:
-`~/.config/nucoder/config.json` (override con `NUCODER_CONFIG`). Formato:
+`~/.config/nucoder/nucoder.db` (SQLite; export legible en `config.json`;
+override de la carpeta con `NUCODER_CONFIG`). Formato:
 
 ```json
 {

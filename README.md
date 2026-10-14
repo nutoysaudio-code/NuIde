@@ -388,7 +388,7 @@ menciones `@id` en el chat.
   **anunciar/ocultar**. Detalle en [`docs/SKILLS_UI.md`](docs/SKILLS_UI.md).
 - **NuCook**: destila un skill en su **forma enseñable** (sin ruido humano) con
   los pases **determinista** y **gourmet** (modelo, cacheado); guarda el
-  **recetario** en `~/.config/nucoder/cookbook/`. La CLI propia es **`nucook`** y
+  **recetario** en la base `~/.config/nucoder/nucoder.db` (tabla `cookbook`). La CLI propia es **`nucook`** y
   también cocina **docs/KB/datasets** (*NuCook: cocinar carpeta de docs…*). Ver
   [`docs/NUCOOK.md`](docs/NUCOOK.md).
 - **MCP**: NuCoder es cliente **MCP** por stdio; configurá `mcp.servers` y sus
@@ -503,7 +503,8 @@ tooltips en `@tr`, arma el `.pot`, y con `--check` valida en CI) y
 La pantalla de configuración (`Ctrl+,`) tiene una sección **Proveedores** para
 dar de alta, editar y eliminar los proveedores del agente **NuCoder** sin editar
 el JSON a mano. Escribe la **config propia** de NuCoder
-(`~/.config/nucoder/config.json`, la misma que usa el CLI).
+(la base `~/.config/nucoder/nucoder.db`, con export a `config.json`; la misma que
+usa el CLI).
 
 - Campos: **ID**, **Nombre**, **baseURL**, **apiKey** (oculta), **Sólo gratis**
   (ofrecer únicamente los modelos gratuitos del proveedor) y **Modelos** como

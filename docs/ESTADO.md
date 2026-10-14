@@ -1218,11 +1218,40 @@ compresión; el visor muestra hasta 200 filas por tabla y no edita.
 - Callbacks nuevos en `nuide_ui.slint` y cableado en `editor::attach`.
 - i18n regenerado (446 claves).
 
+### 3.62 Persistencia en SQLite
+
+- **`nucoder/src/db.rs`**: todo lo que antes eran archivos JSON pasa a una sola
+  base `~/.config/nucoder/nucoder.db` con tres tablas: `settings(key,value)` (la
+  config completa bajo la clave `config`, más `schema`), `sessions(project, cwd,
+  updated_at, messages)` (los **chats**) y `cookbook(id, cookie, updated_at)`.
+  Abre con `PRAGMA journal_mode=WAL` y `CREATE TABLE IF NOT EXISTS`.
+- **Migración automática** (`db::migrate`, una vez): importa `config.json`,
+  `sessions/*.json` y `cookbook/*.cookie` y marca `schema=1`. **No borra** los
+  originales (quedan de respaldo). Verificado: migró la config, 3 sesiones y 10
+  recetas.
+- **`config.rs`**: `save_own` escribe la fila `config` de la base y además una
+  **exportación** `config.json` (legible/editable); `load_document` prefiere el
+  archivo si existe (y lo **reimporta** a la base), si no usa la fila. Así editar
+  el JSON a mano sigue funcionando, pero la fuente de verdad es SQLite.
+- **`session.rs`**: `save`/`load`/`remove`/`list` van a la base (el `path`/`key_for`
+  y `load_file` quedan para importar archivos viejos). **`cook.rs`**: `save_cookie`
+  /`read_cookie`/`load_cookie` usan la base; `save_cookie_to` sigue escribiendo
+  archivos cuando se pide un directorio explícito (`cook-dir --out`).
+- **Dependencia**: `rusqlite` (feature `bundled`) en `nucoder`. Es la primera
+  dependencia pesada del proyecto; se justifica porque implementar el formato de
+  SQLite a mano no es razonable (el visor `sqlite.rs` ya evitaba eso).
+- Tests nuevos (3) en `db.rs`: settings, sesiones y recetas; total **102**.
+  (Pendiente opcional: el visor de SQLite podría leer nativo con `rusqlite` en vez
+  de `sqlite3.exe`/python.)
+
 ## 4. Limitaciones conocidas
-- **Persistencia parcial.** Se recuerda el proyecto, el dock/visibilidad de los
+- **Persistencia.** La persistencia de NuCoder (config, **chats**, recetario)
+  ahora vive en **SQLite** (`~/.config/nucoder/nucoder.db`), con migración desde
+  los JSON viejos (que quedan de respaldo) y export de `config.json`. Lo que no
+  se recuerda: las **sesiones de terminal**, el scrollback y el estado de la
+  búsqueda. Del resto se recuerda el proyecto, el dock/visibilidad de los
   paneles, la geometría de la ventana, las pestañas abiertas, el filtro de
-  generados y el cursor de cada archivo. Las **sesiones de terminal, el
-  scrollback** y el estado de la búsqueda no.
+  generados y el cursor de cada archivo.
 - **Despliegue**: la contraseña queda en texto plano en `%APPDATA%\NuIde\config`
   (fuera del repositorio, a propósito; migrable al almacén de Windows). `scp` no
   crea carpetas remotas, por eso SFTP usa `curl` salvo que se pida `scp`

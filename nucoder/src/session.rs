@@ -6,7 +6,7 @@
 
 use std::path::{Path, PathBuf};
 
-use serde_json::{json, Value};
+use serde_json::Value;
 
 /// Ruta del archivo de sesión para un proyecto.
 pub fn path(cwd: &Path) -> PathBuf {
@@ -35,25 +35,18 @@ fn key_for(cwd: &Path) -> String {
     format!("{safe}-{h:016x}")
 }
 
-/// Guarda la conversación. Devuelve la ruta escrita.
+/// Guarda la conversación en SQLite. Devuelve la ruta de la base.
 pub fn save(cwd: &Path, messages: &[Value]) -> std::io::Result<PathBuf> {
-    let p = path(cwd);
-    if let Some(dir) = p.parent() {
-        std::fs::create_dir_all(dir)?;
-    }
-    let doc = json!({
-        "cwd": cwd.to_string_lossy(),
-        "messages": messages,
-    });
-    let mut text = serde_json::to_string_pretty(&doc).unwrap_or_else(|_| "{}".to_string());
-    text.push('\n');
-    std::fs::write(&p, text)?;
-    Ok(p)
+    let conn = crate::db::open().map_err(std::io::Error::other)?;
+    crate::db::session_save(&conn, &key_for(cwd), &cwd.to_string_lossy(), messages)
+        .map_err(std::io::Error::other)?;
+    Ok(crate::db::db_path())
 }
 
 /// Carga la conversación guardada (si existe y tiene mensajes).
 pub fn load(cwd: &Path) -> Option<Vec<Value>> {
-    load_file(&path(cwd))
+    let conn = crate::db::open().ok()?;
+    crate::db::session_load(&conn, &key_for(cwd))
 }
 
 /// Carga los mensajes de un archivo de sesión cualquiera.
@@ -74,55 +67,25 @@ pub struct SessionInfo {
 
 /// Lista las sesiones guardadas, la más reciente primero.
 pub fn list() -> Vec<SessionInfo> {
-    let dir = crate::config::config_dir().join("sessions");
-    let Ok(rd) = std::fs::read_dir(&dir) else {
+    let Ok(conn) = crate::db::open() else {
         return Vec::new();
     };
-    let mut out: Vec<(std::time::SystemTime, SessionInfo)> = Vec::new();
-    for e in rd.flatten() {
-        let p = e.path();
-        if p.extension().and_then(|x| x.to_str()) != Some("json") {
-            continue;
-        }
-        let raw = std::fs::read_to_string(&p).unwrap_or_default();
-        let raw = raw.trim_start_matches('\u{feff}');
-        let Ok(v) = serde_json::from_str::<Value>(raw) else {
-            continue;
-        };
-        let cwd = v
-            .get("cwd")
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_string();
-        let messages = v
-            .get("messages")
-            .and_then(Value::as_array)
-            .map(|a| a.len())
-            .unwrap_or(0);
-        if messages == 0 {
-            continue;
-        }
-        let modified = e
-            .metadata()
-            .ok()
-            .and_then(|m| m.modified().ok())
-            .unwrap_or(std::time::UNIX_EPOCH);
-        out.push((
-            modified,
-            SessionInfo {
-                path: p,
-                cwd,
-                messages,
-            },
-        ));
-    }
-    out.sort_by_key(|(t, _)| std::cmp::Reverse(*t));
-    out.into_iter().map(|(_, i)| i).collect()
+    crate::db::sessions_list(&conn)
+        .into_iter()
+        .filter(|r| r.messages > 0)
+        .map(|r| SessionInfo {
+            path: crate::db::db_path(),
+            cwd: r.cwd,
+            messages: r.messages,
+        })
+        .collect()
 }
 
 /// Borra la sesión del proyecto.
 pub fn remove(cwd: &Path) {
-    let _ = std::fs::remove_file(path(cwd));
+    if let Ok(conn) = crate::db::open() {
+        crate::db::session_remove(&conn, &key_for(cwd));
+    }
 }
 
 #[cfg(test)]
@@ -134,8 +97,8 @@ mod tests {
         let cwd = std::env::temp_dir().join("nucoder-session-test");
         std::fs::create_dir_all(&cwd).unwrap();
         let msgs = vec![
-            json!({"role":"system","content":"sys"}),
-            json!({"role":"user","content":"hola"}),
+            serde_json::json!({"role":"system","content":"sys"}),
+            serde_json::json!({"role":"user","content":"hola"}),
         ];
         let p = save(&cwd, &msgs).unwrap();
         assert!(p.is_file());

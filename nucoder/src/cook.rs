@@ -706,14 +706,18 @@ pub fn save_cookie_to(dir: &Path, t: &Teaching) -> Result<PathBuf, String> {
     Ok(path)
 }
 
-/// Guarda una receta en el recetario del usuario.
+/// Guarda una receta en el recetario (SQLite) y devuelve la ruta de la base.
 pub fn save_cookie(t: &Teaching) -> Result<PathBuf, String> {
-    save_cookie_to(&cookbook_dir(), t)
+    let json = serde_json::to_string_pretty(&t.to_json()).map_err(|e| e.to_string())?;
+    let conn = crate::db::open().map_err(|e| e.to_string())?;
+    crate::db::cookie_save(&conn, &sanitize_id(&t.id), &json).map_err(|e| e.to_string())?;
+    Ok(crate::db::db_path())
 }
 
 /// Lee una receta guardada del recetario (devuelve el JSON crudo).
 pub fn read_cookie(id: &str) -> Option<String> {
-    fs::read_to_string(cookbook_dir().join(format!("{}.cookie", sanitize_id(id)))).ok()
+    let conn = crate::db::open().ok()?;
+    crate::db::cookie_load(&conn, &sanitize_id(id))
 }
 
 /// Carga una receta guardada y la reconstruye.

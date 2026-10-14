@@ -23,6 +23,7 @@ pub mod caps;
 pub mod client;
 pub mod config;
 pub mod cook;
+pub mod db;
 pub mod ffi;
 pub mod freefilter;
 pub mod hub;

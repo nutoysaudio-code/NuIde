@@ -190,7 +190,7 @@ impl Config {
         let mut cfg = Config::default();
         let mut seen: HashSet<String> = HashSet::new();
 
-        if let Some(v) = read_json(&own_path()) {
+        if let Some(v) = load_document() {
             cfg.free_only = v.get("free_only").and_then(Value::as_bool).unwrap_or(true);
             cfg.sandbox = v.get("sandbox").and_then(Value::as_bool).unwrap_or(true);
             cfg.confirm = v.get("confirm").and_then(Value::as_bool).unwrap_or(true);
@@ -346,8 +346,7 @@ impl Config {
         if let Some(dir) = path.parent() {
             fs::create_dir_all(dir)?;
         }
-        let providers: Vec<Value> = self.providers.iter().map(provider_to_json).collect();
-        let doc = json!({
+        let providers: Vec<Value> = self.providers.iter().map(provider_to_json).collect();        let doc = json!({
             "default_model": self.default_model,
             "free_only": self.free_only,
             "sandbox": self.sandbox,
@@ -384,7 +383,12 @@ impl Config {
         });
         let mut text = serde_json::to_string_pretty(&doc).unwrap_or_else(|_| "{}".to_string());
         text.push('\n');
-        fs::write(&path, text)?;
+        // La **fuente de verdad** es SQLite (`settings['config']`).
+        let conn = crate::db::open().map_err(std::io::Error::other)?;
+        crate::db::set_setting(&conn, "config", &text).map_err(std::io::Error::other)?;
+        // …y se deja una **exportación** JSON (para ver/editar a mano; `load` la
+        // reimporta si existe).
+        let _ = fs::write(&path, &text);
         Ok(path)
     }
 
@@ -884,9 +888,25 @@ pub fn config_dir() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("."))
 }
 
+/// Documento de config: el archivo (`config.json`) manda si existe —y se
+/// reimporta a SQLite, para que editarlo a mano siga funcionando—; si no, se usa
+/// la fila `config` de la base.
+fn load_document() -> Option<Value> {
+    let file = read_json(&own_path());
+    let conn = crate::db::open().ok();
+    if let Some(v) = file {
+        if let Some(c) = &conn {
+            let text = serde_json::to_string(&v).unwrap_or_default();
+            let _ = crate::db::set_setting(c, "config", &text);
+        }
+        return Some(v);
+    }
+    conn.and_then(|c| crate::db::get_setting(&c, "config"))
+        .and_then(|s| parse_jsonc(&s))
+}
+
 /// Lee y parsea un JSON (tolerando comentarios `//` y `/* */` de `.jsonc`).
-fn read_json(path: &std::path::Path) -> Option<Value> {
-    let raw = fs::read_to_string(path).ok()?;
+fn read_json(path: &std::path::Path) -> Option<Value> {    let raw = fs::read_to_string(path).ok()?;
     // Tolerar el BOM UTF-8 (editores como Notepad lo agregan).
     let raw = raw.trim_start_matches('\u{feff}');
     parse_jsonc(raw)

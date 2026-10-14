@@ -4,6 +4,26 @@ Todos los cambios relevantes de NuIde. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/) y el proyecto usa
 versionado semántico.
 
+## [0.3.5] — 2026-10-13
+
+### Agregado
+
+- **Persistencia en SQLite**: NuCoder guarda todo en `~/.config/nucoder/nucoder.db`
+  (SQLite, vía `rusqlite/bundled`): la **config** (`settings['config']`), los
+  **chats** (`sessions`, uno por proyecto) y el **recetario** de NuCook (`cookbook`).
+  La primera vez **migra** desde `config.json`, `sessions/*.json` y
+  `cookbook/*.cookie` (los archivos **no** se borran: quedan de respaldo).
+- Módulo `nucoder/src/db.rs` (apertura + esquema + helpers) con tests.
+- `config.json` se sigue leyendo si existe (y se reimporta) y se reescribe como
+  **exportación** legible/editable, pero la fuente de verdad es la base.
+
+### Cambiado
+
+- `nucoder/src/session.rs` y `cook.rs` (recetario) ahora leen/escriben la base.
+- **Primera dependencia pesada**: `rusqlite` con `bundled` (compila SQLite en C).
+  Se justifica: era el único camino serio para guardar en SQLite sin implementar
+  el formato a mano.
+
 ## [0.3.4] — 2026-10-13
 
 ### Agregado

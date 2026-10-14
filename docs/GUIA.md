@@ -181,7 +181,7 @@ clic en uno se abre el formulario:
   objeto `{ … }`).
 
 **Guardar** escribe la config global de NuCoder
-(`~/.config/nucoder/nucoder.json`), uniendo lo que hubiera en `nucoder.jsonc`
+(`~/.config/nucoder/nucoder.db`, con export a `config.json`), uniendo lo que hubiera en `nucoder.jsonc`
 (el `.jsonc` queda sin `providers`). La edición es quirúrgica: no toca `$schema`,
 `model` ni las claves del proveedor que la IDE no muestra (`env`, `modelID`,
 `limit`, `cost`…). Si un proveedor usa variables de entorno (`env`) y dejás la
@@ -204,7 +204,8 @@ El panel derecho corre **NuCoder** (el agente). Tres capacidades nuevas:
   enseñable; el agente la usa si está en el **recetario**. La paleta tiene
   *NuCook: cocinar carpeta de docs…* para KB/docs/datasets. La CLI es `nucook`
   (`nucook list|search|install|cook-dir|bake`), instalada con NuIde.
-- **MCP**: configurá `mcp.servers` en `~/.config/nucoder/config.json` (p. ej.
+- **MCP**: configurá `mcp.servers` en la config de NuCoder
+  (`~/.config/nucoder/nucoder.db`, export `config.json`) (p. ej.
   REA) y sus herramientas aparecen como `<servidor>__<tool>`. Guías:
   [`SKILLS_UI.md`](SKILLS_UI.md), [`NUCOOK.md`](NUCOOK.md) y
   [`MCP.md`](MCP.md).
