@@ -4,6 +4,15 @@ Todos los cambios relevantes de NuIde. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/) y el proyecto usa
 versionado semántico.
 
+## [0.3.7] — 2026-10-13
+
+### Cambiado
+
+- **Los ajustes de NuIde también van a SQLite**: `src/config.rs` usa la tabla
+  `ide_settings` de la misma base (`~/.config/nucoder/nucoder.db`). La primera vez
+  **migra** desde `%APPDATA%\NuIde\config` y el archivo queda como **export**. Así
+  config, chats, recetario y ajustes de la IDE viven en una sola base.
+
 ## [0.3.6] — 2026-10-13
 
 ### Cambiado

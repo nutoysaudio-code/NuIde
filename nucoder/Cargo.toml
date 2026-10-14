@@ -1,6 +1,6 @@
 [package]
 name = "nucoder"
-version = "0.3.6"
+version = "0.3.7"
 edition = "2021"
 description = "NuCoder - agente de codigo con router de modelos (SpASM)"
 # Hay dos binarios (`nucoder` y el fixture de tests `mcp_stub`): fijamos el default.

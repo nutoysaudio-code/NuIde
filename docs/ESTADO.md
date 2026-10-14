@@ -1244,6 +1244,9 @@ compresión; el visor muestra hasta 200 filas por tabla y no edita.
   El **visor de SQLite** (`src/sqlite.rs`) pasó a leer **nativo** con `rusqlite`
   (antes `sqlite3.exe`/python por TSV): misma API, sin binarios externos; `nuide`
   suma `rusqlite`. Tests del visor reescritos (178 OK).
+- **Ajustes de NuIde en la misma base**: `src/config.rs` persiste en la tabla
+  `ide_settings` (migrando desde `%APPDATA%\NuIde\config`, que queda de export).
+  Con eso config, chats, recetario y ajustes de la IDE viven en `nucoder.db`.
 
 ## 4. Limitaciones conocidas
 - **Persistencia.** La persistencia de NuCoder (config, **chats**, recetario)

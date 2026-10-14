@@ -97,3 +97,26 @@ el router (con `free` marcado entra en el pool "solo gratis").
 - Las GPUs gratis tienen poca VRAM (T4 16 GB): hasta ~7B–13B **cuantizado**.
 - Para el día a día de *codear gratis*, los **presets** gratuitos son más
   prácticos que una VM con túnel.
+
+---
+
+## Idea anotada (sin hacer): Coquito en Kaggle
+
+**Coquito** (`F:\SpAMS-Flama`) es un **BailingMoEV3 híbrido** (Ling-3.0-tiny, 128
+expertos top-8, 18 capas KDA + 6 MLA) que corre en el **motor C/SpASM propio**, con
+la memoria **MEG** y los **kmodules** (sesgo de ruteo por experto). Ese pipeline es
+**CPU + custom**: no se muda a Kaggle.
+
+Lo que **sí** tendría sentido hacer en Kaggle (GPU gratis) si se retoma:
+
+1. **Fine-tunear la base** (`inclusionAI/Ling-3.0-tiny`) con los corpora
+   (`_corpus_spasm.txt`, el ingest de MDN): LoRA/QLoRA en T4×2 y después
+   re-exportar a **GGUF** + `tools/modularize.py` local.
+2. **Perfilar expertos / armar `route.bin`** corriendo el MoE en **PyTorch** (mucho
+   más rápido que `profile_experts.py` con el motor CPU) y traer el `baseline`/bias
+   de ruteo para `tools/kmodule.py`.
+
+Límites: sesión de 12 h, ~30 h GPU/semana, disco efímero (subir el
+`Coquito-0.01.gguf` de 4,8 GB como **Kaggle Dataset** y montarlo). Completar los
+kernels del motor (E2 MoE / E3 KDA / E4 MLA / E5–E6 forward) es trabajo **local de
+SpASM + C**, no de Kaggle.

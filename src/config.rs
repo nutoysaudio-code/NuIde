@@ -6,7 +6,7 @@
 //! escribir, la IDE arranca con los valores por defecto.
 
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// Nombre del archivo dentro de la carpeta de configuración.
 const FILE: &str = "config";
@@ -19,20 +19,20 @@ pub struct Config {
 }
 
 impl Config {
-    /// Lee el archivo de configuración del usuario (si existe). En las pruebas
-    /// se ignora para que el estado real de la máquina no afecte los tests.
+    /// Lee la configuración del usuario. La **fuente de verdad** es la tabla
+    /// `ide_settings` de la base SQLite (la misma que usa NuCoder); la primera
+    /// vez **migra** desde el archivo `config` y deja el archivo como export.
+    /// En las pruebas se ignora para que el estado real de la máquina no afecte
+    /// los tests.
     pub fn load() -> Self {
+        let dir = config_dir();
         if cfg!(test) {
             return Self {
                 values: BTreeMap::new(),
-                dir: config_dir(),
+                dir,
             };
         }
-        let dir = config_dir();
-        let values = std::fs::read_to_string(dir.join(FILE))
-            .ok()
-            .map(|text| parse(&text))
-            .unwrap_or_default();
+        let values = load_values(&dir);
         Self { values, dir }
     }
 
@@ -70,10 +70,22 @@ impl Config {
         self.values.insert(key.to_string(), value.to_string());
     }
 
-    /// Escribe el archivo. Falla en silencio.
+    /// Guarda en la base (fuente de verdad) y deja el archivo como **export**.
+    /// Falla en silencio.
     pub fn save(&self) {
         let _ = std::fs::create_dir_all(&self.dir);
         let _ = std::fs::write(self.dir.join(FILE), serialize(&self.values));
+        if cfg!(test) {
+            return;
+        }
+        if let Ok(conn) = nucoder::db::open() {
+            let pairs: Vec<(String, String)> = self
+                .values
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect();
+            let _ = nucoder::db::ide_replace_all(&conn, &pairs);
+        }
     }
 
     /// Carpeta del proyecto recordada, si sigue existiendo.
@@ -105,6 +117,33 @@ pub fn config_dir() -> PathBuf {
         }
     }
     PathBuf::from(".nuide")
+}
+
+/// Carga el mapa desde `ide_settings`; si la tabla está vacía, **migra** desde el
+/// archivo `config` (y lo deja escrito en la base).
+fn load_values(dir: &Path) -> BTreeMap<String, String> {
+    let Ok(conn) = nucoder::db::open() else {
+        return read_file(dir);
+    };
+    let rows = nucoder::db::ide_all(&conn);
+    if !rows.is_empty() {
+        return rows.into_iter().collect();
+    }
+    let file = read_file(dir);
+    if !file.is_empty() {
+        let pairs: Vec<(String, String)> =
+            file.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+        let _ = nucoder::db::ide_replace_all(&conn, &pairs);
+    }
+    file
+}
+
+/// Lee el archivo `config` (`clave=valor`).
+fn read_file(dir: &Path) -> BTreeMap<String, String> {
+    std::fs::read_to_string(dir.join(FILE))
+        .ok()
+        .map(|text| parse(&text))
+        .unwrap_or_default()
 }
 
 /// Parsea `clave=valor` por línea. Ignora líneas vacías y comentarios.

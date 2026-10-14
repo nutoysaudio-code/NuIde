@@ -63,6 +63,10 @@ pub fn open_at(path: &Path) -> rusqlite::Result<Connection> {
              id         TEXT PRIMARY KEY,
              cookie     TEXT NOT NULL,
              updated_at INTEGER NOT NULL
+         );
+         CREATE TABLE IF NOT EXISTS ide_settings (
+             key   TEXT PRIMARY KEY,
+             value TEXT NOT NULL
          );",
     )?;
     Ok(conn)
@@ -279,6 +283,32 @@ pub fn migrate(conn: &Connection) -> rusqlite::Result<usize> {
     Ok(n)
 }
 
+// ---------------------------------------------------------------------------
+// Ajustes de la IDE (misma base, tabla aparte)
+// ---------------------------------------------------------------------------
+
+/// Todos los ajustes de NuIde (`ide_settings`), ordenados por clave.
+pub fn ide_all(conn: &Connection) -> Vec<(String, String)> {
+    let Ok(mut st) = conn.prepare("SELECT key, value FROM ide_settings ORDER BY key") else {
+        return Vec::new();
+    };
+    st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+        .into_iter()
+        .flatten()
+        .flatten()
+        .collect()
+}
+
+/// Reemplaza **todos** los ajustes de NuIde por el mapa dado.
+pub fn ide_replace_all(conn: &Connection, pairs: &[(String, String)]) -> rusqlite::Result<()> {
+    conn.execute("DELETE FROM ide_settings", [])?;
+    let mut st = conn.prepare("INSERT INTO ide_settings(key, value) VALUES(?1, ?2)")?;
+    for (k, v) in pairs {
+        st.execute(params![k, v])?;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -318,13 +348,34 @@ mod tests {
     }
 
     #[test]
-    fn recetas_guardan_y_cargan() {
-        let p = tmp("cook");
+    fn recetas_guardan_y_cargan() {        let p = tmp("cook");
         let c = open_at(&p).unwrap();
         cookie_save(&c, "demo", "{\"id\":\"demo\"}").unwrap();
         assert_eq!(cookie_load(&c, "demo").as_deref(), Some("{\"id\":\"demo\"}"));
         assert_eq!(cookies_list(&c).len(), 1);
         assert!(cookie_load(&c, "nope").is_none());
+        let _ = std::fs::remove_file(&p);
+    }
+
+    #[test]
+    fn ajustes_de_la_ide_se_reemplazan() {
+        let p = tmp("ide");
+        let c = open_at(&p).unwrap();
+        assert!(ide_all(&c).is_empty());
+        ide_replace_all(
+            &c,
+            &[
+                ("project".into(), "F:\\proj".into()),
+                ("show.left".into(), "1".into()),
+            ],
+        )
+        .unwrap();
+        assert_eq!(ide_all(&c).len(), 2);
+        // Reemplazo total: borra lo que no esté.
+        ide_replace_all(&c, &[("project".into(), "C:\\otro".into())]).unwrap();
+        let all = ide_all(&c);
+        assert_eq!(all.len(), 1);
+        assert_eq!(all[0].1, "C:\\otro");
         let _ = std::fs::remove_file(&p);
     }
 }
