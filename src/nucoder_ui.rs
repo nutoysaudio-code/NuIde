@@ -13,7 +13,7 @@ use std::sync::Arc;
 use std::sync::Mutex;
 
 use serde_json::Value;
-use slint::{ModelRc, SharedString, StyledText, VecModel};
+use slint::{Model, ModelRc, SharedString, StyledText, VecModel};
 
 use nucoder::agent::{self, Agent, AgentEvent};
 use nucoder::caps::{self, Cap};
@@ -130,8 +130,20 @@ pub struct NuCoderPanel {
     /// Pedidos del agente al cliente FTP de la IDE.
     ftp_tx: Sender<FtpJob>,
     ftp_rx: Receiver<FtpJob>,
-    /// El modelo de la UI hay que reconstruirlo.
-    dirty: bool,
+    /// Hay que reconstruir todo el modelo de mensajes.
+    dirty_all: bool,
+    /// Mensajes nuevos por agregar al modelo (índices de `msgs`).
+    appended: Vec<usize>,
+    /// Filas ya existentes que hay que refrescar (índices de `msgs`).
+    dirty_rows: Vec<usize>,
+    /// Modelo de chat **persistente**: se muta por fila para que Slint no
+    /// destruya y recree cada globo (eso congelaba la IDE mientras el agente
+    /// streameaba).
+    messages_model: Option<std::rc::Rc<VecModel<IdeChatMsg>>>,
+    /// Dibujar también el *proceso* (herramientas y avisos). Apagado, esos
+    /// mensajes **no** entran al modelo: ocultarlos con `visible: false` dejaba
+    /// huecos enormes entre los globos (Slint les reserva el espacio).
+    show_process: bool,
     /// Hay que reenviar las listas (modelos curados, tareas).
     lists_dirty: bool,
     /// Pulso del icono «pensando» (lo alterna la IDE).
@@ -217,7 +229,11 @@ impl NuCoderPanel {
             terminal_rx,
             ftp_tx,
             ftp_rx,
-            dirty: true,
+            dirty_all: true,
+            appended: Vec::new(),
+            dirty_rows: Vec::new(),
+            messages_model: None,
+            show_process: false,
             lists_dirty: true,
             pulse: false,
             model_rows: Vec::new(),
@@ -798,7 +814,9 @@ impl NuCoderPanel {
         self.prompt_cache = self.config.prompt_cache;
         self.context_chars = self.config.context_chars;
         self.open = true;
-        self.dirty = true;
+        self.dirty_all = true;
+        self.appended.clear();
+        self.dirty_rows.clear();
         self.lists_dirty = true;
         if self.conversation.is_empty() {
             if let Some(msgs) = session::load(&self.cwd) {
@@ -888,6 +906,9 @@ impl NuCoderPanel {
         self.conversation.clear();
         self.images.clear();
         self.streaming = None;
+        self.dirty_all = true;
+        self.appended.clear();
+        self.dirty_rows.clear();
         session::remove(&self.cwd);
         self.push(3, "NuCoder", "conversación reiniciada".to_string());
     }
@@ -1006,15 +1027,85 @@ impl NuCoderPanel {
     }
 
     // ---------------------------------------------------------------- modelo
-    /// Modelo de chat para Slint (lo llama `Ide::sync` cuando cambió).
+    /// Modelo de chat completo (sólo tests / reconstrucción total).
     pub fn slint_messages(&self) -> ModelRc<IdeChatMsg> {
-        let rows: Vec<IdeChatMsg> = self.msgs.iter().map(msg_to_slint).collect();
+        let rows: Vec<IdeChatMsg> = self
+            .msgs
+            .iter()
+            .filter(|m| self.msg_visible(m.role))
+            .map(msg_to_slint)
+            .collect();
         ModelRc::from(std::rc::Rc::new(VecModel::from(rows)))
     }
 
-    /// ¿Hay que reconstruir el modelo? (consume el flag).
-    pub fn take_dirty(&mut self) -> bool {
-        std::mem::take(&mut self.dirty)
+    /// ¿Este mensaje se dibuja según `show_process`?
+    fn msg_visible(&self, role: i32) -> bool {
+        self.show_process || (role != 2 && role != 3)
+    }
+
+    /// ¿`idx` (índice de `msgs`) es la fila `n` del modelo?
+    fn ui_row_of(&self, idx: usize) -> Option<usize> {
+        if idx >= self.msgs.len() || !self.msg_visible(self.msgs[idx].role) {
+            return None;
+        }
+        Some(
+            self.msgs[..=idx]
+                .iter()
+                .filter(|m| self.msg_visible(m.role))
+                .count()
+                - 1,
+        )
+    }
+
+    /// Aplica los cambios pendientes al modelo de la UI. Devuelve `Some(modelo)`
+    /// sólo cuando hay que **instalarlo** (primera vez o reconstrucción); en los
+    /// cambios incrementales muta el modelo que la UI ya tiene.
+    pub fn take_message_update(&mut self) -> Option<ModelRc<IdeChatMsg>> {
+        if !self.dirty_all && self.dirty_rows.is_empty() && self.appended.is_empty() {
+            return None;
+        }
+        if self.dirty_all || self.messages_model.is_none() {
+            self.dirty_all = false;
+            self.appended.clear();
+            self.dirty_rows.clear();
+            let rows: Vec<IdeChatMsg> = self
+                .msgs
+                .iter()
+                .filter(|m| self.msg_visible(m.role))
+                .map(msg_to_slint)
+                .collect();
+            let model = std::rc::Rc::new(VecModel::from(rows));
+            self.messages_model = Some(model.clone());
+            return Some(ModelRc::from(model));
+        }
+        let model = self.messages_model.clone().expect("modelo presente");
+        for idx in std::mem::take(&mut self.appended) {
+            if let Some(m) = self.msgs.get(idx) {
+                if self.msg_visible(m.role) {
+                    model.push(msg_to_slint(m));
+                }
+            }
+        }
+        for idx in std::mem::take(&mut self.dirty_rows) {
+            if let (Some(row), true) = (self.ui_row_of(idx), idx < self.msgs.len()) {
+                model.set_row_data(row, msg_to_slint(&self.msgs[idx]));
+            }
+        }
+        None
+    }
+
+    /// ¿Se dibuja el *proceso* (herramientas y avisos)?
+    pub fn show_process(&self) -> bool {
+        self.show_process
+    }
+
+    /// Muestra/oculta el proceso (clic en el 🧠). Cambia qué filas dibuja el
+    /// modelo, así que fuerza una reconstrucción.
+    pub fn toggle_process(&mut self) {
+        self.show_process = !self.show_process;
+        self.dirty_all = true;
+        self.appended.clear();
+        self.dirty_rows.clear();
     }
 
     /// ¿Hay que reenviar las listas (modelos/tareas)? (consume el flag).
@@ -1040,9 +1131,14 @@ impl NuCoderPanel {
             text,
         });
         if self.msgs.len() > 400 {
+            // Se corre todo el historial: hay que reconstruir el modelo.
             self.msgs.remove(0);
+            self.dirty_all = true;
+            self.appended.clear();
+            self.dirty_rows.clear();
+        } else if self.msg_visible(role) {
+            self.appended.push(self.msgs.len() - 1);
         }
-        self.dirty = true;
     }
 
     fn info(&mut self, t: impl Into<String>) {
@@ -1060,7 +1156,7 @@ impl NuCoderPanel {
             AgentEvent::Delta(t) => match self.streaming {
                 Some(i) if i < self.msgs.len() => {
                     self.msgs[i].text.push_str(&t);
-                    self.dirty = true;
+                    self.dirty_rows.push(i);
                 }
                 _ => {
                     self.push(1, self.model_label.clone(), t);
@@ -1092,7 +1188,6 @@ impl NuCoderPanel {
             AgentEvent::Confirm { name, args, reply } => {
                 self.streaming = None;
                 self.pending = Some((name.clone(), preview(&args, 200), reply));
-                self.dirty = true;
             }
             AgentEvent::Plan { goal, steps, reply } => {
                 self.streaming = None;
@@ -1105,14 +1200,12 @@ impl NuCoderPanel {
                 }
                 self.push(2, "plan", text);
                 self.pending = Some(("plan".to_string(), goal, reply));
-                self.dirty = true;
             }
             AgentEvent::Done { conversation } => {
                 self.streaming = None;
                 self.running = false;
                 self.conversation = conversation;
                 let _ = session::save(&self.cwd, &self.conversation);
-                self.dirty = true;
             }
         }
     }
@@ -1191,5 +1284,48 @@ fn preview(s: &str, max: usize) -> String {
         let mut t: String = one.chars().take(max).collect();
         t.push('…');
         t
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use slint::Model;
+
+    /// El modelo del chat **no** dibuja el proceso (herramientas/avisos) cuando
+    /// está oculto: Slint le reserva el espacio y dejaba huecos enormes entre los
+    /// globos. Y los cambios van por fila: el modelo no se reconstruye en cada
+    /// delta (eso congelaba la IDE mientras el agente streameaba).
+    #[test]
+    fn el_chat_filtra_el_proceso_y_actualiza_por_fila() {
+        let mut p = NuCoderPanel::new(std::env::temp_dir());
+        // `new()` deja un aviso (rol 3 = proceso): no debe entrar al modelo.
+        let first = p.take_message_update().expect("primer modelo");
+        assert_eq!(first.row_count(), 0, "el proceso oculto no se dibuja");
+        // Sin cambios, no hay nada que reenviar (ni que reconstruir).
+        assert!(p.take_message_update().is_none());
+
+        // El proceso oculto **no** agrega filas (el bug del espaciado).
+        p.push(3, "·", "aviso del proceso".to_string());
+        assert!(p.take_message_update().is_none());
+        assert_eq!(p.messages_model.clone().unwrap().row_count(), 0);
+
+        // Un mensaje del asistente se agrega y su delta lo mutá en la misma
+        // fila: el handle no se reemplaza (la UI no recrea los elementos).
+        p.push(1, "ia".to_string(), "hola".to_string());
+        let idx = p.msgs.len() - 1;
+        p.streaming = Some(idx);
+        assert!(p.take_message_update().is_none());
+        let model = p.messages_model.clone().unwrap();
+        assert_eq!(model.row_count(), 1);
+        p.msgs[idx].text.push_str(" mundo");
+        p.dirty_rows.push(idx);
+        assert!(p.take_message_update().is_none());
+        assert!(model.row_data(0).unwrap().text.contains("mundo"));
+
+        // Prender el proceso reconstruye el modelo con todas sus filas.
+        p.toggle_process();
+        let full = p.take_message_update().expect("reconstruye");
+        assert_eq!(full.row_count(), p.msgs.len());
     }
 }

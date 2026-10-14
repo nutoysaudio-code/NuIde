@@ -244,6 +244,7 @@ export component NuIdeWindow inherits Window {
     in-out property <string> nucoder-context: "48k";
     in-out property <bool> nucoder-modal-open: false;
     in-out property <bool> nucoder-pulse: false;
+    in-out property <bool> nucoder-show-process: false;
     in-out property <bool> nucoder-perm-web: true;
     in-out property <bool> nucoder-perm-read-outside: false;
     in-out property <bool> nucoder-perm-terminal: true;
@@ -402,6 +403,7 @@ export component NuIdeWindow inherits Window {
     callback skills-perm-cycle();
     callback skills-catalog();
     callback skills-web-toggle();
+    callback skills-filter-clear();
     callback prefs-font-smaller();
     callback prefs-font-bigger();
     callback prefs-cycle-accent();
@@ -514,6 +516,7 @@ export component NuIdeWindow inherits Window {
     callback nucoder-model-sync();
     callback nucoder-model-only-ok-toggle();
     callback nucoder-model-clear-status();
+    callback nucoder-toggle-process();
     callback nucoder-task-picked(int);
     callback nucoder-attach-image();
     callback nucoder-clear-images();
@@ -917,6 +920,7 @@ export component NuIdeWindow inherits Window {
             context: root.nucoder-context;
             modal-open: root.nucoder-modal-open;
             pulse: root.nucoder-pulse;
+            show-process: root.nucoder-show-process;
             perm-web: root.nucoder-perm-web;
             perm-read-outside: root.nucoder-perm-read-outside;
             perm-terminal: root.nucoder-perm-terminal;
@@ -943,6 +947,7 @@ export component NuIdeWindow inherits Window {
             model-sync => { root.nucoder-model-sync(); }
             model-only-ok-toggle => { root.nucoder-model-only-ok-toggle(); }
             model-clear-status => { root.nucoder-model-clear-status(); }
+            toggle-process => { root.nucoder-toggle-process(); }
             task-picked(index) => { root.nucoder-task-picked(index); }
             attach-image => { root.nucoder-attach-image(); }
             clear-images => { root.nucoder-clear-images(); }
@@ -1327,6 +1332,7 @@ export component NuIdeWindow inherits Window {
         perm-cycle => { root.skills-perm-cycle(); }
         catalog-requested => { root.skills-catalog(); }
         web-toggle => { root.skills-web-toggle(); }
+        filter-cleared => { root.skills-filter-clear(); }
         dismiss => { root.skills-dismiss(); }
     }
 

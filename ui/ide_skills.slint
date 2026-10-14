@@ -5,36 +5,66 @@ import { IdeSkillRow } from "ide_types.slint";
 // Botón compacto del modal (misma métrica que el resto de la IDE).
 component SButton inherits Rectangle {
     in property <string> label: "";
+    in property <bool> primary: false;
+    in property <bool> enabled: true;
+    in property <string> tip: "";
     callback activated();
 
-    width: text.width + 20px;
     height: 26px;
+    width: blabel.width + 22px;
     border-radius: IdeTheme.radius-sm;
-    background: hit.has-hover ? IdeTheme.control-hi : IdeTheme.control;
+    background: !root.enabled ? IdeTheme.control
+        : hit.has-hover ? (root.primary ? #9fe6d8 : IdeTheme.control-hi)
+        : (root.primary ? IdeTheme.mint : IdeTheme.control);
+    border-width: 1px;
+    border-color: root.primary ? transparent : IdeTheme.border-faint;
 
-    Text {
-        text := Text {
-            x: 10px;
-            y: (parent.height - self.height) / 2;
-            text: root.label;
-            color: IdeTheme.text;
-            font-family: IdeTheme.sans;
-            font-size: 11px;
-        }
+    if root.tip != "": Tooltip {
+        TipContent { text: root.tip; }
+    }
+
+    blabel := Text {
+        x: 11px;
+        y: (parent.height - self.height) / 2;
+        text: root.label;
+        color: root.primary ? IdeTheme.bg : (root.enabled ? IdeTheme.text : IdeTheme.text-dim);
+        font-family: IdeTheme.sans;
+        font-size: 11px;
+        vertical-alignment: center;
     }
     hit := TouchArea {
+        enabled: root.enabled;
         mouse-cursor: MouseCursor.pointer;
         clicked => { root.activated(); }
+    }
+}
+
+// Barra fina de scroll de un `Flickable` (misma idea que la de la terminal).
+component MiniScroll inherits Rectangle {
+    in property <length> content: 0px;
+    in property <length> viewport: 0px;
+    in property <length> offset: 0px;
+
+    visible: root.content > root.viewport + 1px;
+    background: transparent;
+
+    Rectangle {
+        width: parent.width;
+        height: max(20px, parent.height * min(1.0, root.viewport / max(1px, root.content)));
+        y: (parent.height - self.height)
+            * min(1.0, max(0.0, root.offset / max(1px, root.content - root.viewport)));
+        border-radius: parent.width / 2;
+        background: IdeTheme.border;
     }
 }
 
 // ---------------------------------------------------------------------------
 // Catálogo de skills (Claude / OpenCode / nativos) + hub.
 //
-// Lista con buscador en vivo, estado (anunciado/oculto/ask/deny) y acciones:
-// anunciar/ocultar, cocinar (NuCook), instalar (repo/ruta) y eliminar. A la
-// derecha, el detalle (la receta cocida o el cuerpo). El teclado del buscador
-// lo maneja Rust (como los otros modales).
+// Lista con buscador en vivo, estado (anunciado/oculto/ask/deny/receta) y
+// acciones: instalar/actualizar, cocinar (NuCook), permiso, eliminar, web y
+// catálogo. A la derecha, el detalle (la receta cocida o el cuerpo). El teclado
+// del buscador lo maneja Rust (como los otros modales).
 // ---------------------------------------------------------------------------
 
 export component IdeSkills inherits Rectangle {
@@ -58,11 +88,21 @@ export component IdeSkills inherits Rectangle {
     callback perm-cycle();
     callback catalog-requested();
     callback web-toggle();
+    callback filter-cleared();
     callback dismiss();
 
     // Etiqueta del permiso del skill seleccionado (state de `IdeSkillRow`).
     function perm-label(s: int) -> string {
         s == 0 ? @tr("anunciar")
+            : s == 1 ? @tr("oculto")
+            : s == 2 ? @tr("preguntar")
+            : s == 3 ? @tr("bloquear")
+            : @tr("web");
+    }
+
+    // Etiqueta del estado en la fila de la lista.
+    function state-label(s: int) -> string {
+        s == 0 ? @tr("anunciado")
             : s == 1 ? @tr("oculto")
             : s == 2 ? @tr("preguntar")
             : s == 3 ? @tr("bloquear")
@@ -101,26 +141,53 @@ export component IdeSkills inherits Rectangle {
             height: 40px;
             background: IdeTheme.bg;
 
-            Text {
+            HorizontalLayout {
                 x: 16px;
-                y: (parent.height - self.height) / 2;
-                text: @tr("Skills");
-                color: IdeTheme.text;
-                font-family: IdeTheme.sans;
-                font-size: 14px;
-                font-weight: 600;
-                vertical-alignment: center;
-            }
-            Text {
-                x: 68px;
-                y: (parent.height - self.height) / 2;
-                width: parent.width - 620px;
-                text: root.header;
-                color: IdeTheme.text-soft;
-                font-family: IdeTheme.mono;
-                font-size: 11px;
-                vertical-alignment: center;
-                overflow: elide;
+                y: 0;
+                width: parent.width - 32px;
+                height: parent.height;
+                spacing: 10px;
+                alignment: start;
+                cross-axis-alignment: center;
+
+                Text {
+                    text: @tr("Skills");
+                    color: IdeTheme.text;
+                    font-family: IdeTheme.sans;
+                    font-size: 14px;
+                    font-weight: 600;
+                    vertical-alignment: center;
+                }
+                Text {
+                    horizontal-stretch: 1;
+                    text: root.header;
+                    color: IdeTheme.text-soft;
+                    font-family: IdeTheme.mono;
+                    font-size: 11px;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+                close := Rectangle {
+                    width: 22px;
+                    height: 22px;
+                    border-radius: IdeTheme.radius-sm;
+                    background: close-hit.has-hover ? IdeTheme.control : transparent;
+                    Text {
+                        width: parent.width;
+                        height: parent.height;
+                        text: "✕";
+                        color: close-hit.has-hover ? IdeTheme.text : IdeTheme.text-dim;
+                        font-family: IdeTheme.sans;
+                        font-size: 12px;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                    close-hit := TouchArea {
+                        mouse-cursor: MouseCursor.pointer;
+                        clicked => { root.dismiss(); }
+                    }
+                    Tooltip { TipContent { text: @tr("Cerrar"); } }
+                }
             }
 
             Rectangle {
@@ -148,17 +215,50 @@ export component IdeSkills inherits Rectangle {
                 alignment: start;
                 cross-axis-alignment: center;
 
-                SButton { label: @tr("Instalar…"); activated => { root.install-requested(); } }
-                SButton { label: @tr("Actualizar"); activated => { root.update-requested(); } }
-                SButton { label: @tr("Eliminar"); activated => { root.delete-requested(); } }
+                SButton {
+                    label: @tr("Instalar…");
+                    tip: @tr("Bajar un skill por owner/repo, URL o ruta al hub");
+                    activated => { root.install-requested(); }
+                }
+                SButton {
+                    label: @tr("Actualizar");
+                    tip: @tr("Reinstalar el skill seleccionado (hub) desde su origen");
+                    activated => { root.update-requested(); }
+                }
+                SButton {
+                    label: @tr("Cocinar");
+                    tip: @tr("Destilar el skill en su forma enseñable (NuCook)");
+                    activated => { root.cook-requested(); }
+                }
                 SButton {
                     label: @tr("Permiso") + ": " + (root.selected < root.rows.length ? root.perm-label(root.rows[root.selected].state) : "—");
+                    tip: @tr("Anunciar, preguntar o bloquear este skill (clic para ciclar)");
                     activated => { root.perm-cycle(); }
                 }
-                SButton { label: @tr("Cocinar"); activated => { root.cook-requested(); } }
-                SButton { label: root.web ? @tr("web ✓") : @tr("web"); activated => { root.web-toggle(); } }
-                SButton { label: @tr("Catálogo…"); activated => { root.catalog-requested(); } }
-                SButton { label: @tr("Refrescar"); activated => { root.refresh(); } }
+                SButton {
+                    label: root.web ? @tr("web ✓") : @tr("web");
+                    enabled: true;
+                    tip: @tr("Buscar también en el catálogo remoto (NUCOOK_CATALOG)");
+                    activated => { root.web-toggle(); }
+                }
+                SButton {
+                    label: @tr("Catálogo…");
+                    tip: @tr("Configurar la URL del catálogo remoto de skills");
+                    activated => { root.catalog-requested(); }
+                }
+
+                Rectangle { horizontal-stretch: 1; background: transparent; }
+
+                SButton {
+                    label: @tr("Eliminar");
+                    tip: @tr("Borrar del hub (~/.agents/skills) el skill seleccionado");
+                    activated => { root.delete-requested(); }
+                }
+                SButton {
+                    label: @tr("Refrescar");
+                    tip: @tr("Volver a descubrir los skills del disco");
+                    activated => { root.refresh(); }
+                }
             }
 
             Rectangle {
@@ -174,41 +274,74 @@ export component IdeSkills inherits Rectangle {
             x: 0;
             y: 74px;
             width: parent.width;
-            height: 28px;
+            height: 32px;
             background: IdeTheme.bg;
 
-            Text {
+            HorizontalLayout {
                 x: 14px;
-                y: (parent.height - self.height) / 2;
-                text: @tr("buscar:");
-                color: IdeTheme.text-dim;
-                font-family: IdeTheme.mono;
-                font-size: 11px;
-                vertical-alignment: center;
-            }
-            Text {
-                x: 66px;
-                y: (parent.height - self.height) / 2;
-                width: parent.width - 300px;
-                text: root.filter == "" ? @tr("(escribí para filtrar por id, nombre o descripción)")
-                    : root.filter + "▎";
-                color: root.filter == "" ? IdeTheme.text-dim : IdeTheme.text;
-                font-family: IdeTheme.mono;
-                font-size: 11px;
-                vertical-alignment: center;
-                overflow: elide;
-            }
-            Text {
-                x: parent.width - 228px;
-                y: (parent.height - self.height) / 2;
-                width: 214px;
-                text: root.busy ? @tr("cocinando/instalando…") : root.note;
-                color: root.busy ? IdeTheme.amber : IdeTheme.mint;
-                font-family: IdeTheme.sans;
-                font-size: 10px;
-                horizontal-alignment: right;
-                vertical-alignment: center;
-                overflow: elide;
+                y: 0;
+                width: parent.width - 28px;
+                height: parent.height;
+                spacing: 8px;
+                alignment: start;
+                cross-axis-alignment: center;
+
+                Text {
+                    text: @tr("buscar:");
+                    color: IdeTheme.text-dim;
+                    font-family: IdeTheme.mono;
+                    font-size: 11px;
+                    vertical-alignment: center;
+                }
+                Text {
+                    horizontal-stretch: 1;
+                    text: root.filter == "" ? @tr("filtrar por id, nombre o descripción…")
+                        : root.filter + "▎";
+                    color: root.filter == "" ? IdeTheme.text-dim : IdeTheme.text;
+                    font-family: IdeTheme.mono;
+                    font-size: 11px;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+                if root.filter != "": clear-btn := Rectangle {
+                    width: 20px;
+                    height: 20px;
+                    border-radius: IdeTheme.radius-sm;
+                    background: clear-hit.has-hover ? IdeTheme.control : transparent;
+                    Text {
+                        width: parent.width;
+                        height: parent.height;
+                        text: "✕";
+                        color: clear-hit.has-hover ? IdeTheme.text : IdeTheme.text-dim;
+                        font-family: IdeTheme.sans;
+                        font-size: 10px;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                    clear-hit := TouchArea {
+                        mouse-cursor: MouseCursor.pointer;
+                        clicked => { root.filter-cleared(); }
+                    }
+                    Tooltip { TipContent { text: @tr("Limpiar el filtro (Esc)"); } }
+                }
+                Text {
+                    text: root.filter == "" ? ""
+                        : root.rows.length + " " + @tr("resultado(s)");
+                    color: IdeTheme.text-soft;
+                    font-family: IdeTheme.sans;
+                    font-size: 10px;
+                    vertical-alignment: center;
+                }
+                Text {
+                    width: 210px;
+                    text: root.busy ? @tr("cocinando/instalando…") : root.note;
+                    color: root.busy ? IdeTheme.amber : IdeTheme.mint;
+                    font-family: IdeTheme.sans;
+                    font-size: 10px;
+                    horizontal-alignment: right;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
             }
 
             Rectangle {
@@ -222,54 +355,74 @@ export component IdeSkills inherits Rectangle {
         // --- lista ---
         Rectangle {
             x: 0;
-            y: 102px;
+            y: 106px;
             width: 380px;
-            height: parent.height - 102px;
+            height: parent.height - 106px;
             background: transparent;
 
-            Flickable {
+            list := Flickable {
                 x: 0;
                 y: 0;
                 width: parent.width;
                 height: parent.height;
                 content-width: self.width;
-                content-height: root.rows.length * 30px + 8px;
+                content-height: root.rows.length * 42px + 8px;
 
                 for r[i] in root.rows: row := Rectangle {
-                    height: 30px;
-                    y: i * 30px + 4px;
+                    height: 42px;
+                    y: i * 42px + 4px;
                     width: parent.width;
-                    background: root.selected == i ? IdeTheme.selection : (hit.has-hover ? IdeTheme.control : transparent);
+                    border-radius: IdeTheme.radius-sm;
+                    background: root.selected == i ? IdeTheme.selection
+                        : (hit.has-hover ? IdeTheme.control : transparent);
 
+                    // id (con la marca de receta cocida).
                     Text {
                         x: 14px;
-                        y: 5px;
-                        width: parent.width - 96px;
+                        y: 4px;
+                        width: parent.width - 128px;
                         text: r.id;
                         color: root.selected == i ? IdeTheme.text : IdeTheme.mint;
                         font-family: IdeTheme.mono;
                         font-size: 12px;
                         overflow: elide;
                     }
+                    // origen · nombre.
                     Text {
                         x: 14px;
-                        y: 17px;
-                        width: parent.width - 96px;
+                        y: 19px;
+                        width: parent.width - 128px;
                         text: r.source + " · " + r.name;
+                        color: IdeTheme.text-soft;
+                        font-family: IdeTheme.sans;
+                        font-size: 10px;
+                        overflow: elide;
+                    }
+                    // descripción (por lo que también filtra el buscador).
+                    if r.detail != "": Text {
+                        x: 14px;
+                        y: 30px;
+                        width: parent.width - 128px;
+                        text: r.detail;
                         color: IdeTheme.text-dim;
                         font-family: IdeTheme.sans;
                         font-size: 10px;
                         overflow: elide;
                     }
+                    if r.cooked: Text {
+                        x: parent.width - 124px;
+                        y: 4px;
+                        text: "✓ " + @tr("receta");
+                        color: IdeTheme.add;
+                        font-family: IdeTheme.sans;
+                        font-size: 9px;
+                        vertical-alignment: center;
+                    }
                     Text {
                         x: parent.width - 88px;
-                        y: (parent.height - self.height) / 2;
+                        y: 4px;
                         width: 76px;
-                        text: r.state == 0 ? @tr("anunciado")
-                            : r.state == 1 ? @tr("oculto")
-                            : r.state == 2 ? @tr("ask")
-                            : r.state == 3 ? @tr("deny")
-                            : @tr("web");
+                        text: root.state-label(r.state);
                         color: r.state == 0 ? IdeTheme.mint
                             : r.state == 2 ? IdeTheme.amber
                             : r.state == 3 ? IdeTheme.del
@@ -290,10 +443,22 @@ export component IdeSkills inherits Rectangle {
                 x: 14px;
                 y: 12px;
                 width: parent.width - 28px;
-                text: @tr("(sin skills: probá «Instalar…» o «Refrescar»)");
+                text: root.filter == "" ? @tr("(sin skills: probá «Instalar…» o «Refrescar»)")
+                    : @tr("(sin resultados para «") + root.filter + "»)";
                 color: IdeTheme.text-dim;
                 font-family: IdeTheme.sans;
                 font-size: 11px;
+                wrap: word-wrap;
+            }
+
+            MiniScroll {
+                x: parent.width - 5px;
+                y: 4px;
+                width: 3px;
+                height: parent.height - 8px;
+                content: list.content-height;
+                viewport: list.height;
+                offset: list.content-y;
             }
 
             Rectangle {
@@ -308,9 +473,9 @@ export component IdeSkills inherits Rectangle {
         // --- detalle ---
         Rectangle {
             x: 380px;
-            y: 102px;
+            y: 106px;
             width: parent.width - 380px;
-            height: parent.height - 102px;
+            height: parent.height - 106px;
             background: transparent;
 
             Text {
@@ -324,7 +489,7 @@ export component IdeSkills inherits Rectangle {
                 overflow: elide;
             }
 
-            Flickable {
+            detail-view := Flickable {
                 x: 0;
                 y: 28px;
                 width: parent.width;
@@ -348,6 +513,16 @@ export component IdeSkills inherits Rectangle {
                         overflow: elide;
                     }
                 }
+            }
+
+            MiniScroll {
+                x: parent.width - 5px;
+                y: 28px;
+                width: 3px;
+                height: parent.height - 40px;
+                content: detail-view.content-height;
+                viewport: detail-view.height;
+                offset: detail-view.content-y;
             }
         }
     }

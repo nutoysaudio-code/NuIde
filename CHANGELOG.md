@@ -4,6 +4,39 @@ Todos los cambios relevantes de NuIde. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/) y el proyecto usa
 versionado semántico.
 
+## [0.3.8] — 2026-10-14
+
+### Arreglado
+
+- **NuCoder ya no congela la IDE.** El chat reconstruía el modelo **entero** en
+  cada tick de 16 ms mientras el agente streameaba (hasta 400 mensajes, cada uno
+  con su Markdown y sus bloques de código resaltados): Slint destruía y recreaba
+  cada globo. Ahora el modelo es **persistente** y se actualiza **por fila**
+  (agregar lo nuevo, refrescar sólo el mensaje que cambia).
+- **Sin huecos entre los globos del chat.** Los mensajes de *proceso*
+  (herramientas/avisos) se ocultaban con `visible: false`, pero en Slint un
+  elemento invisible **igual ocupa su lugar en el layout** y dejaba saltos
+  enormes entre las respuestas. Ahora los filtra Rust: lo oculto no entra al
+  modelo. El hilo pasa a 5 px de separación.
+- **Modal de Skills: botones cortados.** `SButton` tenía un `Text` anidado
+  (`text := Text { … }`) que dejaba el ancho en cero, así que la fila de acciones
+  salía como `Instal…`, `Elimi…`, `Permiso: a…`. Ahora un `Text` simple define el
+  ancho, con tooltips y sin recortes.
+
+### Agregado
+
+- **Buscador de skills**: contador de resultados, `✕` para limpiar, `↑`/`↓` (y
+  `PageUp`/`PageDown` de a 10) para recorrer la lista, y `Esc` que **limpia el
+  filtro** antes de cerrar el modal.
+- La lista de skills muestra la **descripción** (por la que también filtra el
+  buscador) y marca `✓ receta` cuando el skill ya está cocido.
+- Barra fina de scroll en la lista y el detalle del modal, y `✕` de cierre.
+
+### Cambiado
+
+- `nucoder`: `cook::cooked_ids()` (ids con receta, una sola apertura de la base)
+  y `cook::sanitize_id` ahora son públicas.
+
 ## [0.3.7] — 2026-10-13
 
 ### Cambiado

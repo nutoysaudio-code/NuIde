@@ -74,6 +74,7 @@ abiertos es una **página de bienvenida** real (accesos y atajos).
 | 38 | **NuCook**: destilar un skill en su forma enseñable (sin ruido humano) | ✅ |
 | 39 | **Skills en la IDE**: buscar, instalar, cocinar y eliminar desde el modal | ✅ |
 | 40 | NuCook: normalizador estructural en **SpASM** (AOT→C→FFI) y `nucook.exe` en el instalador | ✅ |
+| 41 | UI: buscador de skills completo y chat de NuCoder sin cuelgues (0.3.8) | ✅ |
 
 > El parte de estado detallado —qué se cambió en cada iteración, limitaciones y
 > pendientes con su enfoque— está en [`docs/ESTADO.md`](docs/ESTADO.md).
@@ -385,7 +386,10 @@ menciones `@id` en el chat.
 - **Catálogo**: *Skills: abrir catálogo* (paleta o menú **Agente**) abre un modal
   para **buscar** (local y, con `NUCOOK_CATALOG`, en la web),
   **instalar/actualizar** (`owner/repo` o ruta), **cocinar**, **eliminar** y
-  **anunciar/ocultar**. Detalle en [`docs/SKILLS_UI.md`](docs/SKILLS_UI.md).
+  **anunciar/ocultar**. El buscador filtra por id, nombre y **descripción**
+  (que se ve en la lista), muestra el contador de resultados y se recorre con
+  `↑`/`↓`; `Esc` limpia el filtro antes de cerrar. Detalle en
+  [`docs/SKILLS_UI.md`](docs/SKILLS_UI.md).
 - **NuCook**: destila un skill en su **forma enseñable** (sin ruido humano) con
   los pases **determinista** y **gourmet** (modelo, cacheado); guarda el
   **recetario** en la base `~/.config/nucoder/nucoder.db` (tabla `cookbook`). La CLI propia es **`nucook`** y
@@ -766,10 +770,10 @@ Ordenados por impacto para usar el IDE día a día; el **plan en fases** complet
 3. **Persistencia ampliada y búsqueda avanzada.** Recordar también las sesiones
    de terminal, y sumar *fuzzy*/regex y acotar la búsqueda a la selección.
 
-### Estado al 2026-10-13
+### Estado al 2026-10-14
 
-Compilado y publicado: `github.com/nutoysaudio-code/NuIde` (`main`). **177 tests**
-en NuIde + **100** en NuCoder; clon limpio genera `nuide.exe`. Las dos terminales son PTY reales (shell local y
+Compilado y publicado: `github.com/nutoysaudio-code/NuIde` (`main`). **180 tests**
+en NuIde + **110** en NuCoder; clon limpio genera `nuide.exe`. Las dos terminales son PTY reales (shell local y
 TUI de `nucoder`) con **mouse reporting**, el proyecto se elige con diálogo
 nativo y se recuerda, el editor tiene buscar/reemplazar (con **regex**, **en
 selección** e historial), autocierre/autoindentación, resaltados, **resaltado

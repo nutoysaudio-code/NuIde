@@ -1248,6 +1248,41 @@ compresión; el visor muestra hasta 200 filas por tabla y no edita.
   `ide_settings` (migrando desde `%APPDATA%\NuIde\config`, que queda de export).
   Con eso config, chats, recetario y ajustes de la IDE viven en `nucoder.db`.
 
+### 3.63 UI: el buscador de skills y el chat de NuCoder
+
+- **El chat de NuCoder ya no congela la IDE** (`src/nucoder_ui.rs`): el modelo de
+  mensajes era efímero y se **reconstruía entero** en cada tick de 16 ms mientras
+  el agente streameaba — con el historial largo (hasta 400 mensajes) eso re-crea
+  en Slint cada globo, cada `StyledText` y cada token de cada bloque de código
+  (mismo problema que ya se había arreglado en la terminal con `TermRows`). Ahora
+  el modelo es **persistente** (`Rc<VecModel<IdeChatMsg>>`) y se mutá **por fila**:
+  los mensajes nuevos se **agregan** (`push`) y el delta del asistente **actualiza
+  su fila** (`set_row_data`); sólo se reconstruye ante un cambio estructural
+  (recorte del historial, `open`, «nueva» o el switch de proceso).
+- **Sin huecos entre los globos**: el *proceso* (herramientas y avisos, roles 2/3)
+  se ocultaba con `visible: false`, pero en Slint un elemento invisible **igual
+  reserva su espacio en el layout**, así que quedaban saltos enormes entre las
+  respuestas. Ahora el filtro lo hace Rust (`show_process`): lo oculto no entra al
+  modelo. El 🧠 pasa a ser un callback (`toggle-process`) y el panel recibe el
+  estado por propiedad. Espaciado del hilo 6→5 px y padding vertical 10→8 px.
+- **Modal de Skills** (`ui/ide_skills.slint`): el botón `SButton` tenía un `Text`
+  anidado (`text := Text { … }`) que dejaba el `width` en cero, así que la fila de
+  acciones salía **cortada** (`Instal…`, `Elimi…`, `Permiso: a…`). Ahora es un
+  `Text` simple con `width: label.width + 22px`, tooltips por botón y un
+  `horizontal-stretch` que separa las acciones destructivas (Eliminar) del resto.
+- **Buscador de skills**: contador de `resultado(s)`, `✕` para limpiar el filtro,
+  navegación con `↑`/`↓` (y `PageUp`/`PageDown` de a 10) y `Esc` que **limpia el
+  filtro** antes de cerrar el modal (cerrar recién cuando ya está vacío).
+- **Lista de skills**: la tercera línea muestra la **descripción** (por la que
+  también filtra el buscador, antes se filtraba por ella pero no se veía), marca
+  `✓ receta` cuando hay receta en el recetario (`cook::cooked_ids`, una sola
+  apertura de la base) y `state-label` unifica los rótulos de estado con el botón
+  de permiso. Barra fina de scroll en lista y detalle; `✕` de cierre en el
+  encabezado.
+- **`nucoder`**: `cook::cooked_ids()` y `cook::sanitize_id` públicas.
+- Tests nuevos (3): el filtro del proceso + las actualizaciones por fila del chat
+  y el buscador de skills (navegación + `Esc`). i18n regenerado (456 claves).
+
 ## 4. Limitaciones conocidas
 - **Persistencia.** La persistencia de NuCoder (config, **chats**, recetario)
   ahora vive en **SQLite** (`~/.config/nucoder/nucoder.db`), con migración desde
@@ -1381,7 +1416,7 @@ compila `NuIde.iss`. Con `-SkipBuild` sólo recompila el instalador.
 
 - `cargo build` / `cargo check` sin warnings.
 - `cargo clippy --all-targets -- -D warnings` limpio.
-- `cargo test`: **110 pruebas OK** (unitarias; las de PTY, el linter y el build
+- `cargo test`: **180 pruebas OK** (unitarias; las de PTY, el linter y el build
   lanzan `cmd`/`opencode`/Python/spasmc reales y se saltean si no están).
 - `cargo fmt --check` limpio.
 - `slint-viewer --check ui/nuide_ui.slint` OK.

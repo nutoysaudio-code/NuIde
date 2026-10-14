@@ -5,8 +5,8 @@
 1 ICON "nuide.ico"
 
 1 VERSIONINFO
-FILEVERSION 0,3,7,0
-PRODUCTVERSION 0,3,7,0
+FILEVERSION 0,3,8,0
+PRODUCTVERSION 0,3,8,0
 FILEOS 0x40004
 FILETYPE 0x1
 {
@@ -16,11 +16,11 @@ FILETYPE 0x1
         {
             VALUE "CompanyName", "NuToys\0"
             VALUE "FileDescription", "NuIde - IDE multi-lenguaje con soporte de SpASM\0"
-            VALUE "FileVersion", "0.3.7\0"
+            VALUE "FileVersion", "0.3.8\0"
             VALUE "InternalName", "nuide\0"
             VALUE "OriginalFilename", "nuide.exe\0"
             VALUE "ProductName", "NuIde\0"
-            VALUE "ProductVersion", "0.3.7\0"
+            VALUE "ProductVersion", "0.3.8\0"
             VALUE "LegalCopyright", "Copyright (C) NuToys\0"
         }
     }

@@ -57,7 +57,10 @@ Skill {
 orígenes + el hub) por subcadena en `id`, `name` o `description`.
 
 - En la UI: un **campo de búsqueda** que filtra las filas en vivo (el filtrado
-  corre en Rust, como la paleta).
+  corre en Rust, como la paleta). Muestra el **contador de resultados**, se
+  recorre con `↑`/`↓` (y `PageUp`/`PageDown` de a 10), `✕` limpia el filtro y
+  `Esc` lo limpia antes de cerrar el modal. La lista dibuja la **descripción**,
+  que es una de las claves por las que filtra (así se ve por qué coincidió).
 - En el CLI: `nucook search <texto>`.
 
 ### 3.2 Remoto (catálogo) — núcleo y CLI ✅, toggle en la UI ⏳

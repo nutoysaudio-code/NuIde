@@ -334,8 +334,9 @@ export component IdeNucoder inherits FocusScope {
     in property <int> task-index: 0;
     in-out property <bool> model-menu-open: false;
     // Mostrar los mensajes de *proceso* (herramientas y avisos). Por defecto se
-    // ocultan: se ve un 🧠 que titila mientras el agente trabaja.
-    in-out property <bool> show-process: false;
+    // ocultan: se ve un 🧠 que titila mientras el agente trabaja. Lo controla
+    // Rust (no entra al modelo lo oculto: así no deja huecos entre los globos).
+    in property <bool> show-process: false;
     // Pulso del 🧠 (lo alterna la IDE).
     in property <bool> pulse: false;
     // Hay un modal abierto (paleta/búsqueda/prompt): el input no debe consumir
@@ -366,6 +367,7 @@ export component IdeNucoder inherits FocusScope {
     // Listado: filtrar sólo OK / borrar el estado aprendido.
     callback model-only-ok-toggle();
     callback model-clear-status();
+    callback toggle-process();
     callback attach-image();
     callback clear-images();
     callback cycle-context();
@@ -504,7 +506,7 @@ export component IdeNucoder inherits FocusScope {
                 }
                 brain-hit := TouchArea {
                     mouse-cursor: MouseCursor.pointer;
-                    clicked => { root.show-process = !root.show-process; }
+                    clicked => { root.toggle-process(); }
                 }
                 Tooltip { TipContent { text: @tr("Ver u ocultar el proceso (herramientas y avisos del agente)"); } }
             }
@@ -684,13 +686,13 @@ export component IdeNucoder inherits FocusScope {
         thread := VerticalLayout {
             x: 12px;
             width: parent.width - 24px;
-            padding-top: 8px;
-            padding-bottom: 8px;
-            spacing: 6px;
+            padding-top: 6px;
+            padding-bottom: 6px;
+            spacing: 5px;
 
             for m[i] in root.messages: Rectangle {
-                // Ocultar el *proceso* (herramientas/avisos) salvo que se pida.
-                visible: root.show-process || (m.role != 2 && m.role != 3);
+                // El *proceso* (herramientas/avisos) no llega acá cuando está
+                // oculto: lo filtra Rust (ocultarlo con `visible` dejaba huecos).
                 height: self.preferred-height;
                 border-radius: IdeTheme.radius-sm;
                 background: m.role == 0 ? IdeTheme.control : IdeTheme.panel;
@@ -698,7 +700,10 @@ export component IdeNucoder inherits FocusScope {
                 border-color: IdeTheme.border-faint;
 
                 HorizontalLayout {
-                    padding: 10px;
+                    padding-left: 10px;
+                    padding-right: 10px;
+                    padding-top: 8px;
+                    padding-bottom: 8px;
                     spacing: 9px;
                     alignment: start;
                     cross-axis-alignment: start;

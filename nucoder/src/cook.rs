@@ -727,6 +727,18 @@ pub fn load_cookie(id: &str) -> Option<Teaching> {
     Some(teaching_from_json(&v))
 }
 
+/// Ids **normalizados** con receta en el recetario (`cookbook`). Abre la base
+/// una sola vez: para listas, comparar con `sanitize_id(id)`.
+pub fn cooked_ids() -> std::collections::HashSet<String> {
+    let Ok(conn) = crate::db::open() else {
+        return std::collections::HashSet::new();
+    };
+    crate::db::cookies_list(&conn)
+        .into_iter()
+        .map(|(id, _)| id)
+        .collect()
+}
+
 fn teaching_from_json(v: &Value) -> Teaching {
     let mut buckets: [Vec<String>; N_PARTS] = Default::default();
     if let Some(parts) = v.get("parts").and_then(Value::as_object) {
@@ -828,7 +840,7 @@ fn truncate_chars(s: &str, max: usize) -> String {
     format!("{cut}…")
 }
 
-fn sanitize_id(id: &str) -> String {
+pub fn sanitize_id(id: &str) -> String {
     id.chars()
         .map(|c| {
             if c.is_ascii_alphanumeric() || c == '-' || c == '_' {

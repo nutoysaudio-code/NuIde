@@ -21,6 +21,7 @@
 
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -1345,6 +1346,8 @@ pub struct Ide {
     skills_remote: Vec<nucoder::hub::CatalogEntry>,
     /// Cuántas filas de la lista son locales (las de después son remotas).
     skills_local_len: usize,
+    /// Ids (normalizados) con **receta** guardada en el recetario de NuCook.
+    skills_cooked: HashSet<String>,
     skills_tx: Sender<SkillsMsg>,
     skills_rx: Receiver<SkillsMsg>,
     /// --- módulo: cliente FTP ---
@@ -1632,6 +1635,7 @@ impl Ide {
             skills_web: false,
             skills_remote: Vec::new(),
             skills_local_len: 0,
+            skills_cooked: HashSet::new(),
             skills_tx,
             skills_rx,
             ftp_enabled,
@@ -4604,6 +4608,8 @@ impl Ide {
             &cfg.skills_permissions,
             cfg.skills_autoinvoke,
         );
+        // Qué skills ya tienen receta (una sola apertura del recetario).
+        self.skills_cooked = nucoder::cook::cooked_ids();
         self.skills_rebuild_rows();
     }
 
@@ -4642,6 +4648,7 @@ impl Ide {
                     source: s.source.badge().into(),
                     detail: s.description.clone().into(),
                     state,
+                    cooked: self.skills_cooked.contains(&nucoder::cook::sanitize_id(&s.id)),
                 }
             })
             .collect();
@@ -4661,6 +4668,7 @@ impl Ide {
                 source: "web".into(),
                 detail: e.description.clone().into(),
                 state: 4,
+                cooked: false,
             });
         }
         let local = self.skills_local_len;
@@ -5030,17 +5038,30 @@ impl Ide {
     }
 
     /// Teclado del **buscador** del catálogo (modal): filtra en vivo.
+    /// Teclado del **buscador** del catálogo (modal): filtra en vivo, navega la
+    /// lista con `↑`/`↓` y con `Esc` limpia el filtro (y cierra si ya está
+    /// vacío, para no perder el modal de un teclazo).
     fn skills_intercept(&mut self, text: &str, control: bool) -> bool {
         if !self.skills_open {
             return false;
         }
         match text {
-            "\u{1b}" => self.skills_close(),
+            "\u{1b}" => {
+                if self.skills_filter.is_empty() {
+                    self.skills_close();
+                } else {
+                    self.skills_clear_filter();
+                }
+            }
             "\u{8}" => {
                 self.skills_filter.pop();
                 self.skills_selected = 0;
                 self.skills_rebuild_rows();
             }
+            "\u{F700}" => self.skills_move(-1),
+            "\u{F701}" => self.skills_move(1),
+            "\u{F72c}" => self.skills_move(-10),
+            "\u{F72d}" => self.skills_move(10),
             "\n" | "\r" => {}
             _ => {
                 if !control && !text.is_empty() && !text.starts_with('\u{F7}') {
@@ -5051,6 +5072,28 @@ impl Ide {
             }
         }
         true
+    }
+
+    /// Limpia el filtro del buscador (sin cerrar el modal).
+    fn skills_clear_filter(&mut self) {
+        if self.skills_filter.is_empty() {
+            return;
+        }
+        self.skills_filter.clear();
+        self.skills_selected = 0;
+        self.skills_rebuild_rows();
+    }
+
+    /// Mueve la selección de la lista de skills, sin salirse de los límites.
+    fn skills_move(&mut self, delta: i32) {
+        if self.skills_ids.is_empty() {
+            return;
+        }
+        let last = self.skills_ids.len() as i32 - 1;
+        let next = (self.skills_selected as i32 + delta).clamp(0, last) as usize;
+        if next != self.skills_selected {
+            self.skills_select(next);
+        }
     }
 
     // --- cliente FTP ---
@@ -8508,6 +8551,7 @@ impl Ide {
         w.set_nucoder_context(self.nucoder.context_label().into());
         w.set_nucoder_modal_open(self.keyboard_modal_open());
         w.set_nucoder_pulse(self.nucoder.pulse());
+        w.set_nucoder_show_process(self.nucoder.show_process());
         w.set_nucoder_perm_web(self.nucoder.perm_web());
         w.set_nucoder_perm_read_outside(self.nucoder.perm_read_outside());
         w.set_nucoder_perm_terminal(self.nucoder.perm_terminal());
@@ -8529,8 +8573,8 @@ impl Ide {
             w.set_nucoder_models(self.nucoder.models_model());
             w.set_nucoder_tasks(self.nucoder.tasks_model());
         }
-        if self.nucoder.take_dirty() {
-            w.set_nucoder_messages(self.nucoder.slint_messages());
+        if let Some(messages) = self.nucoder.take_message_update() {
+            w.set_nucoder_messages(messages);
         }
         w.set_menu_open(self.menu_open.clone().into());
         let menu_items: Vec<IdeMenuEntry> = match self.menu_open.as_str() {
@@ -10844,6 +10888,17 @@ pub fn attach(window: &NuIdeWindow, ide: Rc<RefCell<Ide>>) {
             }
         });
     }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
+        window.on_skills_filter_clear(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.skills_clear_filter();
+                e.sync(&w);
+            }
+        });
+    }
     // Cliente FTP.
     {
         let ide = Rc::clone(&ide);
@@ -12140,6 +12195,17 @@ pub fn attach(window: &NuIdeWindow, ide: Rc<RefCell<Ide>>) {
     {
         let ide = Rc::clone(&ide);
         let weak = window.as_weak();
+        window.on_nucoder_toggle_process(move || {
+            if let Some(w) = weak.upgrade() {
+                let mut e = ide.borrow_mut();
+                e.nucoder.toggle_process();
+                e.sync(&w);
+            }
+        });
+    }
+    {
+        let ide = Rc::clone(&ide);
+        let weak = window.as_weak();
         window.on_nucoder_task_picked(move |index| {
             if let Some(w) = weak.upgrade() {
                 let mut e = ide.borrow_mut();
@@ -12278,6 +12344,32 @@ mod tests {
         assert!(ide.keyboard_modal_open());
         // Y las teclas siguientes van a la paleta (no rompen).
         ide.route_global_key("a", false, false, false);
+    }
+
+    /// El buscador del catálogo de skills: `↑`/`↓` mueven la selección y `Esc`
+    /// limpia el filtro antes de cerrar el modal (no se pierde de un teclazo).
+    #[test]
+    fn el_buscador_de_skills_navega_y_limpia_el_filtro() {
+        let mut ide = Ide::new();
+        ide.skills_open = true;
+        ide.skills_ids = vec!["a".to_string(), "b".to_string(), "c".to_string()];
+        ide.skills_selected = 1;
+        // Flechas: la selección no se sale de los límites.
+        ide.skills_intercept("\u{F700}", false);
+        assert_eq!(ide.skills_selected, 0);
+        ide.skills_intercept("\u{F700}", false);
+        assert_eq!(ide.skills_selected, 0, "no baja de cero");
+        ide.skills_intercept("\u{F72d}", false);
+        assert_eq!(ide.skills_selected, 2, "PageDown salta al final");
+
+        // `Esc` con filtro: limpia el filtro y deja el modal abierto.
+        ide.skills_filter = "spasm".to_string();
+        ide.skills_intercept("\u{1b}", false);
+        assert!(ide.skills_open);
+        assert!(ide.skills_filter.is_empty());
+        // `Esc` sin filtro: cierra.
+        ide.skills_intercept("\u{1b}", false);
+        assert!(!ide.skills_open);
     }
 
     #[test]

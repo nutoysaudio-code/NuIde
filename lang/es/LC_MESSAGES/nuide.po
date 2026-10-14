@@ -632,49 +632,79 @@ msgstr ""
 msgid "web"
 msgstr ""
 
+msgid "anunciado"
+msgstr ""
+
 msgid "Skills"
 msgstr ""
 
 msgid "Instalar…"
 msgstr ""
 
+msgid "Bajar un skill por owner/repo, URL o ruta al hub"
+msgstr ""
+
 msgid "Actualizar"
 msgstr ""
 
-msgid "Permiso"
+msgid "Reinstalar el skill seleccionado (hub) desde su origen"
 msgstr ""
 
 msgid "Cocinar"
 msgstr ""
 
+msgid "Destilar el skill en su forma enseñable (NuCook)"
+msgstr ""
+
+msgid "Permiso"
+msgstr ""
+
+msgid "Anunciar, preguntar o bloquear este skill (clic para ciclar)"
+msgstr ""
+
 msgid "web ✓"
+msgstr ""
+
+msgid "Buscar también en el catálogo remoto (NUCOOK_CATALOG)"
 msgstr ""
 
 msgid "Catálogo…"
 msgstr ""
 
+msgid "Configurar la URL del catálogo remoto de skills"
+msgstr ""
+
+msgid "Borrar del hub (~/.agents/skills) el skill seleccionado"
+msgstr ""
+
 msgid "Refrescar"
+msgstr ""
+
+msgid "Volver a descubrir los skills del disco"
 msgstr ""
 
 msgid "buscar:"
 msgstr ""
 
-msgid "(escribí para filtrar por id, nombre o descripción)"
+msgid "filtrar por id, nombre o descripción…"
+msgstr ""
+
+msgid "Limpiar el filtro (Esc)"
+msgstr ""
+
+msgid "resultado(s)"
 msgstr ""
 
 msgid "cocinando/instalando…"
 msgstr ""
 
-msgid "anunciado"
-msgstr ""
-
-msgid "ask"
-msgstr ""
-
-msgid "deny"
+msgid "receta"
 msgstr ""
 
 msgid "(sin skills: probá «Instalar…» o «Refrescar»)"
+msgstr ""
+
+msgid "(sin resultados para «"
 msgstr ""
 
 msgid "Seleccioná un skill para ver su contenido"
