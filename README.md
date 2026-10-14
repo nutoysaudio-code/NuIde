@@ -582,7 +582,7 @@ nuide/
   docs/MCP.md              plan de cliente MCP (caso guía: REA)
   docs/NUCOOK.md           NuCook: destilar una habilidad sin ruido humano
   docs/SKILLS_UI.md        interfaz de skills: buscar, descargar y administrar
-  docs/COLAB.md            correr un modelo "gratis" (Colab o server propio) y usarlo
+  docs/REMOTE_MODEL.md      alojar un modelo "gratis" (Kaggle/Colab/server) y usarlo
   docs/GUIA.md             guía de usuario
 ```
 
